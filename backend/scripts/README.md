@@ -115,3 +115,74 @@ unset (the default) the migration does nothing.
   The vocabulary comes from `TRADEDESK_SEED_CONCEPTS` or the bundled
   `app/knowledge/seed_concepts.example.json`.
 - `generate_knowledge_sheets.py` -- LLM study-sheet pass (`make knowledge-sheets`).
+
+## Desk MCP server
+
+`desk_mcp.py` runs the `tradedesk` MCP server over stdio (read-only; no port, no network).
+It serves real data from the desk DB unless `TRADEDESK_MODE=mock`.
+
+```bash
+make desk-mcp          # real data (data/desk.db, data/rules.yaml)
+make desk-mcp-mock     # synthetic fixture DB
+make desk-mcp-check    # spawn the server, list tools, call status + line_status, print a summary
+```
+
+The Makefile targets use `backend/.venv` (`Scripts/python.exe` on Windows, `bin/python` elsewhere);
+override with `make desk-mcp PYTHON=/path/to/python`. Optional env for any client config below:
+`TRADEDESK_DB_PATH`, `TRADEDESK_RULES_PATH`, `TRADEDESK_EXPORT_DIR`, `TRADEDESK_MODE`. Use absolute
+paths for the command and the script so the entry does not depend on the working directory.
+Replace `C:\path\to\tradedesk` with your clone.
+
+### Claude desktop
+
+Add to `%APPDATA%\Claude\claude_desktop_config.json` (merge into any existing `mcpServers`),
+then fully restart the desktop app:
+
+```json
+{
+  "mcpServers": {
+    "tradedesk": {
+      "command": "C:\path\to\tradedesk\backend\.venv\Scripts\python.exe",
+      "args": ["C:\path\to\tradedesk\backend\scripts\desk_mcp.py"],
+      "env": {
+        "TRADEDESK_DB_PATH": "C:\path\to\tradedesk\data\desk.db",
+        "TRADEDESK_RULES_PATH": "C:\path\to\tradedesk\data\rules.yaml"
+      }
+    }
+  }
+}
+```
+
+The `env` block is optional (defaults are `data/desk.db` and `data/rules.yaml` in the repo).
+
+### Claude Code (another repo or vault)
+
+Project-scoped `.mcp.json` at that repo's root:
+
+```json
+{
+  "mcpServers": {
+    "tradedesk": {
+      "type": "stdio",
+      "command": "C:\path\to\tradedesk\backend\.venv\Scripts\python.exe",
+      "args": ["C:\path\to\tradedesk\backend\scripts\desk_mcp.py"],
+      "env": {
+        "TRADEDESK_DB_PATH": "C:\path\to\tradedesk\data\desk.db",
+        "TRADEDESK_RULES_PATH": "C:\path\to\tradedesk\data\rules.yaml"
+      }
+    }
+  }
+}
+```
+
+Equivalent one-liner (run inside that repo; `--scope project` writes `.mcp.json`):
+
+```bash
+claude mcp add tradedesk --scope project \
+  -e TRADEDESK_DB_PATH='C:\path\to\tradedesk\data\desk.db' \
+  -e TRADEDESK_RULES_PATH='C:\path\to\tradedesk\data\rules.yaml' \
+  -- 'C:\path\to\tradedesk\backend\.venv\Scripts\python.exe' 'C:\path\to\tradedesk\backend\scripts\desk_mcp.py'
+```
+
+On macOS/Linux use `.../backend/.venv/bin/python`. Verify with `claude mcp list`
+(or `make desk-mcp-check`); the server exposes 7 tools.
