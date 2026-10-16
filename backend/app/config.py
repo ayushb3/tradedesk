@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo-root .env — resolved to an absolute path so uvicorn (cwd=backend/) and
@@ -26,7 +27,10 @@ class Settings(BaseSettings):
     )
 
     mode: Literal["mock", "webull"] = "mock"
-    db_path: str = "./tradedesk.db"
+    # The one desk DB (TRADEDESK_DB_PATH). Relative values resolve against the
+    # repo root, never the cwd, so `make dev`, scripts and the MCP server all
+    # open the same file with no flags.
+    db_path: str = "data/desk.db"
     tz: str = "America/New_York"
     # Wall-clock zone for times shown to the user (TRADEDESK_DISPLAY_TZ). The
     # trading session/day logic stays on `tz` (exchange time); this only moves
@@ -73,6 +77,12 @@ class Settings(BaseSettings):
     # Credentials never leave. See app/llm/anthropic_api.py and
     # docs/PLAN-M6-TRAINING.md §2.
     anthropic_api_key: str = ""
+
+    @field_validator("db_path")
+    @classmethod
+    def _resolve_db_path(cls, v: str) -> str:
+        p = Path(v).expanduser()
+        return str(p if p.is_absolute() else _REPO_ROOT / p)
 
     @property
     def watch_list(self) -> list[str]:
