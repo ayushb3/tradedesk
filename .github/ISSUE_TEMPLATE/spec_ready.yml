@@ -1,0 +1,60 @@
+name: Spec (ready for agent)
+description: A fully-shaped spec, ready for /to-tickets and agent pickup — the shape /to-spec publishes
+title: "[spec]: "
+labels: ["ready-for-agent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template mirrors what the `to-spec` skill publishes automatically. File
+        this by hand only when a spec was shaped outside a Claude Code session
+        (e.g. an offline research/design pass). If you're not sure the spec is
+        fully shaped yet, use `/wayfinder` or `/triage` instead of filing this
+        directly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: The problem, from the user's perspective
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution
+      description: The solution, from the user's perspective
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-stories
+    attributes:
+      label: User stories
+      description: "Numbered list: As a <actor>, I want a <feature>, so that <benefit>"
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-decisions
+    attributes:
+      label: Implementation decisions
+      description: Modules touched, interfaces, schema/API contracts, architectural calls already made. No file paths or code snippets — they go stale fast.
+    validations:
+      required: false
+
+  - type: textarea
+    id: testing-decisions
+    attributes:
+      label: Testing decisions
+      description: What makes a good test here, which modules get tested, prior art in the codebase
+    validations:
+      required: false
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+    validations:
+      required: false

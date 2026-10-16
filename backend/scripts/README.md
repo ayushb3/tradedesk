@@ -1,0 +1,102 @@
+# backend/scripts — Webull setup utilities
+
+## webull_auth.py — One-time token bootstrap
+
+Before you can run TradeDesk in live Webull mode (`TRADEDESK_MODE=webull`)
+you must complete a one-time SMS verification to obtain an access token.
+This script drives that flow.
+
+### Prerequisites
+
+1. You have created a Webull OpenAPI application and noted your
+   **App Key** and **App Secret** from the developer portal.
+2. The new SDK is installed: `pip install webull-openapi-python-sdk`
+   (already in `requirements.txt`; `make install` handles this).
+3. Your `.env` file has `WEBULL_APP_KEY=` and `WEBULL_APP_SECRET=` filled in.
+
+### Run it
+
+```bash
+cd /path/to/tradedesk
+python backend/scripts/webull_auth.py
+```
+
+The script will:
+
+1. Call `POST /openapi/auth/token/create` using your AK/SK.
+2. Print a prompt:
+   > Open the Webull mobile app → Messages → OpenAPI Notifications →
+   > Check Now → enter the SMS code.
+3. Poll `POST /openapi/auth/token/check` every 5 s (up to 5 min) until
+   the status becomes `NORMAL`.
+4. Write the verified token to `data/webull-token/token.txt` (gitignored).
+5. Exit 0 on success.
+
+**Expected wall-clock time:** 30 s – 2 min depending on how quickly you
+complete the in-app verification.
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--token-dir /abs/path` | `data/webull-token/` | Override token storage directory |
+| `--interval N` | `5` | Seconds between polls |
+| `--timeout N` | `300` | Maximum seconds to wait for verification |
+
+### Token directory
+
+By default tokens are stored at `<repo_root>/data/webull-token/token.txt`.
+This directory is gitignored.  To use a custom path, either:
+
+- Set `WEBULL_OPENAPI_TOKEN_DIR=/absolute/path` in your `.env`, **or**
+- Pass `--token-dir /absolute/path` on the command line.
+
+The Webull SDK reads `WEBULL_OPENAPI_TOKEN_DIR` automatically for runtime
+use, so the path set here must match what you put in `.env`.
+
+### Token validity
+
+Access tokens are valid for **15 days**.  Re-run this script when the token
+expires (the provider will raise a `WebullTokenPending` error pointing here).
+
+### After success
+
+```bash
+TRADEDESK_MODE=webull make dev
+```
+
+The live provider reads the token from disk automatically.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Token is NORMAL and written to disk. |
+| `1` | Timeout — SMS not verified within the timeout window. Run again. |
+| `2` | Unexpected error (bad credentials, network, SDK not installed). |
+
+## Upgrading an older local database (legacy table prefix)
+
+Earlier local builds stored the knowledge-base tables under a different name
+prefix. If you have such a database and want to keep its data, set
+`TRADEDESK_LEGACY_TABLE_PREFIX` once to the old prefix (for example `old_`) and
+start the backend (or run any script) one time:
+
+```bash
+TRADEDESK_LEGACY_TABLE_PREFIX=old_ make backend
+```
+
+On startup, every table named `<prefix><name>` (e.g. `old_lessons`) is renamed
+to `knowledge_<name>` (e.g. `knowledge_lessons`), but only when the
+`knowledge_*` table does not exist yet, so the step is idempotent and never
+overwrites data. You can unset the variable afterwards. When the variable is
+unset (the default) the migration does nothing.
+
+## Knowledge-base scripts
+
+- `ingest_knowledge.py` -- ingest your lesson transcripts (`TRADEDESK_LESSONS_DIR`,
+  optional `TRADEDESK_MODULES_DIR`); also `make knowledge-ingest`.
+- `extract_knowledge_concepts.py` -- LLM concept-tagging pass (`make knowledge-concepts`).
+  The vocabulary comes from `TRADEDESK_SEED_CONCEPTS` or the bundled
+  `app/knowledge/seed_concepts.example.json`.
+- `generate_knowledge_sheets.py` -- LLM study-sheet pass (`make knowledge-sheets`).

@@ -1,0 +1,19 @@
+# Optional knowledge base extras (milestone M8a).
+#
+# The core app boots and passes tests WITHOUT these installed: the `Embedder`
+# seam (app/knowledge/embedder.py) falls back to a deterministic hashing embedder and
+# the vector index (app/knowledge/vector_index.py) falls back to a numpy brute-force
+# store, so ingestion + search stay exercisable. Install these for real semantic
+# search quality:
+#
+#     pip install -r backend/requirements-knowledge.txt
+#
+# sentence-transformers pulls in torch (CPU wheels are large, ~200MB). Local
+# model default: all-MiniLM-L6-v2 (384-dim), downloaded once from HuggingFace
+# on first use. No API key, no per-query network.
+sentence-transformers>=2.2,<4
+
+# ChromaDB is the PRD's named vector store (collection `knowledge_playbook`). It needs
+# a C/C++ toolchain to build `chroma-hnswlib`; where that's unavailable the
+# numpy fallback index is used automatically. Uncomment to enable ChromaDB:
+# chromadb>=0.5,<0.6

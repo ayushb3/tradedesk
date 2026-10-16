@@ -1,0 +1,34 @@
+"""Replay-session response contract.
+
+CRITICAL no-lookahead invariant: every array in `indicators` and `levels` is
+aligned index-for-index with `candles`. The value at index i is computed using
+ONLY candles[0..i] (inclusive). A value is `null` until it is knowable
+(e.g. opening-range high before the OR window closes). The frontend reveals
+these arrays progressively and MUST NOT recompute forward.
+"""
+from __future__ import annotations
+
+from datetime import date
+
+from pydantic import BaseModel, Field
+
+from app.models.market import Candle
+
+
+class ReplaySessionResponse(BaseModel):
+    symbol: str
+    session_date: date
+    candles: list[Candle]
+
+    # Each key -> array aligned with candles; value at i uses only candles[0..i].
+    # indicators keys are dynamic: one ema<period> per requested EMA (default
+    # ema9/ema21/ema50/ema200), always vwap, and rsi<period> (default rsi14). The
+    # replay route lets the client override the EMA periods and RSI period.
+    indicators: dict[str, list[float | None]] = Field(default_factory=dict)
+
+    # levels keys: pdh, pdl, pmh, pml, day_high, day_low, or_high, or_low
+    # (pdh/pdl/pmh/pml are constant across the session but still returned as
+    #  aligned arrays for uniform, testable causality.)
+    levels: dict[str, list[float | None]] = Field(default_factory=dict)
+
+    meta: dict = Field(default_factory=dict)  # {"or_minutes": int, "tz": str, "timeframe": str}

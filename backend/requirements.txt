@@ -1,0 +1,18 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+SQLAlchemy==2.0.36
+pandas==2.2.3
+numpy==1.26.4
+# Indicators (EMA/VWAP/RSI) and the levels engine are implemented by hand on
+# pandas/numpy for exact causal (no-lookahead) control and fixture-testability.
+# pandas-ta was intentionally dropped (unpinnable + hides the causality we test).
+# Webull live-mode adapter (new SDK; replaces deprecated webull-python-sdk-{core,mdata,trade}).
+webull-openapi-python-sdk==2.0.13
+# 6.2.2 optional: only needed when TRADEDESK_LLM=api (developer pay-per-token billing)
+anthropic>=0.40.0
+# dev/test
+pytest==8.3.4
+httpx==0.28.1

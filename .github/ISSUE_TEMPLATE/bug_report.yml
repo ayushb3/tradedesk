@@ -1,0 +1,40 @@
+name: Bug report
+description: Something is broken
+title: "[bug]: "
+labels: ["needs-triage", "type:bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What's broken
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, from a clean state if possible
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Environment, relevant logs/screenshots, when this started
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Suspected scope
+      description: Which module/role likely owns the fix, if known (see docs/agents/roles/)
+    validations:
+      required: false

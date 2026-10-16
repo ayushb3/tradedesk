@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "categories": ["Strategy", "Risk", "Psychology", "Process"],
+  "concepts": [
+    {
+      "slug": "support-resistance",
+      "name": "Support and Resistance",
+      "category": "Strategy",
+      "definition": "Price areas where buying or selling interest has repeatedly appeared, used to frame entries, exits and stops.",
+      "aliases": ["support", "resistance", "key levels"]
+    },
+    {
+      "slug": "trend",
+      "name": "Trend",
+      "category": "Strategy",
+      "definition": "The prevailing direction of price, usually read from the sequence of higher highs and higher lows (or the reverse). Trading with it keeps momentum on your side.",
+      "aliases": ["trend direction", "with the trend"]
+    },
+    {
+      "slug": "opening-range",
+      "name": "Opening Range",
+      "category": "Strategy",
+      "definition": "The high and low of the first few minutes of the session. A break of either side is often used as a trigger or as context for the day.",
+      "aliases": ["OR", "opening range breakout"]
+    },
+    {
+      "slug": "position-sizing",
+      "name": "Position Sizing",
+      "category": "Risk",
+      "definition": "Choosing how many shares or contracts to trade so that a stopped-out trade costs a small, predefined amount of the account.",
+      "aliases": ["size", "risk per trade"]
+    },
+    {
+      "slug": "stop-loss",
+      "name": "Stop Loss",
+      "category": "Risk",
+      "definition": "A predefined exit price that caps the loss on a trade. It is set before entry, based on where the idea is proven wrong.",
+      "aliases": ["stop", "invalidation"]
+    },
+    {
+      "slug": "risk-reward",
+      "name": "Risk / Reward",
+      "category": "Risk",
+      "definition": "The ratio between the amount risked on a trade and the amount targeted. Favourable ratios let a modest win rate stay profitable.",
+      "aliases": ["R:R", "reward to risk", "R multiple"]
+    },
+    {
+      "slug": "overtrading",
+      "name": "Overtrading",
+      "category": "Psychology",
+      "definition": "Taking more trades than the plan calls for, often out of boredom, frustration or a wish to win back losses.",
+      "aliases": ["too many trades", "revenge trading"]
+    },
+    {
+      "slug": "journaling",
+      "name": "Journaling",
+      "category": "Process",
+      "definition": "Recording each trade, the reasoning behind it and how it went, then reviewing the record to find repeatable mistakes and strengths.",
+      "aliases": ["trade journal", "review"]
+    }
+  ],
+  "seed_links": [
+    {"a": "support-resistance", "b": "stop-loss", "relation": "related"},
+    {"a": "support-resistance", "b": "trend", "relation": "related"},
+    {"a": "opening-range", "b": "support-resistance", "relation": "related"},
+    {"a": "position-sizing", "b": "stop-loss", "relation": "prerequisite"},
+    {"a": "stop-loss", "b": "risk-reward", "relation": "related"},
+    {"a": "position-sizing", "b": "risk-reward", "relation": "related"},
+    {"a": "overtrading", "b": "journaling", "relation": "contrast"},
+    {"a": "journaling", "b": "position-sizing", "relation": "related"}
+  ]
+}

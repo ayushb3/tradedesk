@@ -1,0 +1,47 @@
+# Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Local data (never commit)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/screenshots/
+data/cache/
+data/webull-token/
+# Knowledge-base vector index — rebuildable artifact (PRD-M8 §5.1); rebuild via `make knowledge-ingest`
+data/knowledge_chroma/
+# Your own lesson corpus / concept vocabulary (course material is never committed)
+data/lessons/
+data/modules/
+data/seed_concepts*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+conf/
+
+# Agent / tooling scratch (session-local, never commit)
+.agents/
+.claude/
+.playwright-cli/
+*.log
+*.log.*
