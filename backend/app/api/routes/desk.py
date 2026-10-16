@@ -17,6 +17,7 @@ from app.models.desk import (
     LineResponse,
     LineToday,
     PatternsResponse,
+    PlanRef,
     PositionOut,
     StopUsageOut,
     TagOut,
@@ -77,6 +78,10 @@ def _position_out(lp, a, rules: Rules) -> PositionOut:
         add_lower=a.add_lower, add_higher=a.add_higher, add_same=a.add_same,
         runner_paid=a.runner_paid, gave_back=a.gave_back, held_loser=a.held_loser,
         best_gap=a.best_gap,
+        plan=(PlanRef(id=lp.plan.id, caller=lp.plan.caller, max_loss=lp.plan.max_loss_usd,
+                      late=lp.plan.late) if lp.plan else None),
+        off_plan=lp.off_plan, blown_max_loss=a.blown_max_loss,
+        written_max_loss=a.written_max_loss,
         tags=[TagOut(code=t.code, kind=t.kind, text=t.text) for t in a.tags],
         fills=[
             FillOut(
@@ -98,6 +103,7 @@ def get_days() -> DaysResponse:
             entries=d.result.stats.entries, win_pct=d.result.stats.win_pct,
             rr=d.result.stats.rr, max_risk_x_stop=d.result.stats.max_risk_x_stop,
             late_fills=d.result.stats.late_fills, has_fields=d.fields is not None,
+            off_plan_count=d.off_plan_count, blown_max_loss=d.blown_max_loss,
         )
         for d in reversed(days)
     ]
@@ -119,7 +125,9 @@ def get_day(day: date_type) -> DayDetail:
         positions=[
             _position_out(lp, a, rules) for lp, a in zip(d.loaded, d.result.positions)
         ],
-        fields=d.fields,
+        fields=d.fields, plans=d.plans, plans_not_taken=d.plans_not_taken,
+        off_plan_count=d.off_plan_count, size_written_first=d.size_written_first,
+        blown_max_loss=d.blown_max_loss,
     )
 
 

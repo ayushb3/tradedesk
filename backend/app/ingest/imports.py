@@ -787,4 +787,12 @@ def import_fills(provider, engine: Engine | None = None, *, full: bool = False) 
         fills_imported = _upsert_fills(conn, provider_fills)
         trades_built = _rebuild_trades(conn, snapshot, key_ids)
 
+    # Tie plans to the rebuilt trades (best-effort; never fails an import).
+    try:
+        from app.desk.matching import match_plan_days
+
+        match_plan_days(engine)
+    except Exception:  # noqa: BLE001
+        pass
+
     return {"fills_imported": fills_imported, "trades_built": trades_built}

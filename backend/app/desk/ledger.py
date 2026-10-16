@@ -46,6 +46,7 @@ class Position:
     strike: float = 0.0
     expiry: str = ""
     seq: int = 0
+    plan_max_loss: float | None = None  # matched plan's written max loss (dollars), if any
 
 
 @dataclass
@@ -110,6 +111,8 @@ class PositionAnalysis:
     r: float | None
     tags: list[Tag]
     n_buys: int
+    written_max_loss: float | None = None  # plan's, else the day's; None if none written
+    blown_max_loss: bool = False  # closed at a loss bigger than the written max loss
 
 
 @dataclass
@@ -262,8 +265,11 @@ def analyze_position(
     best_gap = (best - avg_out) * qty_out * CONTRACT_MULT if best is not None and qty_out else 0.0
     risk_x = cost / _stop_magnitude(rules)
 
-    risk = max_loss if max_loss is not None else cost * rules.default_risk_pct / 100
+    # R source: the matched plan's written max loss, else the day's, else default risk.
+    written = p.plan_max_loss if p.plan_max_loss is not None else max_loss
+    risk = written if written is not None else cost * rules.default_risk_pct / 100
     r = pnl / risk if pnl is not None and risk else None
+    blown = bool(written is not None and pnl is not None and -pnl > written + EPS)
 
     a = PositionAnalysis(
         position=p, fills=fill_rows(p), qty_in=qty_in, qty_out=qty_out, cost=cost,
@@ -271,6 +277,7 @@ def analyze_position(
         add_lower=add_lower, add_higher=add_higher, add_same=add_same,
         runner_paid=runner_paid, gave_back=gave_back, held_loser=held_loser,
         best_gap=best_gap, risk_x=risk_x, risk=risk, r=r, tags=[], n_buys=len(buys),
+        written_max_loss=written, blown_max_loss=blown,
     )
     a.tags = tags_for(a)
     return a
@@ -290,6 +297,8 @@ def tags_for(a: PositionAnalysis) -> list[Tag]:
         t.append(Tag("gave_back", "w", "gave back"))
     if a.runner_paid:
         t.append(Tag("runner_paid", "g", "runner paid"))
+    if a.blown_max_loss:
+        t.append(Tag("blown_max_loss", "r", "loss past written max loss"))
     if a.risk_x > 1:
         t.append(Tag("stop_risk", "r" if a.risk_x >= 3 else "w", f"{a.risk_x:.1f}x stop at risk"))
     if a.position.swing:
