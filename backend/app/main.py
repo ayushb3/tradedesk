@@ -11,6 +11,7 @@ from app.api.routes import (
     candles,
     config,
     debriefs,
+    desk,
     health,
     knowledge,
     replay,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(review.router, prefix=api_prefix)     # M7a
     app.include_router(knowledge.router, prefix=api_prefix)        # M8a
     app.include_router(agents.router, prefix=api_prefix)     # M9a
+    app.include_router(desk.router, prefix=api_prefix)       # Desk 1.1
     return app
 
 
