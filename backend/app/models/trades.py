@@ -69,6 +69,9 @@ class Trade(BaseModel):
     """A round-trip trade built from ordered fills (FIFO)."""
 
     id: int | None = None
+    # Opaque stable key (hash of the opening fill id); `id` is also stable across
+    # re-imports. None for sim/training trades. Never contains a broker order id.
+    trade_key: str | None = None
     symbol: str
     # Human-readable contract label: "SPXW 7500C 07/09" for options, ticker
     # for stocks.  Set by _rebuild_trades; None on pre-fix rows and sim trades.
