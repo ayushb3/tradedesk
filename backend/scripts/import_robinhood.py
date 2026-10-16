@@ -7,7 +7,7 @@ This script only reads that file: no network, no broker login, no order entry.
 Usage
 -----
     python backend/scripts/import_robinhood.py PATH/raw-option-orders-2026-09-29.json
-    python backend/scripts/import_robinhood.py PATH.json --db data/robinhood.db
+    python backend/scripts/import_robinhood.py PATH.json --db some/other.db   # default: data/desk.db
 
 Re-running with the same or an overlapping export is safe: fills are keyed by
 Robinhood order id, so nothing duplicates, and trade notes/tags/stops carry
