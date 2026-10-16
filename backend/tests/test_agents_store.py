@@ -148,8 +148,8 @@ def test_get_latest_session_for_subject(temp_engine):
 # Schema v6 — tables exist on a fresh isolated_db
 # --------------------------------------------------------------------------- #
 
-def test_schema_version_is_7():
-    assert SCHEMA_VERSION == 7
+def test_schema_version_is_8():
+    assert SCHEMA_VERSION == 8
 
 
 def test_agent_tables_exist_on_fresh_db(temp_engine):

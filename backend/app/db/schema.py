@@ -443,3 +443,24 @@ agent_messages = Table(
     Column("ts", DateTime, nullable=False),        # UTC
     Index("ix_agent_messages_session_id", "session_id"),
 )
+
+
+# -- Desk day_fields (issue #7) -- #
+# One row per ISO date: the day self-report. Keyed on date, not trade, so it survives
+# re-imports. callers_json is a JSON list stored as TEXT; tri-state booleans are
+# nullable (NULL = not answered). updated_at is naive UTC in the DB (aware in the model).
+day_fields = Table(
+    "day_fields",
+    metadata,
+    Column("date", Text, primary_key=True),
+    Column("why", Text, nullable=False, default=""),
+    Column("callers_json", Text, nullable=False, default="[]"),
+    Column("size_written_first", Boolean),
+    Column("max_loss_declared", Float),
+    Column("closed_by_window_end", Boolean),
+    Column("stop_hit", Boolean),
+    Column("target_hit", Boolean),
+    Column("how_felt", Text, nullable=False, default=""),
+    Column("notes", Text, nullable=False, default=""),
+    Column("updated_at", DateTime, nullable=False),
+)
