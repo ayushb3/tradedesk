@@ -191,3 +191,13 @@ feature-level PR (generalizes the existing Gate 2 critiquer pass);
 3. **Run the MCP tool** for a live example — it uses the current SDK/API contract.
 4. If a doc says one thing and the SDK does another, the SDK wins (docs lag).
    Note the drift in `docs/DEMO-M4.md`.
+
+---
+
+## Desk
+
+- The one DB for every tool, script and skill: `data/desk.db` (repo root, broker-agnostic
+  name). Relative paths resolve from the repo root, not the cwd.
+- Override with `TRADEDESK_DB_PATH`. No per-script `--db` flags are needed.
+- Never commit `data/` (real fills live there). Tests use temp DBs, never `data/desk.db`.
+- Move or copy a DB with `backend/scripts/copy_db.py --from <path> --to <path>`.
