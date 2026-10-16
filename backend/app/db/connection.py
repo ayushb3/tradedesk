@@ -33,7 +33,7 @@ from .schema import metadata
 # v6 (M9a): agent_sessions, agent_messages (new tables, created by create_all).
 # v7 (issue #3): trades.trade_key (stable id across re-imports) + backfill.
 # v8 (issue #7): day_fields (new table, created by create_all).
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Standalone metadata so the bookkeeping table is created alongside the app
 # tables but is not part of the domain `metadata` exported to callers.

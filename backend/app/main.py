@@ -14,6 +14,7 @@ from app.api.routes import (
     desk,
     health,
     knowledge,
+    plans,
     replay,
     review,
     sim,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix=api_prefix)        # M8a
     app.include_router(agents.router, prefix=api_prefix)     # M9a
     app.include_router(desk.router, prefix=api_prefix)       # Desk 1.1
+    app.include_router(plans.router, prefix=api_prefix)      # Desk 2.1
     return app
 
 
