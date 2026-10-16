@@ -7,11 +7,14 @@ from __future__ import annotations
 
 from datetime import date as date_type, datetime
 
+from collections import Counter
+
 from app.desk import days as desk_days
+from app.desk import lessons as desk_lessons
 from app.desk.rules import Rules, window_bounds
 from app.models.desk import (
     BiggestRisk, DayDetail, DaysResponse, DayStatsOut, DaySummary, FillOut, LineResponse,
-    LineToday, PatternsResponse, PlanRef, PositionOut, StopUsageOut, TagOut, WindowOut,
+    LessonLinkOut, LineToday, PatternsResponse, PlanRef, PositionOut, RecurringLesson, StopUsageOut, TagOut, WindowOut,
 )
 
 
@@ -83,6 +86,19 @@ def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
     return DaysResponse(tz=rules.timezone, as_of=as_of, days=out)
 
 
+def pattern_counts(d) -> Counter:
+    """Positions carrying each pattern on one day (tag codes + off_plan/late_fill)."""
+    c: Counter = Counter()
+    for lp, a in zip(d.loaded, d.result.positions):
+        for t in a.tags:
+            c[t.code] += 1
+        if lp.off_plan:
+            c["off_plan"] += 1
+    if d.result.stats.late_fills:
+        c["late_fill"] += 1
+    return c
+
+
 def day_detail(day: date_type, d, rules: Rules, as_of: datetime | None) -> DayDetail:
     start, end = window_bounds(rules, day)
     return DayDetail(
@@ -94,6 +110,10 @@ def day_detail(day: date_type, d, rules: Rules, as_of: datetime | None) -> DayDe
         fields=d.fields, plans=d.plans, plans_not_taken=d.plans_not_taken,
         off_plan_count=d.off_plan_count, size_written_first=d.size_written_first,
         blown_max_loss=d.blown_max_loss,
+        lessons=[
+            LessonLinkOut(**x)
+            for x in desk_lessons.lessons_for(pattern_counts(d), rules, d.engine)
+        ],
     )
 
 
@@ -104,7 +124,20 @@ def patterns_response(rules: Rules, a, days, d_from, d_to, as_of) -> PatternsRes
         s = top.result.stats
         if s.max_risk > 0:
             biggest = BiggestRisk(date=s.date, dollars=s.max_risk, x_stop=s.max_risk_x_stop)
+    positions: Counter = Counter()
+    day_count: Counter = Counter()
+    for d in days:
+        pc = pattern_counts(d)
+        positions.update(pc)
+        day_count.update(pc.keys())
+    recurring = {k: v for k, v in positions.items() if day_count[k] >= 2}
+    engine = days[0].engine if days else None
+    lessons = [
+        RecurringLesson(**x, days=day_count[x["pattern"]], positions=positions[x["pattern"]])
+        for x in desk_lessons.lessons_for(recurring, rules, engine)
+    ]
     return PatternsResponse(
+        lessons=lessons,
         tz=rules.timezone, as_of=as_of, date_from=d_from, date_to=d_to,
         days=a.days, net=a.net, green_days=a.green_days, green_sum=a.green_sum,
         red_days=a.red_days, red_sum=a.red_sum, n_closed=a.n_closed, n_wins=a.n_wins,
