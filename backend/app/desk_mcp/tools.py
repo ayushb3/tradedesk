@@ -3,9 +3,11 @@
 Every result carries ``tz`` and ``as_of`` (newest fill time, UTC). Times are Pacific
 and labelled "PT" in the ``*_pt`` fields. Nothing here touches the network; positions
 are identified by ``trade_id`` / ``trade_key`` only (never an account or order id).
+Response shapes come from ``app.desk.serialize``, shared with the HTTP routes.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import date as date_type
 from pathlib import Path
@@ -19,12 +21,8 @@ from app.db.schema import fills as fills_t
 from app.db.schema import plans as plans_t
 from app.db.schema import trades as trades_t
 from app.desk import days as desk_days
-from app.desk.plans import list_plans
-from app.desk.rules import Rules, load_rules, window_bounds
-from app.models.desk import (
-    BiggestRisk, DayDetail, DaysResponse, DayStatsOut, DaySummary, FillOut, LineResponse,
-    LineToday, PatternsResponse, PositionOut, StopUsageOut, TagOut, WindowOut,
-)
+from app.desk import serialize
+from app.desk.rules import Rules, load_rules
 
 from . import mock
 
@@ -37,18 +35,24 @@ class Ctx:
     rules: Rules
 
 
+def is_mock_mode() -> bool:
+    """Mock only when the environment explicitly says so. Settings defaults to mock
+    for the web app, so it is deliberately not consulted for this decision."""
+    return os.environ.get("TRADEDESK_MODE", "").strip().lower() == "mock"
+
+
 def build_ctx() -> Ctx:
-    """Mock mode (TRADEDESK_MODE=mock) -> synthetic fixture DB + placeholder rules.
-    Anything else -> the configured desk DB and the personal rules file."""
-    settings = get_settings()
-    if settings.mode == "mock":
+    """TRADEDESK_MODE=mock in the environment -> synthetic fixture DB + placeholder
+    rules. Otherwise REAL data: settings.db_path + the personal rules file."""
+    if is_mock_mode():
         path = mock.ensure_mock_db()
         engine = get_engine(str(path))
         init_db(engine)
         return Ctx("mock", str(path), engine, mock.mock_rules())
-    engine = get_engine(settings.db_path)
+    db_path = get_settings().db_path
+    engine = get_engine(db_path)
     init_db(engine)
-    return Ctx("real", settings.db_path, engine, load_rules())
+    return Ctx("real", db_path, engine, load_rules())
 
 
 def _as_of_iso(ctx: Ctx) -> str | None:
@@ -67,58 +71,8 @@ def _parse_date(value: str) -> date_type:
         raise ValueError(f"date must be YYYY-MM-DD, got {value!r}") from exc
 
 
-# ---------------------------------------------------------------- serializers
-# Same shapes as the HTTP API (app.models.desk), built here so the tool server
-# never imports the web layer.
-
-def _stops(s) -> StopUsageOut:
-    return StopUsageOut(placed=s.placed, filled=s.filled, moves=s.moves, pulled=s.pulled)
-
-
-def _window(start, end, rules: Rules) -> WindowOut:
-    return WindowOut(
-        start=start, end=end,
-        start_pt=desk_days.pt_clock(start, rules, seconds=False),
-        end_pt=desk_days.pt_clock(end, rules, seconds=False),
-    )
-
-
-def _stats(s, rules: Rules) -> DayStatsOut:
-    return DayStatsOut(
-        net=s.net, entries=s.entries, positions=s.positions, win_pct=s.win_pct,
-        avg_win=s.avg_win, avg_loss=s.avg_loss, rr=s.rr,
-        break_even_win_pct=s.break_even_win_pct, max_risk=s.max_risk,
-        max_risk_x_stop=s.max_risk_x_stop, max_risk_pct_account=s.max_risk_pct_account,
-        add_lower=s.add_lower, held_loser=s.held_loser, gave_back=s.gave_back,
-        runner_paid=s.runner_paid, deployed=s.deployed, late_fills=s.late_fills,
-        last_fill=s.last_fill,
-        last_fill_pt=desk_days.pt_clock(s.last_fill, rules) if s.last_fill else None,
-        stops=_stops(s.stops), n_wins=s.n_wins, n_losses=s.n_losses, n_closed=s.n_closed,
-        sum_wins=s.sum_wins, sum_losses=s.sum_losses,
-    )
-
-
-def _position(lp, a, rules: Rules) -> PositionOut:
-    p = lp.position
-    return PositionOut(
-        trade_id=lp.trade_id, trade_key=lp.trade_key, label=lp.label,
-        ticker=p.ticker, type=p.type, strike=p.strike, expiry=p.expiry,
-        status=p.status, swing=p.swing, qty_in=a.qty_in, qty_out=a.qty_out,
-        cost=a.cost, proceeds=a.proceeds, avg_in=a.avg_in, avg_out=a.avg_out,
-        pnl=a.pnl, risk=a.risk, r=a.r, stop_multiple=a.risk_x,
-        add_lower=a.add_lower, add_higher=a.add_higher, add_same=a.add_same,
-        runner_paid=a.runner_paid, gave_back=a.gave_back, held_loser=a.held_loser,
-        best_gap=a.best_gap,
-        tags=[TagOut(code=t.code, kind=t.kind, text=t.text) for t in a.tags],
-        fills=[
-            FillOut(
-                side=f.side, qty=f.qty, px=f.px, cash=f.cash, ts=f.ts,
-                ts_pt=desk_days.pt_clock(f.ts, rules), order_type=f.otype,
-                pnl=f.pnl, pnl_pct=f.pnl_pct, avg_in_after=f.avg_in_after,
-            )
-            for f in a.fills
-        ],
-    )
+def _json(model) -> dict:
+    return model.model_dump(mode="json")
 
 
 # ----------------------------------------------------------------------- tools
@@ -148,18 +102,8 @@ def rules(ctx: Ctx) -> dict:
 
 
 def list_days(ctx: Ctx) -> dict:
-    _, days = desk_days.list_days(ctx.rules, ctx.engine)
-    out = [
-        DaySummary(
-            date=d.result.day, net=d.result.stats.net, positions=d.result.stats.positions,
-            entries=d.result.stats.entries, win_pct=d.result.stats.win_pct,
-            rr=d.result.stats.rr, max_risk_x_stop=d.result.stats.max_risk_x_stop,
-            late_fills=d.result.stats.late_fills, has_fields=d.fields is not None,
-        )
-        for d in reversed(days)
-    ]
-    resp = DaysResponse(tz=ctx.rules.timezone, as_of=desk_days.as_of(ctx.engine), days=out)
-    return resp.model_dump(mode="json")
+    rules_, days = desk_days.list_days(ctx.rules, ctx.engine)
+    return _json(serialize.days_response(rules_, days, desk_days.as_of(ctx.engine)))
 
 
 def get_day(ctx: Ctx, date: str) -> dict:
@@ -167,20 +111,11 @@ def get_day(ctx: Ctx, date: str) -> dict:
     d = desk_days.get_day(day, ctx.rules, ctx.engine)
     if d is None:
         raise ValueError(f"no trades or day fields for {day}")
-    start, end = window_bounds(ctx.rules, day)
-    resp = DayDetail(
-        tz=ctx.rules.timezone, as_of=desk_days.as_of(ctx.engine), date=day,
-        window=_window(start, end, ctx.rules),
-        daily_stop=ctx.rules.daily_stop, daily_target=ctx.rules.daily_target,
-        stats=_stats(d.result.stats, ctx.rules),
-        positions=[_position(lp, a, ctx.rules) for lp, a in zip(d.loaded, d.result.positions)],
-        fields=d.fields,
-    )
-    return resp.model_dump(mode="json")
+    return _json(serialize.day_detail(day, d, ctx.rules, desk_days.as_of(ctx.engine)))
 
 
 def get_trade(ctx: Ctx, id: int) -> dict:
-    """One position (with fills) from its day, plus its plan if one matches."""
+    """One position (with fills) from its day, plus its full plan card if matched."""
     with ctx.engine.connect() as conn:
         session_date = conn.execute(
             select(trades_t.c.session_date).where(trades_t.c.id == id)
@@ -201,58 +136,22 @@ def get_trade(ctx: Ctx, id: int) -> dict:
     if pair is None:
         raise ValueError(f"no trade with id {id}")
     lp, a = pair
-    pos = lp.position
-    plan = None
-    for p in list_plans(day, ctx.engine):
-        same_contract = (
-            p.symbol == pos.ticker and p.strike == pos.strike
-            and (p.option_type or "")[:1] == pos.type
-            and (p.expiry is None or p.expiry.isoformat() == pos.expiry)
-        )
-        if p.matched_trade_id == id or (p.matched_trade_id is None and same_contract):
-            plan = p.model_dump(mode="json")
-            break
+    full_plan = next((p for p in d.plans if lp.plan and p.id == lp.plan.id), None)
     return {
         **_meta(ctx), "date": day.isoformat(),
-        "trade": _position(lp, a, ctx.rules).model_dump(mode="json"), "plan": plan,
+        "trade": _json(serialize.position_out(lp, a, ctx.rules)),
+        "plan": _json(full_plan) if full_plan else None,
     }
 
 
 def patterns(ctx: Ctx, date_from: str | None = None, date_to: str | None = None) -> dict:
     d_from = _parse_date(date_from) if date_from else None
     d_to = _parse_date(date_to) if date_to else None
-    _, a, days = desk_days.patterns(d_from, d_to, ctx.rules, ctx.engine)
-    biggest = None
-    if days:
-        top = max(days, key=lambda d: d.result.stats.max_risk)
-        s = top.result.stats
-        if s.max_risk > 0:
-            biggest = BiggestRisk(date=s.date, dollars=s.max_risk, x_stop=s.max_risk_x_stop)
-    resp = PatternsResponse(
-        tz=ctx.rules.timezone, as_of=desk_days.as_of(ctx.engine), date_from=d_from, date_to=d_to,
-        days=a.days, net=a.net, green_days=a.green_days, green_sum=a.green_sum,
-        red_days=a.red_days, red_sum=a.red_sum, n_closed=a.n_closed, n_wins=a.n_wins,
-        n_losses=a.n_losses, win_pct=a.win_pct, avg_win=a.avg_win, avg_loss=a.avg_loss,
-        rr=a.rr, break_even_win_pct=a.break_even_win_pct, tag_counts=a.tag_counts,
-        late_days=a.late_days, late_fills=a.late_fills, stops=_stops(a.stops),
-        biggest_risk=biggest,
-    )
-    return resp.model_dump(mode="json")
+    rules_, a, days = desk_days.patterns(d_from, d_to, ctx.rules, ctx.engine)
+    return _json(serialize.patterns_response(
+        rules_, a, days, d_from, d_to, desk_days.as_of(ctx.engine)))
 
 
 def line_status(ctx: Ctx) -> dict:
     ls = desk_days.line_status(rules=ctx.rules, engine=ctx.engine)
-    r = ls.rules
-    resp = LineResponse(
-        tz=r.timezone, as_of=desk_days.as_of(ctx.engine), now=ls.now,
-        now_pt=desk_days.pt_clock(ls.now, r),
-        start_date=r.loss_line.start_date, amount=r.loss_line.amount,
-        pnl=ls.pnl, left=ls.left, trades_counted=ls.trades_counted, state=ls.state,
-        today=LineToday(
-            date=ls.today, net=ls.today_net, daily_stop=r.daily_stop,
-            daily_target=r.daily_target, stop_hit=ls.stop_hit,
-            target_hit=ls.target_hit, line_hit=ls.line_hit,
-            window=_window(ls.window[0], ls.window[1], r),
-        ),
-    )
-    return resp.model_dump(mode="json")
+    return _json(serialize.line_response(ls, desk_days.as_of(ctx.engine)))

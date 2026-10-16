@@ -255,3 +255,71 @@ def test_stdio_server_lists_tools_and_serves_line_status(tmp_path):
     payload = json.loads(line.content[0].text)
     assert payload["tz"] == "America/Los_Angeles" and "line_hit" in payload["today"]
     assert not day.isError and json.loads(day.content[0].text)["stats"]["positions"] == 2
+
+
+# --------------------------------------------- shared serializer / #36 fields
+
+def test_mock_get_day_and_get_trade_carry_plan_fields(ctx):
+    day = tools.get_day(ctx, "2026-10-08")
+    for key in ("plans", "plans_not_taken", "off_plan_count", "size_written_first",
+                "blown_max_loss"):
+        assert key in day, key
+    pos = day["positions"][0]
+    for key in ("plan", "off_plan", "blown_max_loss", "written_max_loss"):
+        assert key in pos, key
+    assert pos["off_plan"] is False and pos["plan"]["caller"] == "mentor-a"
+    t = tools.get_trade(ctx, pos["trade_id"])
+    assert "off_plan" in t["trade"] and "plan" in t["trade"] and t["plan"]["caller"] == "mentor-a"
+    off = tools.get_day(ctx, "2026-10-09")["positions"][0]
+    assert off["off_plan"] is True and off["plan"] is None
+    assert tools.list_days(ctx)["days"][0].keys() >= {"off_plan_count", "blown_max_loss"}
+
+
+def test_http_day_and_mcp_get_day_are_identical(tmp_path, monkeypatch, isolated_db):
+    from fastapi.testclient import TestClient
+
+    from app.db.connection import get_engine
+    from app.desk.rules import dump_rules
+    from app.main import create_app
+
+    mock.build_mock_db(isolated_db)
+    rules_p = tmp_path / "rules.yaml"
+    rules_p.write_text(dump_rules(mock.mock_rules()), encoding="utf-8")
+    monkeypatch.setenv("TRADEDESK_RULES_PATH", str(rules_p))
+    http = TestClient(create_app()).get("/api/days/2026-10-08")
+    assert http.status_code == 200
+    c = tools.Ctx("mock", str(isolated_db), get_engine(str(isolated_db)), mock.mock_rules())
+    mcp_json = tools.get_day(c, "2026-10-08")
+    assert set(http.json()) == set(mcp_json)
+    assert http.json() == mcp_json
+
+
+# ------------------------------------------------------------------ mode choice
+
+def _real_env(monkeypatch, tmp_path, isolated_db):
+    from app.desk.rules import dump_rules
+
+    rules_p = tmp_path / "real-rules.yaml"
+    rules_p.write_text(dump_rules(mock.mock_rules()), encoding="utf-8")
+    monkeypatch.setenv("TRADEDESK_RULES_PATH", str(rules_p))
+
+
+@pytest.mark.parametrize("value", [None, "webull"])
+def test_real_data_unless_env_explicitly_mock(value, monkeypatch, tmp_path, isolated_db):
+    _real_env(monkeypatch, tmp_path, isolated_db)
+    if value is None:
+        monkeypatch.delenv("TRADEDESK_MODE", raising=False)
+    else:
+        monkeypatch.setenv("TRADEDESK_MODE", value)
+    c = tools.build_ctx()
+    assert c.mode == "real"
+    assert Path(c.db_path) == isolated_db  # settings.db_path, not the fixture
+    st = tools.status(c)
+    assert st["mode"] == "real" and Path(st["db_path"]) == isolated_db
+
+
+def test_mock_only_when_env_says_mock(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADEDESK_MODE", "mock")
+    monkeypatch.setattr(mock.tempfile, "gettempdir", lambda: str(tmp_path))
+    c = tools.build_ctx()
+    assert c.mode == "mock" and tools.status(c)["mode"] == "mock"
