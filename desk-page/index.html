@@ -141,11 +141,44 @@ svg.spark { width: 92px; height: 30px; display: block; }
 .lesson { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 13px; padding: 6px 0; border-top: 1px solid var(--rule); }
 .lesson a { color: var(--accent); font-weight: 600; }
 
+/* writes, notices, lock */
+button.mini { font: inherit; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--rule); background: var(--sheet); color: var(--accent); cursor: pointer; }
+button.mini:hover { border-color: var(--accent); }
+button.mini:focus-visible, button.lnk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.mini[disabled], button.act[disabled] { opacity: .55; cursor: default; }
+button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 5px 6px; }
+.pos-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 0 4px 10px 40px; }
+.pos-extra { padding: 0 4px 12px 40px; }
+.wr-msg { font-size: 12px; color: var(--muted); }
+.wr-msg.ok { color: var(--gain); } .wr-msg.bad { color: var(--loss); } .wr-msg.warn { color: var(--warn); }
+.eform { border: 1px solid var(--rule); border-radius: 8px; background: var(--soft); padding: 12px; margin: 4px 0 0; display: grid; gap: 10px; max-width: 640px; }
+.eform fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.eform label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+.eform .wide { grid-column: 1 / -1; }
+.eform input, .eform textarea, .eform select { font: inherit; font-size: 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; width: 100%; min-width: 0; }
+.eform input:focus-visible, .eform textarea:focus-visible, .eform select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.eform .frow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.askbox { display: block; width: 100%; max-width: 640px; font-family: var(--f-num); font-size: 12px; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; margin-top: 6px; resize: vertical; }
+.notices { display: grid; gap: 8px; }
+.notices:empty { display: none; }
+.notice { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; font-size: 13px; background: var(--soft); max-width: 80ch; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.notice.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.notice.bad { background: var(--loss-soft); color: var(--loss); border-color: transparent; }
+.lock { border-color: var(--loss); }
+.sheet[hidden] { display: none; }
+.lock h2 { color: var(--loss); }
+.lock ol { margin: 10px 0 0; padding-left: 22px; display: grid; gap: 6px; font-size: 16px; font-weight: 600; }
+.lock .askrow { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.head-act { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; }
+.plan-add { margin-top: 10px; }
+.empty code { font-family: var(--f-num); font-size: 12px; background: var(--soft); border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; }
+
 @media (max-width: 640px) {
+  .fills, .pos-act, .pos-extra { padding-left: 4px; }
+  .eform fieldset { grid-template-columns: minmax(0, 1fr); }
   .pos > button { grid-template-columns: 22px minmax(0, 1fr) 92px; }
   .pos .avg-col { display: none; }
   .pos .spark-col { grid-column: 2; grid-row: 2; }
-  .fills { padding-left: 4px; }
   .plan { grid-template-columns: 60px minmax(0, 1fr); }
   .plan .st { grid-column: 2; }
 }
@@ -175,15 +208,18 @@ svg.spark { width: 92px; height: 30px; display: block; }
     <div class="meter" role="img" id="meter-label" aria-label="Loss line not loaded"><i id="meter" style="width:0%"></i></div>
     <div class="ticks num" id="ticks"><span>$0 lost</span><span></span><span>trading stops</span></div>
     <div class="chips" id="today"></div>
+    <div class="notices" id="notices" aria-live="polite"></div>
   </section>
 
-  <section class="sheet" aria-label="Days">
+  <section class="sheet lock" aria-label="Line hit" id="lock" hidden></section>
+
+  <section class="sheet" aria-label="Days" id="days-sheet">
     <div class="head"><h2>Days</h2><span class="sub">Tap a day to open it</span></div>
     <div class="strip" id="strip" style="margin-top:10px"><span class="sub">Days load from TradeDesk.</span></div>
     <div class="sec-err" id="days-err" hidden></div>
   </section>
 
-  <section class="sheet" aria-label="Across days">
+  <section class="sheet" aria-label="Across days" id="across-sheet">
     <div class="head"><h2>Across days</h2><span class="sub" id="pat-sub"></span></div>
     <div class="tbl-wrap" style="margin-top:8px">
       <table id="pat">
@@ -206,8 +242,9 @@ svg.spark { width: 92px; height: 30px; display: block; }
 (function () {
   const SERVER = "host:tradedesk";
   const TZ = "America/Los_Angeles";
-  const state = { mcp: null, line: null, days: null, pat: null, day: null, sel: null, sort: "seq", flaggedOnly: false, open: new Set(),
-    stored: {}, errs: {}, unwatchDay: null };
+  const state = { mcp: null, line: null, days: null, pat: null, day: null, todayDay: null, sel: null, sort: "seq", flaggedOnly: false, open: new Set(),
+    stored: {}, errs: {}, unDay: null, unToday: null, wDay: null, wToday: null,
+    edit: new Set(), drafts: {}, wr: {}, ask: null, lastCaller: "" };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const money = (v, dp, sign) => {
@@ -226,6 +263,18 @@ svg.spark { width: 92px; height: 30px; display: block; }
   const ptClock = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }) + " PT" : "—";
   const ptStamp = (ms) => new Date(ms).toLocaleString("en-US", { timeZone: TZ, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) + " PT";
   const hm = (ptStr) => (ptStr ? ptStr.replace(/:\d\d PT$/, "").replace(/ PT$/, "").replace(/^0/, "") : "—");
+
+  const todayPT = () => state.line?.today?.date || null;
+  const lineHit = () => !!state.line && (state.line.left <= 0 || !!state.line.today?.line_hit);
+  const canWrite = () => !!state.mcp && !!(state.line || state.days) && !lineHit() && !Object.values(state.errs).some((c) => DENIALS.has(c));
+  const isWeekday = (d) => { const [y, m, dd] = d.split("-").map(Number); const w = new Date(Date.UTC(y, m - 1, dd)).getUTCDay(); return w > 0 && w < 6; };
+  const ptDate = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+  const isOpenPos = (p) => p.status === "open" || p.pnl == null;
+  const CALLER_RE = /^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,39}$/;
+  const CONTRACT_RE = /^\s*[A-Za-z][A-Za-z.]{0,5}\s+\d+(?:\.\d+)?\s*[CcPp](?:\s+(?:\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|\d{4}-\d{2}-\d{2}))?\s*$/;
+  const num = (v) => { const t = String(v ?? "").replace(/[$,\s]/g, ""); return /^\d+(\.\d+)?$/.test(t) ? Number(t) : NaN; };
+  const dayPrompt = (date) => `Review my day ${date} with get_day: rule breaks first, then the numbers, then patterns, then the lesson`;
+  const tradePrompt = (p, date) => `Review trade ${p.trade_key ? p.trade_key + " (trade_id " + p.trade_id + ")" : "trade_id " + p.trade_id} on ${date} with get_trade`;
 
   try { const s = localStorage.getItem("dl-sort"); if (s) state.sort = s; } catch (e) {}
   try { const d = localStorage.getItem("dl-day"); if (d) state.sel = d; } catch (e) {}
@@ -258,7 +307,7 @@ svg.spark { width: 92px; height: 30px; display: block; }
 
   function renderFresh() {
     const el = $("fresh"), t = $("fresh-txt");
-    const errs = Object.values(state.errs);
+    const errs = Object.entries(state.errs).filter(([k, c]) => !(c === "tool_error" && (k === "day" || k === "todayDay"))).map(([, c]) => c);
     const asOf = state.line?.as_of || state.days?.as_of;
     if (!state.mcp) { el.className = "fresh"; t.textContent = "offline · no TradeDesk"; return; }
     if (!state.line && !state.days) { el.className = "fresh"; t.textContent = errs.length ? "no data" : "connecting…"; return; }
@@ -271,10 +320,65 @@ svg.spark { width: 92px; height: 30px; display: block; }
       : `live · ${imported}`;
   }
 
+  // ---------- shared bits: Ask Claude, focus, notices, lock ----------
+  function askUI(prompt, key, label) {
+    const a = state.ask && state.ask.key === key ? state.ask : null;
+    return `<button class="mini" type="button" data-act="ask" data-ask="${esc(prompt)}" data-akey="${esc(key)}" data-f="ask:${esc(key)}">${esc(label)}</button>`
+      + (a && a.mode === "copied" ? `<span class="wr-msg ok" role="status">Copied. Paste it into Claude.</span>` : "")
+      + (a && a.mode === "manual" ? `<span class="wr-msg warn" role="status">Copy was blocked here. Select the text below and copy it.</span><textarea class="askbox" readonly rows="2" data-f="askbox" aria-label="Prompt to copy">${esc(a.text)}</textarea>` : "");
+  }
+
+  function focusInfo(el) {
+    const a = document.activeElement;
+    return a && el.contains(a) && a.dataset && a.dataset.f ? { f: a.dataset.f, s: a.selectionStart, e: a.selectionEnd } : null;
+  }
+  function restoreFocus(el, i) {
+    if (!i) return;
+    const n = el.querySelector(`[data-f="${CSS.escape(i.f)}"]`);
+    if (!n) return;
+    n.focus();
+    try { if (i.s != null) n.setSelectionRange(i.s, i.e); } catch (e) {}
+  }
+
+  function todayPlanCount() {
+    const t = todayPT();
+    if (!t) return null;
+    const D = state.day && state.day.date === t ? state.day : state.todayDay && state.todayDay.date === t ? state.todayDay : null;
+    if (D) return D.plans.length;
+    return (state.sel === t ? state.errs.day : state.errs.todayDay) === "tool_error" ? 0 : null;
+  }
+
+  function renderNotices() {
+    const L = state.line, box = $("notices");
+    if (!L || lineHit()) { box.innerHTML = ""; return; }
+    const T = L.today || {}, today = T.date, out = [];
+    if (T.stop_hit) out.push(`<div class="notice bad"><b>Daily stop hit (${fmt0(T.daily_stop)}).</b> Done for today.</div>`);
+    const asOf = L.as_of || state.days?.as_of;
+    if (asOf && today && isWeekday(today) && L.state === "closed" && ptDate(asOf) < today) {
+      out.push(`<div class="notice warn">Last import is from ${esc(shortDate(ptDate(asOf)))}; run the export after the close.</div>`);
+    }
+    if (today && isWeekday(today) && L.state !== "closed" && todayPlanCount() === 0) {
+      out.push(`<div class="notice warn"><span>No plan cards yet today — rule 4.</span>${canWrite() ? `<button class="mini" type="button" data-act="plan-today" data-f="plan-today">Add plan card</button>` : ""}</div>`);
+    }
+    box.innerHTML = out.join("");
+  }
+
+  function renderLock() {
+    const hit = lineHit(), el = $("lock");
+    el.hidden = !hit;
+    ["days-sheet", "across-sheet", "detail"].forEach((id) => { $(id).hidden = hit; });
+    if (!hit) { el.innerHTML = ""; return; }
+    const fi = focusInfo(el);
+    el.innerHTML = `<h2>The line is hit</h2>
+      <ol><li>Trading is over for this line.</li><li>Close the platform.</li><li>Step away from the desk.</li><li>Talk to Claude about the reset plan, not the trades.</li></ol>
+      <div class="askrow">${askUI("My line is hit. Walk me through the reset plan, not the trades.", "reset", "Ask Claude about the reset plan")}</div>`;
+    restoreFocus(el, fi);
+  }
+
   // ---------- render: line ----------
   function renderLine() {
     const L = state.line;
-    if (!L) { $("today").innerHTML = ""; return; }
+    if (!L) { $("today").innerHTML = ""; renderNotices(); return; }
     const used = Math.min(0, L.pnl);
     const pct = L.amount ? Math.min(100, (-used / L.amount) * 100) : 0;
     $("line-h").textContent = `The ${fmt0(L.amount, false)} line`;
@@ -293,13 +397,20 @@ svg.spark { width: 92px; height: 30px; display: block; }
     if (T.target_hit) chips.push(`<span class="chip g">daily target hit (${fmt0(T.daily_target)})</span>`);
     if (!T.stop_hit && !T.target_hit) chips.push(`<span class="chip a">stop ${fmt0(T.daily_stop)} · target ${fmt0(T.daily_target)}</span>`);
     $("today").innerHTML = chips.join("");
+    renderNotices();
   }
 
   // ---------- render: days ----------
   function dayRows() { return (state.days?.days || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1)); }
 
   function renderStrip(rows) {
-    if (!rows.length) { $("strip").innerHTML = `<span class="sub">No days in TradeDesk yet. Run the export, then ask Claude to import it.</span>`; return; }
+    const t = todayPT(), showToday = !!t && !rows.some((r) => r.date === t);
+    const todayBtn = showToday ? `<button class="day" type="button" data-d="${t}" aria-pressed="${t === state.sel}"><span class="d">${esc(shortDate(t))}</span><span class="bar"></span><span class="v mut">today</span></button>` : "";
+    if (!rows.length) {
+      $("strip").innerHTML = `${todayBtn}<span class="sub">No days in TradeDesk yet. Run the export, then ask Claude to import it.</span>`;
+      $("strip").querySelectorAll(".day").forEach((b) => b.addEventListener("click", () => select(b.dataset.d)));
+      return;
+    }
     const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.net)));
     $("strip").innerHTML = rows.map((r) => {
       const h = Math.max(2, (Math.abs(r.net) / maxAbs) * 34);
@@ -307,7 +418,7 @@ svg.spark { width: 92px; height: 30px; display: block; }
         <span class="d">${esc(shortDate(r.date))}</span>
         <span class="bar" style="justify-content:${r.net >= 0 ? "flex-end" : "flex-start"}"><i style="height:${h.toFixed(0)}px;background:${r.net >= 0 ? "var(--gain)" : "var(--loss)"}"></i></span>
         <span class="v ${cls(r.net)}">${fmt0(r.net)}</span></button>`;
-    }).join("");
+    }).join("") + todayBtn;
     $("strip").querySelectorAll(".day").forEach((b) => b.addEventListener("click", () => select(b.dataset.d)));
   }
 
@@ -375,6 +486,46 @@ svg.spark { width: 92px; height: 30px; display: block; }
 
   const flagged = (p) => p.off_plan || p.blown_max_loss || p.tags.some((t) => t.kind === "r" || t.kind === "w");
 
+  function wrMsg(w) { return w && w.msg ? `<span class="wr-msg ${w.cls || ""}" role="status">${esc(w.msg)}</span>` : ""; }
+
+  function posActions(p, D, k) {
+    const wk = "p:" + k, w = state.wr[wk], writes = canWrite(), editing = writes && state.edit.has(wk);
+    const edit = writes ? `<button class="mini" type="button" data-act="edit" data-k="${wk}" data-f="edit:${wk}" aria-expanded="${editing}" aria-label="${editing ? "Close editor for" : "Edit"} ${esc(p.label || p.ticker)}">${editing ? "Close" : "Edit"}</button>` : "";
+    return `<div class="pos-act">${edit}${askUI(tradePrompt(p, D.date), wk, "Ask Claude")}${editing ? "" : wrMsg(w)}</div>${editing ? `<div class="pos-extra">${posForm(p, wk)}</div>` : ""}`;
+  }
+
+  function posForm(p, wk) {
+    const w = state.wr[wk] || {}, busy = w.s === "saving";
+    const d = (state.drafts[wk] ||= { caller: p.plan?.caller || "", grade: "", notes: "" });
+    return `<form class="eform" data-form="${wk}" novalidate>
+      <fieldset ${busy ? "disabled" : ""}>
+        <label>Caller<input name="caller" data-f="${wk}|caller" value="${esc(d.caller)}" maxlength="40" autocomplete="off"></label>
+        <label>Grade<select name="grade" data-f="${wk}|grade">${["", "A", "B", "C"].map((g) => `<option value="${g}" ${d.grade === g ? "selected" : ""}>${g || "no change"}</option>`).join("")}</select></label>
+        <label class="wide">Notes (replaces the saved note)<textarea name="notes" rows="3" data-f="${wk}|notes">${esc(d.notes)}</textarea></label>
+      </fieldset>
+      <div class="frow"><button class="act" type="submit" ${busy ? "disabled" : ""}>${busy ? "Saving…" : "Save"}</button>
+        <button class="lnk" type="button" data-act="cancel" data-k="${wk}" ${busy ? "disabled" : ""}>Cancel</button>${wrMsg(w)}</div>
+    </form>`;
+  }
+
+  function planBlock(date, callers) {
+    const wk = "plan:" + date, w = state.wr[wk] || {}, open = state.edit.has(wk), busy = w.s === "saving";
+    const d = open ? (state.drafts[wk] ||= { caller: state.lastCaller || callers[0] || "", contract: "", size: "", max: "", target: "", note: "" }) : null;
+    const form = open ? `<form class="eform" data-form="${wk}" novalidate style="margin-top:8px">
+      <fieldset ${busy ? "disabled" : ""}>
+        <label>Caller<input name="caller" data-f="${wk}|caller" value="${esc(d.caller)}" maxlength="40" autocomplete="off"></label>
+        <label>Contract (e.g. SPY 580P)<input name="contract" data-f="${wk}|contract" value="${esc(d.contract)}" autocomplete="off" autocapitalize="characters"></label>
+        <label>Size $<input name="size" data-f="${wk}|size" value="${esc(d.size)}" inputmode="decimal" autocomplete="off"></label>
+        <label>Max loss $<input name="max" data-f="${wk}|max" value="${esc(d.max)}" inputmode="decimal" autocomplete="off"></label>
+        <label>Target<input name="target" data-f="${wk}|target" value="${esc(d.target)}" autocomplete="off"></label>
+        <label>Note<input name="note" data-f="${wk}|note" value="${esc(d.note)}" autocomplete="off"></label>
+      </fieldset>
+      <div class="frow"><button class="act" type="submit" ${busy ? "disabled" : ""}>${busy ? "Saving…" : "Save plan card"}</button>
+        <button class="lnk" type="button" data-act="cancel" data-k="${wk}" ${busy ? "disabled" : ""}>Cancel</button>${wrMsg(w)}</div>
+    </form>` : "";
+    return `<div class="plan-add"><button class="mini" type="button" data-act="edit" data-k="${wk}" data-f="edit:${wk}" aria-expanded="${open}">${open ? "Close" : "Add plan card"}</button> ${open ? "" : wrMsg(w)}${form}</div>`;
+  }
+
   function posRow(p, D, i) {
     const k = String(p.trade_id);
     const isOpen = state.open.has(k);
@@ -384,6 +535,7 @@ svg.spark { width: 92px; height: 30px; display: block; }
     if (p.off_plan) chips.push(`<span class="chip r">off plan</span>`);
     if (p.blown_max_loss) chips.push(`<span class="chip r">blew max loss ${fmt0(-p.written_max_loss)}</span>`);
     if (p.plan) chips.push(`<span class="chip ${p.plan.late ? "w" : "a"}">plan: ${esc(p.plan.caller)}${p.plan.late ? " · late" : ""}</span>`);
+    if (isOpenPos(p)) chips.push(`<span class="chip w">still open</span>`);
     p.tags.forEach((t) => chips.push(`<span class="chip ${esc(t.kind)}">${esc(t.text)}</span>`));
     const end = Date.parse(D.window.end);
     const fills = p.fills.map((f, j) => {
@@ -405,24 +557,41 @@ svg.spark { width: 92px; height: 30px; display: block; }
         <span class="avg avg-col">in <b>${px(p.avg_in)}</b> → out <b>${px(p.avg_out)}</b>${p.gave_back && p.best_gap > 0.5 ? `<br>${fmt0(p.best_gap, false)} more if all sold at the best exit` : ""}</span>
         <span class="pnl">${pnlTxt}${pct}</span>
       </button>
+      ${posActions(p, D, k)}
       <div class="fills"><div class="tbl-wrap"><table>
         <thead><tr><th>#</th><th>Side</th><th>Qty</th><th>Price</th><th>Cash</th><th>P&amp;L</th><th>Avg in after</th><th>Time (PT)</th></tr></thead>
         <tbody>${fills}</tbody></table></div></div>
     </div>`;
   }
 
-  function renderDetail() {
+  function emptyDaysHTML() {
+    return `<div class="empty"><b>No days in TradeDesk yet.</b><br>Run the export, then ask Claude to import it. Claude reads the export file with <code>import_robinhood</code> and the days appear here on their own.
+      <div class="head-act">${askUI("Import my latest Robinhood export with import_robinhood, then tell me which days came in", "import", "Ask Claude to import")}</div></div>`;
+  }
+
+  const noPlansNote = () => `<div class="notice warn" style="margin-top:12px">No plan cards yet today — rule 4.</div>`;
+
+  function emptyDayHTML(date) {
+    const today = date === todayPT();
+    return `<div class="head"><div><h2>${esc(shortDate(date))} · ${esc(date)}</h2><div class="line-big mut">—</div></div></div>
+      <p class="note">Nothing in TradeDesk for this day yet${today ? ": no fills imported and no plan cards." : "."}</p>
+      ${today && isWeekday(date) ? noPlansNote() : ""}
+      <h3>Plan cards</h3>${canWrite() ? planBlock(date, []) : `<p class="note">No plan cards for this day.</p>`}`;
+  }
+
+  function detailHTML() {
     const D = state.day;
-    const el = $("detail");
-    if (!state.sel) { el.innerHTML = `<div class="empty">Pick a day once TradeDesk answers.</div>`; return; }
+    if (!state.sel) return state.days && !dayRows().length ? emptyDaysHTML() : `<div class="empty">Pick a day once TradeDesk answers.</div>`;
     if (!D || D.date !== state.sel) {
-      el.innerHTML = state.errs.day ? `<div class="empty">This day didn't load (${esc(state.errs.day)}).</div>` : `<div class="empty">Loading ${esc(state.sel)}…</div>`;
-      return;
+      if (state.errs.day === "tool_error") return emptyDayHTML(state.sel);
+      return state.errs.day ? `<div class="empty">This day didn't load (${esc(state.errs.day)}).</div>` : `<div class="empty">Loading ${esc(state.sel)}…</div>`;
     }
     const s = D.stats, F = D.fields || {};
     const flags = [];
     if (s.net <= D.daily_stop) flags.push(`<span class="chip r">daily stop hit</span>`);
     if (s.net >= D.daily_target) flags.push(`<span class="chip g">daily target hit</span>`);
+    const nOpen = D.positions.filter(isOpenPos).length;
+    if (nOpen) flags.push(`<span class="chip w">${nOpen} still open</span>`);
     flags.push(D.size_written_first == null ? `<span class="chip a">size written first: not answered</span>` : `<span class="chip ${D.size_written_first ? "g" : "r"}">size written first: ${D.size_written_first ? "yes" : "no"}</span>`);
     flags.push(F.max_loss_declared == null ? `<span class="chip a">max loss: not declared</span>` : `<span class="chip a">max loss ${fmt0(-Math.abs(F.max_loss_declared))}</span>`);
     if (s.last_fill_pt) flags.push(s.late_fills
@@ -454,10 +623,13 @@ svg.spark { width: 92px; height: 30px; display: block; }
         ${l.available && l.href ? `<a href="http://localhost:5173${esc(l.href)}" target="_blank" rel="noopener">lesson ${esc(l.lesson_id)}</a>` : `<span class="mut">lesson ${esc(l.lesson_id)} · not in the local library yet</span>`}
         <span class="mut">${esc(l.reason)}</span></div>`).join("")}</div>` : "";
 
-    el.innerHTML = `
+    const noPlans = D.date === todayPT() && isWeekday(D.date) && !D.plans.length;
+    const allOpen = D.positions.length > 0 && nOpen === D.positions.length;
+    return `
       <div class="head">
         <div><h2>${esc(shortDate(D.date))} · ${esc(D.date)}</h2>
-          <div class="line-big ${cls(s.net)}" style="margin-top:4px">${fmt(s.net)}</div></div>
+          <div class="line-big ${allOpen ? "mut" : cls(s.net)}" style="margin-top:4px">${allOpen ? "open" : fmt(s.net)}</div>
+          <div class="head-act">${askUI(dayPrompt(D.date), "d:" + D.date, "Ask Claude about this day")}</div></div>
         <div class="chips">${callers.length ? callers.map((c) => `<span class="chip a">caller: ${esc(c)}</span>`).join("") : `<span class="chip a">caller: not answered</span>`}</div>
       </div>
       <div class="kpis">
@@ -469,10 +641,13 @@ svg.spark { width: 92px; height: 30px; display: block; }
         <div class="kpi"><b>${rrTxt(s.rr)}</b><span>R:R, avg win ÷ avg loss${s.rr == null ? "" : ` · ${beTxt(s.break_even_win_pct)}`}</span></div>
       </div>
       <div class="chips" style="margin-top:12px">${flags.join("")}</div>
+      ${nOpen ? `<p class="note"><b>${nOpen} ${nOpen === 1 ? "position is" : "positions are"} still open.</b> Its P&amp;L shows "open" until the exit fills are imported.</p>` : ""}
+      ${noPlans ? noPlansNote() : ""}
       ${F.why ? `<p class="note"><b>Why:</b> ${esc(F.why)}</p>` : ""}
       ${F.how_felt ? `<p class="note"><b>Felt:</b> ${esc(F.how_felt)}</p>` : ""}
       ${F.notes ? `<p class="note">${esc(F.notes)}</p>` : ""}
       <h3>Plan cards</h3><div class="plans">${plans}</div>
+      ${canWrite() ? planBlock(D.date, callers) : ""}
       <div class="controls">
         <label for="sort">Sort <select id="sort">
           <option value="seq">Order taken</option><option value="pnl">Worst P&amp;L first</option><option value="risk">Biggest first</option>
@@ -482,24 +657,171 @@ svg.spark { width: 92px; height: 30px; display: block; }
       </div>
       <div class="pos-list">${rows.map(({ p, i }) => posRow(p, D, i)).join("") || `<div class="empty">${D.positions.length ? "No flagged positions this day." : "No positions this day."}</div>`}</div>
       ${lessons}
-      ${state.errs.day ? `<div class="sec-err">Showing the last good read; the latest refresh failed (${esc(state.errs.day)}).</div>` : ""}`;
-    $("sort").value = state.sort;
-    $("sort").addEventListener("change", (e) => { state.sort = e.target.value; try { localStorage.setItem("dl-sort", state.sort); } catch (er) {} renderDetail(); });
-    $("flagged").addEventListener("change", (e) => { state.flaggedOnly = e.target.checked; renderDetail(); });
+      ${state.errs.day && state.errs.day !== "tool_error" ? `<div class="sec-err">Showing the last good read; the latest refresh failed (${esc(state.errs.day)}).</div>` : ""}`;
+  }
+
+  function renderDetail() {
+    const el = $("detail"), fi = focusInfo(el);
+    el.innerHTML = detailHTML();
+    const sort = $("sort");
+    if (sort) {
+      sort.value = state.sort;
+      sort.addEventListener("change", (e) => { state.sort = e.target.value; try { localStorage.setItem("dl-sort", state.sort); } catch (er) {} renderDetail(); });
+      $("flagged").addEventListener("change", (e) => { state.flaggedOnly = e.target.checked; renderDetail(); });
+    }
     el.querySelectorAll(".pos > button").forEach((b) => b.addEventListener("click", () => {
       const k = b.parentElement.dataset.k;
       state.open.has(k) ? state.open.delete(k) : state.open.add(k);
       b.parentElement.classList.toggle("open");
       b.setAttribute("aria-expanded", b.parentElement.classList.contains("open"));
     }));
+    restoreFocus(el, fi);
+  }
+
+  // ---------- writes ----------
+  function toolMsg(e) {
+    let m = e && e.message ? String(e.message) : "";
+    try { const j = JSON.parse(m); m = (j && j.error && j.error.message) || (j && (j.message || j.detail)) || m; } catch (x) {}
+    return String(m).replace(/\s+/g, " ").trim().slice(0, 200);
+  }
+
+  // A write that fails with server_unavailable / upstream_error may still have run: never retried here, only re-read.
+  function writeFail(e) {
+    const code = e?.code || "upstream_error";
+    switch (code) {
+      case "cancelled": return { cls: "warn", msg: "Not saved: you declined the confirm in the app. Nothing was written." };
+      case "tool_error": return { cls: "bad", msg: "Not saved: " + (toolMsg(e) || "TradeDesk rejected it.") };
+      case "server_unavailable":
+      case "upstream_error": return { cls: "warn", ambiguous: true, msg: "No answer from TradeDesk, so this may or may not have saved. Check below, then press Save again only if it is missing." };
+      case "server_not_connected": case "server_not_found": return { cls: "bad", deny: true, msg: "Not saved: the TradeDesk server isn't running." };
+      case "not_in_manifest": return { cls: "bad", deny: true, msg: "Not saved: TradeDesk is turned off for this page." };
+      case "approval_required": return { cls: "warn", deny: true, msg: "Not saved: the app needs your OK before this page can write." };
+      case "blocked_by_policy": return { cls: "bad", deny: true, msg: "Not saved: a policy blocks writes from this page." };
+      default: return { cls: "bad", msg: `Not saved (${code}).` };
+    }
+  }
+
+  async function doWrite(wk, tool, input, okMsg) {
+    if (!state.mcp || (state.wr[wk] && state.wr[wk].s === "saving")) return;
+    state.wr[wk] = { s: "saving", cls: "", msg: "Saving…" };
+    render();
+    try {
+      const r = await state.mcp.callTool(SERVER, tool, input);
+      state.wr[wk] = { s: "saved", cls: "ok", msg: okMsg(r && r.payload) };
+      state.edit.delete(wk); delete state.drafts[wk];
+      try { await state.mcp.invalidate(SERVER, "get_day"); } catch (x) {}
+    } catch (e) {
+      const f = writeFail(e);
+      state.wr[wk] = { s: "error", cls: f.cls, msg: f.msg };
+      if (f.deny) banner(bannerFor(e.code));
+      if (f.ambiguous) { try { await state.mcp.invalidate(SERVER, "get_day"); } catch (x) {} }
+    }
+    render();
+  }
+
+  function formVals(form) {
+    const o = {};
+    for (const el of form.elements) if (el.name) o[el.name] = el.value;
+    return o;
+  }
+
+  function failValidation(wk, msg) { state.wr[wk] = { s: "error", cls: "bad", msg }; render(); }
+
+  function saveTrade(wk, form) {
+    const v = formVals(form), d = (state.drafts[wk] ||= {});
+    Object.assign(d, v);
+    const caller = v.caller.trim(), notes = v.notes.trim(), grade = v.grade;
+    if (caller && !CALLER_RE.test(caller)) return failValidation(wk, "Caller: 1-40 letters, digits, spaces, _ . -");
+    if (!caller && !notes && !grade) return failValidation(wk, "Nothing to save: set a caller, a grade or notes.");
+    const input = { trade_id: Number(wk.slice(2)) };
+    if (caller) input.caller = caller;
+    if (grade) input.grade = grade;
+    if (notes) input.notes = notes;
+    if (caller) state.lastCaller = caller;
+    doWrite(wk, "annotate_trade", input, (p) => `Saved ${(p && p.written && p.written.join(", ")) || "changes"}.`);
+  }
+
+  function savePlan(wk, form) {
+    const v = formVals(form), d = (state.drafts[wk] ||= {});
+    Object.assign(d, v);
+    const date = wk.slice(5), caller = v.caller.trim(), contract = v.contract.trim(), size = num(v.size), max = num(v.max);
+    if (!caller || !CALLER_RE.test(caller)) return failValidation(wk, "Caller: 1-40 letters, digits, spaces, _ . -");
+    if (!CONTRACT_RE.test(contract)) return failValidation(wk, "Contract looks like SPY 580P (add an expiry like 10/17 if not 0DTE).");
+    if (!(size > 0)) return failValidation(wk, "Size $ must be a number above 0.");
+    if (!(max > 0)) return failValidation(wk, "Max loss $ must be a number above 0.");
+    if (max > size) return failValidation(wk, "Max loss can't be more than the size.");
+    const input = { caller, contract: contract.toUpperCase(), size_usd: size, max_loss_usd: max, session_date: date };
+    if (v.target.trim()) input.target = v.target.trim();
+    if (v.note.trim()) input.note = v.note.trim();
+    state.lastCaller = caller;
+    doWrite(wk, "add_plan", input, (p) => `Plan card added: ${contract.toUpperCase()}${p && p.matched ? " (matched a trade)" : ""}.`);
+  }
+
+  // Clipboard write happens synchronously inside the click handler; if it is refused, a visible text box is selected instead.
+  function askCopy(btn) {
+    const text = btn.dataset.ask, key = btn.dataset.akey;
+    const done = (mode) => {
+      state.ask = { key, text, mode };
+      render();
+      if (mode === "manual") { const t = document.querySelector("textarea.askbox"); if (t) { t.focus(); t.select(); } }
+      else setTimeout(() => { if (state.ask && state.ask.key === key && state.ask.mode === "copied") { state.ask = null; render(); } }, 3000);
+    };
+    let pr;
+    try { pr = navigator.clipboard.writeText(text); } catch (e) { pr = null; }
+    if (!pr || typeof pr.then !== "function") { done("manual"); return; }
+    pr.then(() => done("copied"), () => done("manual"));
+  }
+
+  function bindWrap() {
+    const wrap = document.querySelector(".wrap");
+    wrap.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b) return;
+      const act = b.dataset.act, k = b.dataset.k;
+      if (act === "ask") { askCopy(b); return; }
+      if (act === "edit") {
+        if (state.edit.has(k)) { state.edit.delete(k); } else {
+          state.edit.add(k);
+          if (state.wr[k] && state.wr[k].s !== "saving") delete state.wr[k];
+        }
+        render();
+        if (state.edit.has(k)) { const f = document.querySelector(`[data-f="${CSS.escape(k + "|caller")}"]`); if (f) f.focus(); }
+      } else if (act === "cancel") {
+        if (state.wr[k] && state.wr[k].s === "saving") return;
+        state.edit.delete(k); delete state.drafts[k]; delete state.wr[k]; render();
+      } else if (act === "plan-today") {
+        const t = todayPT();
+        if (!t) return;
+        state.edit.add("plan:" + t);
+        if (t !== state.sel) select(t); else render();
+        $("detail").scrollIntoView({ block: "start" });
+      }
+    });
+    wrap.addEventListener("input", (e) => {
+      const f = e.target.closest && e.target.closest("form[data-form]");
+      if (f && e.target.name) (state.drafts[f.dataset.form] ||= {})[e.target.name] = e.target.value;
+    });
+    wrap.addEventListener("submit", (e) => {
+      const f = e.target.closest("form[data-form]");
+      if (!f) return;
+      e.preventDefault();
+      const wk = f.dataset.form;
+      if (wk.startsWith("p:")) saveTrade(wk, f); else if (wk.startsWith("plan:")) savePlan(wk, f);
+    });
   }
 
   function render() {
     renderFresh();
-    renderLine();
     const rows = dayRows();
     if (state.days) {
-      if (rows.length && (!state.sel || !rows.some((r) => r.date === state.sel))) { state.sel = rows[rows.length - 1].date; watchDay(); }
+      const keep = state.sel && (rows.some((r) => r.date === state.sel) || state.sel === todayPT());
+      if (rows.length && !keep) state.sel = rows[rows.length - 1].date;
+      else if (!rows.length && state.sel && !(state.picked && state.sel === todayPT())) state.sel = null;
+    }
+    syncWatches();
+    renderLine();
+    renderLock();
+    if (state.days) {
       renderStrip(rows);
       renderAcross(rows);
     }
@@ -530,11 +852,22 @@ svg.spark { width: 92px; height: 30px; display: block; }
     };
   }
 
-  function watchDay() {
-    if (state.unwatchDay) { state.unwatchDay(); state.unwatchDay = null; }
-    if (!state.mcp || !state.sel) return;
-    delete state.errs.day;
-    state.unwatchDay = state.mcp.watchTool(SERVER, "get_day", { date: state.sel }, onEvent("day", true), { refetchInterval: 60000 });
+  // The open day and (when different) today's day each get one watch. Stops come before starts so no identity is registered twice.
+  function syncWatches() {
+    if (!state.mcp) return;
+    const wantDay = state.sel || null, t = todayPT(), wantToday = t && t !== wantDay ? t : null;
+    if (wantDay === state.wDay && wantToday === state.wToday) return;
+    if (wantDay !== state.wDay && state.unDay) { state.unDay(); state.unDay = null; state.wDay = null; }
+    if (wantToday !== state.wToday && state.unToday) { state.unToday(); state.unToday = null; state.wToday = null; state.todayDay = null; delete state.errs.todayDay; }
+    if (wantDay && wantDay !== state.wDay) {
+      delete state.errs.day;
+      state.wDay = wantDay;
+      state.unDay = state.mcp.watchTool(SERVER, "get_day", { date: wantDay }, onEvent("day", true), { refetchInterval: 60000 });
+    }
+    if (wantToday && wantToday !== state.wToday) {
+      state.wToday = wantToday;
+      state.unToday = state.mcp.watchTool(SERVER, "get_day", { date: wantToday }, onEvent("todayDay", true), { refetchInterval: 60000 });
+    }
   }
 
   async function loadOnce() {
@@ -548,13 +881,13 @@ svg.spark { width: 92px; height: 30px; display: block; }
 
   function select(d) {
     if (d === state.sel) return;
-    state.sel = d; state.open.clear(); state.flaggedOnly = false;
+    state.sel = d; state.picked = true; state.open.clear(); state.flaggedOnly = false;
     try { localStorage.setItem("dl-day", d); } catch (e) {}
-    watchDay();
     render();
     $("detail").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
+  bindWrap();
   (async () => {
     const mcp = window.claude ? await window.claude.use("mcp").catch(() => null) : null;
     state.mcp = mcp;
@@ -562,7 +895,7 @@ svg.spark { width: 92px; height: 30px; display: block; }
     mcp.watchTool(SERVER, "line_status", null, onEvent("line", true), { refetchInterval: 60000 });
     mcp.watchTool(SERVER, "list_days", null, onEvent("days", true), { refetchInterval: 60000 });
     mcp.watchTool(SERVER, "patterns", {}, onEvent("pat", true), { refetchInterval: 120000 });
-    watchDay();
+    syncWatches();
     render();
   })();
 })();
