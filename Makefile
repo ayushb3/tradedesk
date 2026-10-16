@@ -1,4 +1,4 @@
-.PHONY: help dev backend frontend install install-backend install-frontend test tunnel knowledge-ingest knowledge-concepts knowledge-sheets knowledge-install
+.PHONY: desk-mcp desk-mcp-mock desk-mcp-check help dev backend frontend install install-backend install-frontend test tunnel knowledge-ingest knowledge-concepts knowledge-sheets knowledge-install
 
 help:
 	@echo "TradeDesk"
@@ -97,3 +97,24 @@ tunnel:
 		exit 1; \
 	}
 	cloudflared tunnel --url http://localhost:5173
+
+# -- Desk MCP server (stdio) ------------------------------------------------ #
+# `make install` creates backend/.venv (POSIX: bin/python; Windows: Scripts/python.exe).
+# Override with: make desk-mcp PYTHON=/path/to/python  (or DESK_PYTHON=...).
+ifeq ($(origin PYTHON),command line)
+DESK_PYTHON ?= $(PYTHON)
+endif
+DESK_PYTHON ?= $(firstword $(wildcard backend/.venv/Scripts/python.exe backend/.venv/bin/python) python3)
+
+# Run the `tradedesk` MCP server over stdio (real data unless TRADEDESK_MODE=mock).
+desk-mcp:
+	$(DESK_PYTHON) backend/scripts/desk_mcp.py
+
+# Same server over the synthetic fixture DB (no real data).
+desk-mcp-mock:
+	TRADEDESK_MODE=mock $(DESK_PYTHON) backend/scripts/desk_mcp.py
+
+# Spawn the server via the MCP client, list tools, call status + line_status, print a summary.
+# Mock: TRADEDESK_MODE=mock make desk-mcp-check
+desk-mcp-check:
+	$(DESK_PYTHON) backend/scripts/desk_mcp_check.py
