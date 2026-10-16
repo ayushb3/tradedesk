@@ -1,6 +1,6 @@
 # TradeDesk: the AI-driven desk (plan)
 
-> **Tracking:** epic [#112](https://github.com/ayushb3/tradedesk/issues/112) slices this plan into issues #89–#111 and #114 (label `ai-desk`), in build order.
+> **Tracking:** epic [#27](https://github.com/ayushb3/tradedesk/issues/27) slices this plan into issues #3–#26 (label `ai-desk`), in build order.
 >
 > **Source:** copied from the WorkNotes vault note `Personal/TradeDesk/2026-10-15-ai-driven-desk-plan.md` (2026-10-15, reviewed). Names in *italics* are vault notes, not repo files. The checkboxes below are not the status; the epic is.
 
@@ -49,7 +49,7 @@ This is the experience the phases build toward. Everything below happens in the 
 v1 is phases 0–5 and 7. Phases 6, 8 and the "Later" list come after v1 is used for two trading weeks.
 
 ### 0. Clean base
-- [ ] Merge [ayushb3/tradedesk#88](https://github.com/ayushb3/tradedesk/pull/88) once CI is green. Rebase Ayush's uncommitted `feat/m7a-trade-review` work onto it afterwards; the two must not fight over `imports.py`.
+- [ ] Merge [ayushb3/tradedesk#1](https://github.com/ayushb3/tradedesk/pull/1) once CI is green. Rebase Ayush's uncommitted `feat/m7a-trade-review` work onto it afterwards; the two must not fight over `imports.py`.
 - [ ] Fix the naive-UTC timestamp bug: the API sends aware UTC, the frontend and the page format in PT. One `display_tz` setting, default `America/Los_Angeles`, labelled "PT" on every time.
 - [ ] Stable trade ids across re-imports (keyed on the opening fill id), so notes, plans and AI annotations never orphan. Seam from *2026-10-13-tradedesk-reset-investigation*. Re-key `debriefs`, `agent_sessions` and `scenarios.source_trade_id` in the same change.
 - [ ] The DB is `data/desk.db` (decided 2026-10-15: the name stays broker-agnostic, so a second broker never means a rename). The current `data/robinhood.db` data moves into it. Write the path in the repo's `CLAUDE.md`. Every tool, script and skill reads the same file.
