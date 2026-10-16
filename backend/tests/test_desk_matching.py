@@ -273,3 +273,14 @@ def test_days_api_exposes_plan_fields(isolated_db, rules):
     assert sorted(p["status"] for p in body["plans"]) == ["matched", "unmatched"]
     summary = c.get("/api/days").json()["days"][0]
     assert summary["blown_max_loss"] is True
+
+
+
+def test_size_written_first_falls_back_to_day_fields_without_plans(temp_engine, rules):
+    """No plan cards that day: the self-reported day field is the answer."""
+    from app.desk.day_fields import upsert_day_fields
+
+    import_fills(Static(trade("a", 580, T0 + 5 * MIN, 1.00, 1.50)), temp_engine)
+    assert day(temp_engine, rules).size_written_first is False  # no cards, no report
+    upsert_day_fields(D, size_written_first=True, engine=temp_engine)
+    assert day(temp_engine, rules).size_written_first is True

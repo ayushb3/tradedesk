@@ -190,8 +190,13 @@ def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
         res, loaded, rules, fields, plans=shown,
         plans_not_taken=sum(1 for p in shown if p.status == "unmatched"),
         off_plan_count=sum(1 for lp in loaded if lp.off_plan),
+        # Plan cards are the evidence when the day has any; a day with no cards
+        # (e.g. before the desk existed) falls back to the self-reported day field.
         size_written_first=(
-            all(lp.plan is not None and not lp.plan.late for lp in loaded) if loaded else None
+            all(lp.plan is not None and not lp.plan.late for lp in loaded)
+            if loaded and plans
+            else (fields.size_written_first if fields and fields.size_written_first is not None
+                  else (False if loaded else None))
         ),
         blown_max_loss=any(a.blown_max_loss for a in res.positions),
     )
