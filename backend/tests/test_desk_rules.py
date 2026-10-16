@@ -31,7 +31,7 @@ def test_example_is_valid_and_has_nine_rules():
     assert validate(EXAMPLE) == []
     rules = load_rules(EXAMPLE_PATH)
     assert [r.number for r in rules.rules] == list(range(1, 10))
-    assert rules.lessons == {}
+    assert all(l.lesson_id.startswith("ex-") for v in rules.lessons.values() for l in v)
     assert rules.window.start == "06:30" and rules.window.end == "08:30"
 
 

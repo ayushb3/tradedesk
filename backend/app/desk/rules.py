@@ -121,8 +121,12 @@ def validate(text: str) -> list[str]:
         seen.add(r.number)
         if r.number < 1:
             errors.append(f"unknown rule number {r.number}")
-    # Lessons keyed "rule_<n>" may only cite rules that exist.
+    # Lesson patterns must be a known ledger tag code (or rule_<n>).
+    from app.desk.lessons import is_known_pattern
+
     for pattern in model.lessons:
+        if not is_known_pattern(pattern):
+            errors.append(f"lessons: unknown pattern {pattern}")
         if pattern.startswith("rule_"):
             try:
                 n = int(pattern.split("_", 1)[1])

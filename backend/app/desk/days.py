@@ -167,6 +167,7 @@ class DayData:
     off_plan_count: int = 0
     size_written_first: bool | None = None  # True only if every trade has a non-late plan
     blown_max_loss: bool = False
+    engine: Engine | None = None  # the DB this day was read from (lesson lookups)
 
 
 def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
@@ -199,6 +200,7 @@ def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
                   else (False if loaded else None))
         ),
         blown_max_loss=any(a.blown_max_loss for a in res.positions),
+        engine=engine,
     )
 
 

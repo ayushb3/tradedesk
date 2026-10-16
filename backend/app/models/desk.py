@@ -155,6 +155,21 @@ class DaysResponse(BaseModel):
     days: list[DaySummary]
 
 
+class LessonLinkOut(BaseModel):
+    """A lesson that addresses a flagged pattern. Id and the user's reason only."""
+
+    pattern: str
+    lesson_id: str
+    reason: str = ""
+    href: str | None = None  # /knowledge/lessons/{id} when the id resolves locally
+    available: bool = False
+
+
+class RecurringLesson(LessonLinkOut):
+    days: int  # days in the range on which the pattern appeared
+    positions: int  # positions carrying the pattern across the range
+
+
 class DayDetail(BaseModel):
     tz: str
     as_of: UtcDatetime | None = None
@@ -170,6 +185,7 @@ class DayDetail(BaseModel):
     off_plan_count: int = 0
     size_written_first: bool | None = None  # derived: every trade has a non-late plan
     blown_max_loss: bool = False
+    lessons: list[LessonLinkOut] = Field(default_factory=list)
 
 
 class BiggestRisk(BaseModel):
@@ -202,6 +218,7 @@ class PatternsResponse(BaseModel):
     late_fills: int
     stops: StopUsageOut
     biggest_risk: BiggestRisk | None = None
+    lessons: list[RecurringLesson] = Field(default_factory=list)  # patterns on 2+ days
 
 
 class LineToday(BaseModel):
