@@ -147,6 +147,10 @@ class DaySummary(BaseModel):
     has_fields: bool
     off_plan_count: int = 0
     blown_max_loss: bool = False
+    # Full day stats and the day's callers, so one list call can fill an across-days table.
+    stats: DayStatsOut | None = None
+    callers: list[str] = Field(default_factory=list)
+    size_written_first: bool | None = None
 
 
 class DaysResponse(BaseModel):

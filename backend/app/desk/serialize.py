@@ -72,6 +72,13 @@ def position_out(lp, a, rules: Rules) -> PositionOut:
     )
 
 
+def day_callers(d) -> list[str]:
+    """Callers for the day: the self-report's list, else the plan cards' callers."""
+    if d.fields is not None and d.fields.callers:
+        return list(d.fields.callers)
+    return list(dict.fromkeys(p.caller for p in d.plans if p.caller))
+
+
 def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
     out = [
         DaySummary(
@@ -80,6 +87,8 @@ def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
             rr=d.result.stats.rr, max_risk_x_stop=d.result.stats.max_risk_x_stop,
             late_fills=d.result.stats.late_fills, has_fields=d.fields is not None,
             off_plan_count=d.off_plan_count, blown_max_loss=d.blown_max_loss,
+            stats=stats_out(d.result.stats, rules), callers=day_callers(d),
+            size_written_first=d.size_written_first,
         )
         for d in reversed(days)
     ]
