@@ -75,6 +75,21 @@ The live provider reads the token from disk automatically.
 | `1` | Timeout — SMS not verified within the timeout window. Run again. |
 | `2` | Unexpected error (bad credentials, network, SDK not installed). |
 
+## import_robinhood.py — Robinhood option fills from the read-only export
+
+Loads `raw-option-orders-<start>.json` (written by the separate, guarded
+read-only exporter; never commit it) into the fills table and rebuilds trades.
+No network, no login, no order entry.
+
+```bash
+python backend/scripts/import_robinhood.py ../rh-export/out/raw-option-orders-2026-09-29.json --db data/robinhood.db
+TRADEDESK_DB_PATH=$PWD/data/robinhood.db make backend
+```
+
+Re-running with the same or a newer overlapping export is safe (fills are keyed
+by Robinhood order id). Keep real data in its own DB file: the mock provider's
+Import button is refused (409) once a DB holds real fills.
+
 ## Upgrading an older local database (legacy table prefix)
 
 Earlier local builds stored the knowledge-base tables under a different name

@@ -4,6 +4,15 @@
  * without guarding at every call site.
  */
 
+/**
+ * Zone every clock time in the UI is shown in. Ayush trades from the US West
+ * Coast and his rules are written in Pacific time, so the UI shows PT. Storage
+ * stays UTC and the trading session/day logic stays US Eastern (exchange time);
+ * only the displayed wall clock changes.
+ */
+export const DISPLAY_TZ = "America/Los_Angeles";
+export const DISPLAY_TZ_LABEL = "PT";
+
 /** TradingView-ish green/red used across the app for P&L and direction. */
 export const PNL_GREEN = "#26a69a";
 export const PNL_RED = "#ef5350";
@@ -109,13 +118,12 @@ export function formatDayMonth(iso: string | null | undefined): string {
 }
 
 /**
- * ISO timestamp → `HH:MM` in US Eastern (the trading-session clock).
+ * ISO timestamp → `HH:MM` in the display zone (`DISPLAY_TZ`, Pacific).
  *
- * Timestamps come off the backend as UTC (`fills.ts_utc`), but the whole UI
- * reasons in ET — the chart plots in `America/New_York` and every caller of
- * this helper labels the result "ET". Formatting in ET here keeps the header,
- * day cards, and fills table agreeing with the chart (and DST-aware: EDT/EST
- * handled by the timezone, not a fixed offset).
+ * Timestamps come off the backend as UTC ending in `Z`. The charts' time axes
+ * use the same zone, so the header, day cards and fills table agree with the
+ * chart (DST handled by the zone, not a fixed offset). Callers label the
+ * result with `DISPLAY_TZ_LABEL`.
  */
 export function formatClock(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -125,6 +133,6 @@ export function formatClock(iso: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "America/New_York",
+    timeZone: DISPLAY_TZ,
   });
 }

@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from app.models.knowledge import KnowledgeSearchHit
 from app.models.training import ScenarioCreate
+from app.models.utc import UtcDatetime
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +159,7 @@ class AgentMessageResponse(BaseModel):
     content_md: str
     citations: list[KnowledgeSearchHit] = Field(default_factory=list)
     payload: CriticResult | None = None
-    ts: datetime
+    ts: UtcDatetime
 
 
 class AgentSessionResponse(BaseModel):
@@ -169,7 +170,7 @@ class AgentSessionResponse(BaseModel):
     id: int
     kind: str                  # "critic" (M9b/M9c add "tutor" | "mapper")
     subject_ref: str           # e.g. "trade:42"
-    started_at: datetime
+    started_at: UtcDatetime
     messages: list[AgentMessageResponse] = Field(default_factory=list)
 
 
@@ -179,7 +180,7 @@ class AgentSessionSummary(BaseModel):
     id: int
     kind: str
     subject_ref: str
-    started_at: datetime
+    started_at: UtcDatetime
     message_count: int
 
 

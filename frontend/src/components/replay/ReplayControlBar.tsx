@@ -41,6 +41,7 @@ import {
   type ReplayConfig,
 } from "@/lib/replayConfig";
 import { overlaySpecs, LEVEL_META } from "@/components/replay/ReplayChart";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 
 interface ReplayControlBarProps {
   replay: ReplayState;
@@ -141,7 +142,7 @@ export function ReplayControlBar({
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
 
-        {/* Jump-to-time input + ET label */}
+        {/* Jump-to-time input + display-zone label */}
         <JumpToTimeInput replay={replay} disabled={off} />
 
         {/* Divider */}
@@ -263,10 +264,10 @@ function JumpToTimeInput({
         ]
           .filter(Boolean)
           .join(" ")}
-        aria-label="Jump to time (ET)"
-        title="Jump to time (ET) — type HH:MM and press Enter"
+        aria-label={`Jump to time (${DISPLAY_TZ_LABEL})`}
+        title={`Jump to time (${DISPLAY_TZ_LABEL}) — type HH:MM and press Enter`}
       />
-      <span className="text-[10px] text-muted-foreground">ET</span>
+      <span className="text-[10px] text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
     </div>
   );
 }

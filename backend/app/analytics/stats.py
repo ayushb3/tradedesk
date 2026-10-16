@@ -8,7 +8,7 @@ reader (`app.ingest.sim.list_sim_trades`) so analytics works off replay trades
 without depending on data-eng's import timing.
 
 The actual number-crunching lives in small pure helpers (`compute_summary`,
-`_group_stats`, `_et_hour_bucket`, …) that take plain `Trade` lists so QA can
+`_group_stats`, `_hour_bucket`, …) that take plain `Trade` lists so QA can
 unit-test them on hand-built fixtures with no database.
 
 Definitions (frozen contract):
@@ -194,13 +194,13 @@ def _group_stats(key: str, trades: list[Trade]) -> dict:
     }
 
 
-def _et_hour_bucket(open_ts: datetime) -> str:
-    """ET hour-of-day bucket (e.g. '09:00') for a stored naive-UTC timestamp."""
+def _hour_bucket(open_ts: datetime, tz: str) -> str:
+    """Hour-of-day bucket (e.g. '06:00') in zone `tz` for a naive-UTC timestamp."""
     dt = open_ts
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    et = dt.astimezone(_ET)
-    return f"{et.hour:02d}:00"
+    local = dt.astimezone(ZoneInfo(tz))
+    return f"{local.hour:02d}:00"
 
 
 # --------------------------------------------------------------------------- #
@@ -278,7 +278,7 @@ def by_dimension(
 
     dimension in {ticker, tod, tag, setup}:
       - ticker -> symbol
-      - tod    -> ET hour-of-day bucket of open_ts
+      - tod    -> display-zone (PT by default) hour-of-day bucket of open_ts
       - tag / setup -> each tag name (a trade with N tags hits N groups)
     """
     if dimension not in {"ticker", "tod", "tag", "setup"}:
@@ -290,11 +290,14 @@ def by_dimension(
     def _add(key: str, trade: Trade) -> None:
         groups.setdefault(key, []).append(trade)
 
+    from app.config import get_settings
+
+    display_tz = get_settings().display_tz
     for t in trades:
         if dimension == "ticker":
             _add(t.symbol, t)
         elif dimension == "tod":
-            _add(_et_hour_bucket(t.open_ts), t)
+            _add(_hour_bucket(t.open_ts, display_tz), t)
         else:  # tag | setup — one group per tag name
             for tg in t.tags:
                 _add(tg.name, t)

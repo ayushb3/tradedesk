@@ -29,6 +29,7 @@ def import_fills(
     # import in webull mode, so mock/demo data never silently masquerades as
     # the user's real trades in normal use.
     try:
+        from app.ingest.imports import MixedFillSourcesError
         from app.ingest.imports import import_fills as _import
     except ImportError:
         raise HTTPException(status_code=501, detail="fill import not implemented")
@@ -45,6 +46,8 @@ def import_fills(
         return _import(provider, full=full)
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="fill import not implemented")
+    except MixedFillSourcesError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except WebullTokenPending as exc:
         # Token missing/PENDING/expired — user must (re)run the auth script and
         # verify via the mobile app. 503: the dependency isn't ready yet.

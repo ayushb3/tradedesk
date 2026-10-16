@@ -15,6 +15,7 @@ import { TradePanel } from "@/components/replay/TradePanel";
 import { useReplaySession } from "@/lib/queries";
 import { useReplay } from "@/lib/useReplay";
 import { formatEt, valueAt } from "@/lib/chart";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
@@ -133,7 +134,7 @@ function ChartLegend({
   return (
     <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-xs backdrop-blur">
       <span className="font-semibold tracking-tight">{session.symbol}</span>
-      <span className="tabular text-muted-foreground">{barTime} ET</span>
+      <span className="tabular text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {specs.map((o) => {
           const v = valueAt(session.indicators[o.key as IndicatorKey], currentIndex);

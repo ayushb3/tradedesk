@@ -133,7 +133,7 @@ def test_breakeven_is_neither_win_nor_loss():
 
 
 # --------------------------------------------------------------------------- #
-# by_dimension('tod') — ET hour buckets (DB-backed via sim seeding)
+# by_dimension('tod') — display-zone (PT) hour buckets (DB-backed via sim seeding)
 # --------------------------------------------------------------------------- #
 def _seed(symbol, session_date, entry_iso, exit_iso, entry_px, exit_px,
           qty=100, engine=None):
@@ -149,11 +149,11 @@ def _seed(symbol, session_date, entry_iso, exit_iso, entry_px, exit_px,
     )
 
 
-def test_by_dimension_tod_buckets_by_et_hour(isolated_db):
+def test_by_dimension_tod_buckets_by_display_hour(isolated_db):
     from app.db.connection import get_engine
 
     engine = get_engine()  # settings now point at the temp DB
-    # 13:30 UTC == 09:30 ET -> "09:00" bucket ; 15:15 UTC == 11:15 ET -> "11:00".
+    # 13:30 UTC == 06:30 PT -> "06:00" bucket ; 15:15 UTC == 08:15 PT -> "08:00".
     _seed("AAA", date(2026, 6, 10), "2026-06-10T13:30:00Z", "2026-06-10T13:45:00Z",
           10.0, 11.0, engine=engine)
     _seed("BBB", date(2026, 6, 10), "2026-06-10T15:15:00Z", "2026-06-10T15:30:00Z",
@@ -161,12 +161,12 @@ def test_by_dimension_tod_buckets_by_et_hour(isolated_db):
 
     rows = by_dimension("tod")
     buckets = {r["key"]: r for r in rows}
-    assert set(buckets) == {"09:00", "11:00"}
-    assert buckets["09:00"]["trade_count"] == 1
-    assert buckets["09:00"]["pnl"] == 100.0
-    assert buckets["11:00"]["pnl"] == -100.0
+    assert set(buckets) == {"06:00", "08:00"}
+    assert buckets["06:00"]["trade_count"] == 1
+    assert buckets["06:00"]["pnl"] == 100.0
+    assert buckets["08:00"]["pnl"] == -100.0
     # ranked by pnl desc
-    assert rows[0]["key"] == "09:00"
+    assert rows[0]["key"] == "06:00"
 
 
 def test_by_dimension_unknown_raises(isolated_db):

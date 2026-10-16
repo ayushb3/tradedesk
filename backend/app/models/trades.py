@@ -5,6 +5,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+from app.models.utc import UtcDatetime
 
 
 class Side(str, Enum):
@@ -38,7 +39,7 @@ class Fill(BaseModel):
     side: Side
     qty: float
     price: float
-    ts: datetime  # UTC
+    ts: UtcDatetime  # UTC
     fees: float = 0.0
     multiplier: float = 1.0  # options contract multiplier (100 for equity options, 1 for stocks)
     # Option contract identity — extracted from legs[0] by the Webull mapper.
@@ -73,8 +74,8 @@ class Trade(BaseModel):
     # for stocks.  Set by _rebuild_trades; None on pre-fix rows and sim trades.
     contract_label: str | None = None
     direction: Direction
-    open_ts: datetime
-    close_ts: datetime | None = None
+    open_ts: UtcDatetime
+    close_ts: UtcDatetime | None = None
     session_date: date  # ET trading date
     qty: float
     avg_entry: float

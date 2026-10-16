@@ -25,6 +25,7 @@ import {
   formatPercent,
   formatPnl,
   pnlColorClass,
+  DISPLAY_TZ_LABEL,
 } from "@/lib/format";
 import { useDailyReview, useDayTrades } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -201,7 +202,7 @@ function TradeCard({
       <div className="flex items-center justify-between gap-2">
         <p className="tabular text-[10px] text-muted-foreground">
           {formatClock(trade.open_ts)}
-          {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} ET
+          {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} {DISPLAY_TZ_LABEL}
         </p>
         <Button
           variant="outline"

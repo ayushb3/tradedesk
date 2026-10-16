@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.models.market import Candle
 from app.models.trades import Direction, Grade, Side, Trade
+from app.models.utc import UtcDatetime
 
 
 class ReviewFill(BaseModel):
@@ -29,7 +30,7 @@ class ReviewFill(BaseModel):
     side: Side
     qty: float
     price: float
-    ts: datetime  # UTC
+    ts: UtcDatetime  # UTC
     fees: float = 0.0
     role: str  # "entry" | "exit"
 
@@ -92,8 +93,8 @@ class Sparkline(BaseModel):
     symbol: str
     timeframe: str
     values: list[float]
-    t0: datetime
-    t1: datetime
+    t0: UtcDatetime
+    t1: UtcDatetime
 
 
 class DayTradeCard(BaseModel):
@@ -106,8 +107,8 @@ class DayTradeCard(BaseModel):
     r_multiple: float | None = None
     hold_time_s: int | None = None
     grade: Grade | None = None
-    open_ts: datetime
-    close_ts: datetime | None = None
+    open_ts: UtcDatetime
+    close_ts: UtcDatetime | None = None
     simulated: bool = False
     sparkline: Sparkline | None = None
 

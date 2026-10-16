@@ -22,6 +22,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from app.models.market import Candle
+from app.models.utc import UtcDatetime
 
 
 # --------------------------------------------------------------------------- #
@@ -148,7 +149,7 @@ class ScenarioPublic(BaseModel):
     checklist_template_id: int | None = None
     blind_default: bool = False
     active: bool = True
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class ScenarioSessionResponse(BaseModel):
@@ -187,7 +188,7 @@ class AttemptAction(BaseModel):
     action: AttemptActionType
     price: float | None = None
     qty: float | None = None
-    ts: datetime  # wall-clock UTC when the user acted (hesitation metric)
+    ts: UtcDatetime  # wall-clock UTC when the user acted (hesitation metric)
 
 
 class AttemptCreate(BaseModel):
@@ -207,8 +208,8 @@ class Attempt(BaseModel):
 
     id: int
     scenario_id: int
-    started_at: datetime
-    finished_at: datetime | None = None
+    started_at: UtcDatetime
+    finished_at: UtcDatetime | None = None
     mood_checkin: MoodCheckin | None = None
     actions: list[AttemptAction] = Field(default_factory=list)
 
@@ -279,7 +280,7 @@ class Debrief(BaseModel):
     feelings: list[dict] = Field(default_factory=list)
     verdict: DebriefVerdict | None = None
     scenario_id: int | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class DebriefFinish(BaseModel):
