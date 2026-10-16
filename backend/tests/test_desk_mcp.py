@@ -250,6 +250,7 @@ def test_stdio_server_lists_tools_and_serves_line_status(tmp_path):
     names = {t.name for t in listed.tools}
     assert names == {
         "status", "rules", "list_days", "get_day", "get_trade", "patterns", "line_status",
+        "import_robinhood", "add_plan", "annotate_trade", "day_fields",
     }
     assert not line.isError
     payload = json.loads(line.content[0].text)
