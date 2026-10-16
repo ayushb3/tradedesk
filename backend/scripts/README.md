@@ -142,11 +142,11 @@ then fully restart the desktop app:
 {
   "mcpServers": {
     "tradedesk": {
-      "command": "C:\path\to\tradedesk\backend\.venv\Scripts\python.exe",
-      "args": ["C:\path\to\tradedesk\backend\scripts\desk_mcp.py"],
+      "command": "C:\\path\\to\\tradedesk\\backend\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\tradedesk\\backend\\scripts\\desk_mcp.py"],
       "env": {
-        "TRADEDESK_DB_PATH": "C:\path\to\tradedesk\data\desk.db",
-        "TRADEDESK_RULES_PATH": "C:\path\to\tradedesk\data\rules.yaml"
+        "TRADEDESK_DB_PATH": "C:\\path\\to\\tradedesk\\data\\desk.db",
+        "TRADEDESK_RULES_PATH": "C:\\path\\to\\tradedesk\\data\\rules.yaml"
       }
     }
   }
@@ -164,11 +164,11 @@ Project-scoped `.mcp.json` at that repo's root:
   "mcpServers": {
     "tradedesk": {
       "type": "stdio",
-      "command": "C:\path\to\tradedesk\backend\.venv\Scripts\python.exe",
-      "args": ["C:\path\to\tradedesk\backend\scripts\desk_mcp.py"],
+      "command": "C:\\path\\to\\tradedesk\\backend\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\tradedesk\\backend\\scripts\\desk_mcp.py"],
       "env": {
-        "TRADEDESK_DB_PATH": "C:\path\to\tradedesk\data\desk.db",
-        "TRADEDESK_RULES_PATH": "C:\path\to\tradedesk\data\rules.yaml"
+        "TRADEDESK_DB_PATH": "C:\\path\\to\\tradedesk\\data\\desk.db",
+        "TRADEDESK_RULES_PATH": "C:\\path\\to\\tradedesk\\data\\rules.yaml"
       }
     }
   }
