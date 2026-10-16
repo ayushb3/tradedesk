@@ -464,3 +464,30 @@ day_fields = Table(
     Column("notes", Text, nullable=False, default=""),
     Column("updated_at", DateTime, nullable=False),
 )
+
+
+# -- Desk plans (issue #9) -- #
+# A written plan card per trade, with its time (rule 4). created_at is naive UTC in the
+# DB; the API shows it as PT. matched_trade_id points at trades.id, which is stable across
+# re-imports (issue #3), so plans survive a full re-import. `late` is set when the plan
+# was written after the opening fill of the trade it matches.
+plans = Table(
+    "plans",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("created_at", DateTime, nullable=False),  # UTC
+    Column("session_date", Text, nullable=False),    # ISO date, PT trading day
+    Column("caller", Text, nullable=False),
+    Column("symbol", Text, nullable=False),
+    Column("option_type", Text),                      # CALL | PUT | NULL
+    Column("strike", Float),
+    Column("expiry", Text),                           # ISO date
+    Column("size_usd", Float, nullable=False),
+    Column("max_loss_usd", Float, nullable=False),
+    Column("target", Text),
+    Column("note", Text, nullable=False, default=""),
+    Column("status", Text, nullable=False, default="open"),  # open | matched | unmatched
+    Column("late", Boolean, nullable=False, default=False),
+    Column("matched_trade_id", Integer, ForeignKey("trades.id")),
+    Index("ix_plans_session_date", "session_date"),
+)
