@@ -58,6 +58,10 @@ def get_engine(db_path: str | None = None) -> Engine:
     url = _db_url(db_path)
     engine = _engines.get(url)
     if engine is None:
+        # data/ is gitignored and absent on a fresh clone; create it on first use.
+        file_part = url.removeprefix("sqlite:///")
+        if file_part and file_part != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(file_part)), exist_ok=True)
         engine = create_engine(url, future=True)
         # WAL mode + a busy timeout so readers never block behind a writer and a
         # brief write-lock contention waits rather than erroring. This keeps the

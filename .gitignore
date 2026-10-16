@@ -18,6 +18,8 @@ dist/
 .vite/
 
 # Local data (never commit)
+# Real local data (desk DB, personal rules, exports): never committed.
+data/
 *.db
 *.db-shm
 *.db-wal

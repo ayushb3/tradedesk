@@ -1,0 +1,26 @@
+# PLACEHOLDER rules. The real file is data/rules.yaml (gitignored), copied from
+# this one on first run and thereafter rewritten through the rules conversation.
+timezone: America/Los_Angeles
+window:
+  start: "06:30"   # PT wall-clock
+  end: "08:30"     # PT wall-clock; fills after this are late
+daily_stop: -100
+daily_target: 200
+loss_line:
+  amount: 1000
+  start_date: 2026-01-01
+default_risk_pct: 30   # percent of premium when no max loss is written
+account_size:
+  source_path: rh-export/out/account.json
+  fallback: 5000
+rules:
+  - {number: 1, text: "Rule 1: example rule text"}
+  - {number: 2, text: "Rule 2: example rule text"}
+  - {number: 3, text: "Rule 3: example rule text"}
+  - {number: 4, text: "Rule 4: example rule text"}
+  - {number: 5, text: "Rule 5: example rule text"}
+  - {number: 6, text: "Rule 6: example rule text"}
+  - {number: 7, text: "Rule 7: example rule text"}
+  - {number: 8, text: "Rule 8: example rule text"}
+  - {number: 9, text: "Rule 9: example rule text"}
+lessons: {}
