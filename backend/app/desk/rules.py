@@ -112,6 +112,13 @@ def validate(text: str) -> list[str]:
         errors.append("daily_stop must be negative")
     if model.daily_target <= 0:
         errors.append("daily_target must be positive")
+    if model.loss_line.amount <= 0:
+        errors.append("loss_line.amount must be positive")
+    elif model.daily_stop < 0 and -model.daily_stop > model.loss_line.amount:
+        errors.append(
+            f"daily_stop {model.daily_stop:g} is bigger than the whole loss line "
+            f"{model.loss_line.amount:g}"
+        )
     if not 0 < model.default_risk_pct <= 100:
         errors.append("default_risk_pct must be between 0 and 100")
     seen: set[int] = set()
