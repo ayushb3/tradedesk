@@ -28,6 +28,7 @@ import {
   useImportFills,
   useTrades,
 } from "@/lib/queries";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 
 const ALL = "all";
 
@@ -173,7 +174,7 @@ export function JournalPage() {
                 isError={byTicker.isError}
               />
               <Breakdown
-                title="By time of day"
+                title={`By time of day (${DISPLAY_TZ_LABEL})`}
                 keyLabel="Session"
                 rows={byTod.data}
                 loading={byTod.isLoading}

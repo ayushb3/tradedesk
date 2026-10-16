@@ -32,11 +32,12 @@ P&L math:
 """
 from __future__ import annotations
 
+import hashlib
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Engine
 
 from app.db.connection import get_engine, init_db
@@ -49,6 +50,21 @@ from app.models.trades import Direction, Fill, TradeStatus
 
 ET = ZoneInfo("America/New_York")
 UTC = ZoneInfo("UTC")
+
+# Fills imported from a broker export file (not the live provider) carry this
+# provider_fill_id prefix. A live provider's full refresh and its incremental
+# cursor leave them alone: they are another broker's history, not stale data.
+EXPORT_FILL_PREFIXES = ("rh-",)
+
+
+class MixedFillSourcesError(ValueError):
+    """Raised when demo (mock) fills would be merged into real fills."""
+
+
+def _not_export_fill():
+    """SQL filter: fill did not come from a broker export file."""
+    pfid = fills_t.c.provider_fill_id
+    return or_(pfid.is_(None), and_(*(~pfid.like(p + "%") for p in EXPORT_FILL_PREFIXES)))
 
 
 def _to_naive_utc(value) -> datetime:
@@ -76,7 +92,9 @@ def _latest_fill_ts(conn) -> datetime | None:
     for fills newer than this, instead of re-walking the full history.
     """
     row = conn.execute(
-        select(func.max(fills_t.c.ts_utc)).where(fills_t.c.simulated.is_(False))
+        select(func.max(fills_t.c.ts_utc))
+        .where(fills_t.c.simulated.is_(False))
+        .where(_not_export_fill())
     ).scalar()
     return row.replace(tzinfo=timezone.utc) if row is not None else None
 
@@ -95,14 +113,39 @@ def _has_mock_fills(conn) -> bool:
     return row is not None
 
 
+def _has_real_fills(conn) -> bool:
+    """True if any stored non-sim fill is not mock-origin."""
+    row = conn.execute(
+        select(fills_t.c.id)
+        .where(fills_t.c.simulated.is_(False))
+        .where(or_(fills_t.c.provider_fill_id.is_(None),
+                   ~fills_t.c.provider_fill_id.like("mock-%")))
+        .limit(1)
+    ).first()
+    return row is not None
+
+
 # --------------------------------------------------------------------------- #
 # Fill upsert
 # --------------------------------------------------------------------------- #
+def _synthetic_fill_id(f: Fill, dup_index: int) -> str:
+    """Deterministic id for a fill the provider sent without one.
+
+    Hash of the execution facts plus its index among identical fills in the same
+    batch, so re-importing the same fills yields the same ids (no duplicates).
+    """
+    facts = "|".join(str(x) for x in (
+        f.account, f.symbol, f.side.value, float(f.qty), float(f.price),
+        _to_naive_utc(f.ts).isoformat(), f.option_type, f.strike, f.expiry, dup_index,
+    ))
+    return "nid-" + hashlib.sha1(facts.encode()).hexdigest()[:20]
+
+
 def _upsert_fills(conn, provider_fills: list[Fill]) -> int:
     """Insert any not-yet-seen non-simulated fills. Returns count inserted.
 
-    Dedupe key is `provider_fill_id`; fills without one are always inserted
-    (a provider that omits ids cannot be deduped).
+    Dedupe key is `provider_fill_id`. Fills without one get a deterministic
+    synthetic id (`_synthetic_fill_id`) so a re-import cannot duplicate them.
     """
     existing = {
         r[0]
@@ -113,9 +156,15 @@ def _upsert_fills(conn, provider_fills: list[Fill]) -> int:
         ).fetchall()
     }
     inserted = 0
+    seen_facts: dict[str, int] = {}
     for f in provider_fills:
         pfid = f.provider_fill_id
-        if pfid is not None and pfid in existing:
+        if pfid is None:
+            base = _synthetic_fill_id(f, 0)
+            dup = seen_facts.get(base, 0)
+            seen_facts[base] = dup + 1
+            pfid = base if dup == 0 else _synthetic_fill_id(f, dup)
+        if pfid in existing:
             continue
         conn.execute(
             fills_t.insert().values(
@@ -135,8 +184,7 @@ def _upsert_fills(conn, provider_fills: list[Fill]) -> int:
                 raw_json=f.raw_json,
             )
         )
-        if pfid is not None:
-            existing.add(pfid)
+        existing.add(pfid)
         inserted += 1
     return inserted
 
@@ -670,6 +718,9 @@ def import_fills(provider, engine: Engine | None = None, *, full: bool = False) 
     # for the whole walk and the Journal's own reads (trades/analytics) stall
     # behind it, hanging the page while a live sync is in flight.
     provider_fills = provider.get_fills(since=since)
+    incoming_mock = any(
+        (f.provider_fill_id or "").startswith("mock-") for f in provider_fills
+    )
 
     # Phase 3 (fast, write): wipe (only on a full import) + upsert + rebuild.
     # The wipe preserves the cutover guard that clears stale simulated=False
@@ -681,9 +732,20 @@ def import_fills(provider, engine: Engine | None = None, *, full: bool = False) 
         # that _snapshot_enrichment relies on for the stable trade_key. Taking it
         # here (pre-wipe) keeps the key derivable; the same provider_fill_id comes
         # back on re-import, so restore re-matches it. (issue #66)
+        if incoming_mock and _has_real_fills(conn):
+            # Demo fills must never land next to real ones (e.g. the Journal's
+            # Import button in mock mode after a Robinhood export import).
+            raise MixedFillSourcesError(
+                "refusing to import demo (mock) fills into a database that holds "
+                "real fills; point TRADEDESK_DB_PATH at a separate demo database"
+            )
         snapshot = _snapshot_enrichment(conn)
         if force_full:
-            conn.execute(fills_t.delete().where(fills_t.c.simulated.is_(False)))
+            conn.execute(
+                fills_t.delete()
+                .where(fills_t.c.simulated.is_(False))
+                .where(_not_export_fill())
+            )
         fills_imported = _upsert_fills(conn, provider_fills)
         trades_built = _rebuild_trades(conn, snapshot)
 

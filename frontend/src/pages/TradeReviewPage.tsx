@@ -48,6 +48,7 @@ import {
   formatPercent,
   formatPnl,
   pnlColorClass,
+  DISPLAY_TZ_LABEL,
 } from "@/lib/format";
 import {
   useAgentStatus,
@@ -427,7 +428,7 @@ function ReviewHeader({ trade, label }: { trade: Trade; label: string }) {
         )}
         <span className="tabular ml-auto text-xs text-muted-foreground">
           {formatClock(trade.open_ts)}
-          {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} ET ·{" "}
+          {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} {DISPLAY_TZ_LABEL} ·{" "}
           {formatHoldTime(trade.hold_time_s)}
         </span>
       </div>

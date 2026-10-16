@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from app.models.utc import UtcDatetime
 
 
 class KnowledgeSearchHit(BaseModel):
@@ -205,7 +206,7 @@ class KnowledgeLessonSheet(BaseModel):
     rules_md: str
     diagram_mermaid: str | None = None
     quiz: list[KnowledgeQuizQuestion] = Field(default_factory=list)
-    generated_at: datetime | None = None
+    generated_at: UtcDatetime | None = None
     model: str | None = None
 
 
@@ -244,7 +245,7 @@ class KnowledgeProgressResponse(BaseModel):
 
     lesson_id: int | None = None
     status: KnowledgeLessonStatus
-    updated_at: datetime | None = None
+    updated_at: UtcDatetime | None = None
 
 
 # KnowledgeLessonResponse forward-references KnowledgeProgressResponse (defined below it).

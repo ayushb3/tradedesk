@@ -1,6 +1,6 @@
 # TradeDesk — Product Roadmap & Ecosystem Vision
 
-Status: **Living document — last updated 2026-07-15.** This is the
+Status: **Living document — last updated 2026-10-15.** This is the
 session-to-session source of truth for milestone state (the former
 `docs/HANDOFF-NEXT.md` is retired). §3 carries the current status tree;
 GitHub issues carry the slice-level detail.
@@ -82,6 +82,14 @@ Why this order:
    fills work; market data still awaits the OpenAPI quotes subscription, which
    gates nothing in M7–M9 (mock-first like everything else).
 
+### Robinhood fill import (landed 2026-10-15)
+
+Trading moved to Robinhood. `backend/scripts/import_robinhood.py` loads the
+read-only order export (decision #14 in `docs/DECISIONS.md`) into the same
+fills -> FIFO trades path, so Journal, day view and Trade Review work on real
+Robinhood option trades. Next: chart the option contract's own price with the
+fills on it (real option bars rather than the estimated premium, see #79).
+
 ### Cross-cutting: data-quality track (no milestone, chip away alongside)
 
 The M9 agents' qualitative + quantitative advice is only as good as the fill
@@ -89,13 +97,14 @@ data underneath. Known gaps, roughly in order of analytic impact:
 
 | Issue | Gap | Why it distorts analysis |
 |---|---|---|
-| #77 (follow-up) | Stored fill `ts` may disagree with the chart by >1h (not a tz offset) | Entry/exit timing patterns, "traded outside plan window" checks |
+| #77 (follow-up, fixed 2026-10-15) | Trade/fill times showed hours late in a non-UTC browser | Cause: the API sent naive UTC datetimes without `Z`, which the browser parsed as local time. Fixed with `app/models/utc.py::UtcDatetime` (JSON always ends in `Z`); re-check the original >1h report against the chart before closing | Entry/exit timing patterns, "traded outside plan window" checks |
 | #21 | Expired/assigned 0DTE options have no closing fill → `net_pnl=None`, excluded from calendar | Daily P&L wrong on 0DTE days; critic never sees those trades |
 | #18 | Fees/commissions all zero from order history (~3% P&L gap) | Small-win trades may actually be losers |
 | #19 / #14 | `Fill.account=None` on imports | No per-account attribution (MARGIN vs CASH) |
 | #15 | Multi-leg/spread orders flattened per-leg | Wrong grouping the day a spread is traded |
 | #79 | Option premium charts are synthetic BS estimates; index options (SPXW/NDX) get none | Premium-curve review is approximate; Databento wiring specced |
 | #68 | Daily Review journal prompt answers don't persist | Qualitative self-review data silently lost |
+| — (closed 2026-10-15) | Fills without a provider id duplicated on every re-import | Fixed: deterministic `nid-` ids; Robinhood fills keyed by order id (`rh-`) |
 
 ---
 

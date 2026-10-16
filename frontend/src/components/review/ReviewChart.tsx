@@ -14,7 +14,8 @@ import {
 } from "lightweight-charts";
 
 import type { Candle, CriticAdherence, ReviewFill } from "@/lib/api";
-import { isoToUtcSeconds, makeEtFormatters, toCandlestickData } from "@/lib/chart";
+import { isoToUtcSeconds, makeDisplayFormatters, toCandlestickData } from "@/lib/chart";
+import { DISPLAY_TZ } from "@/lib/format";
 
 // Keep in sync with the dark theme (mirrors ReplayChart CHART_THEME).
 const CHART_THEME = {
@@ -122,7 +123,7 @@ export function ReviewChart({
   candles,
   fills,
   timeframe,
-  tz = "America/New_York",
+  tz = DISPLAY_TZ,
   hoveredFillId,
   onHoverFill,
   priceBands,
@@ -147,7 +148,7 @@ export function ReviewChart({
     const el = containerRef.current;
     if (!el) return;
 
-    const et = makeEtFormatters(tz);
+    const et = makeDisplayFormatters(tz);
     const chart = createChart(el, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },

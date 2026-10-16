@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from app.models.utc import UtcDatetime
 
 
 class Candle(BaseModel):
     """A single OHLCV bar. `ts` is the bar's OPEN time in UTC."""
 
     symbol: str
-    ts: datetime  # UTC, bar open time
+    ts: UtcDatetime  # UTC, bar open time
     open: float
     high: float
     low: float

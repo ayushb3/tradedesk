@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     mode: Literal["mock", "webull"] = "mock"
     db_path: str = "./tradedesk.db"
     tz: str = "America/New_York"
+    # Wall-clock zone for times shown to the user (TRADEDESK_DISPLAY_TZ). The
+    # trading session/day logic stays on `tz` (exchange time); this only moves
+    # displayed clock times, e.g. the time-of-day buckets. Matches the frontend's
+    # DISPLAY_TZ (frontend/src/lib/format.ts).
+    display_tz: str = "America/Los_Angeles"
     watch_tickers: str = "RIVN,HOOD"
     or_minutes: int = 5
 

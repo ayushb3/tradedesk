@@ -22,6 +22,7 @@ import {
   type TradeDirection,
 } from "@/lib/api";
 import { formatEt } from "@/lib/chart";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import { useCreateSimTrade } from "@/lib/queries";
 
 interface Fill {
@@ -246,7 +247,7 @@ function FillRow({
       <div className="flex items-center justify-between">
         <Label>{label}</Label>
         <span className="tabular text-[11px] text-muted-foreground">
-          {fill ? formatEt(fill.ts, tz) + " ET" : "not set"}
+          {fill ? `${formatEt(fill.ts, tz)} ${DISPLAY_TZ_LABEL}` : "not set"}
         </span>
       </div>
       <div className="flex gap-2">

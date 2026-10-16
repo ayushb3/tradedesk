@@ -13,6 +13,7 @@ import type {
   WhitespaceData,
 } from "lightweight-charts";
 import type { AlignedSeries, Candle } from "@/lib/api";
+import { DISPLAY_TZ } from "@/lib/format";
 
 /** ISO 8601 UTC string -> UTCTimestamp (epoch seconds). */
 export function isoToUtcSeconds(iso: string): UTCTimestamp {
@@ -87,11 +88,11 @@ export function valueAt(
 }
 
 /**
- * Time-axis formatters that render UTC bar timestamps in the session's
- * exchange timezone (America/New_York). lightweight-charts passes intraday
- * `time` as epoch SECONDS, so multiply by 1000 for the Intl formatter.
+ * Time-axis formatters that render UTC bar timestamps in the display zone
+ * (`DISPLAY_TZ`, Pacific). lightweight-charts passes intraday `time` as epoch
+ * SECONDS, so multiply by 1000 for the Intl formatter.
  */
-export function makeEtFormatters(tz: string) {
+export function makeDisplayFormatters(tz: string = DISPLAY_TZ) {
   const hm = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     hour: "2-digit",
@@ -109,15 +110,23 @@ export function makeEtFormatters(tz: string) {
   const toMs = (time: unknown): number =>
     typeof time === "number" ? time * 1000 : Date.parse(String(time));
   return {
-    // axis tick labels (HH:MM in ET)
+    // axis tick labels (HH:MM, display zone)
     tickMarkFormatter: (time: unknown) => hm.format(toMs(time)),
-    // crosshair label (Mon DD, HH:MM in ET)
+    // crosshair label (Mon DD, HH:MM, display zone)
     timeFormatter: (time: unknown) => full.format(toMs(time)),
   };
 }
 
-/** Format an ISO UTC timestamp as an ET clock time (HH:MM:SS). */
-export function formatEt(iso: string, tz: string): string {
+/**
+ * Older names, kept so existing callers compile. They used to take the
+ * session's exchange zone; the argument is now ignored and the result is in
+ * the display zone, like everything else.
+ */
+export const makeEtFormatters = (_sessionTz?: string) => makeDisplayFormatters();
+export const formatEt = (iso: string, _sessionTz?: string) => formatDisplayTime(iso);
+
+/** Format an ISO UTC timestamp as a display-zone clock time (HH:MM:SS). */
+export function formatDisplayTime(iso: string, tz: string = DISPLAY_TZ): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     hour: "2-digit",

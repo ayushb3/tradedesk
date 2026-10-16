@@ -45,6 +45,7 @@ import { ApiError } from "@/lib/api";
 import { useReplaySession } from "@/lib/queries";
 import { useReplayEngine } from "@/lib/useReplayEngine";
 import { formatEt } from "@/lib/chart";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import {
   ALL_ATTEMPT_ACTION_TYPES,
   ARCHETYPE_LABELS,
@@ -679,7 +680,7 @@ function BarOverlay({
       <span className="tabular text-muted-foreground">
         bar {currentBar + 1} / {total}
       </span>
-      <span className="tabular text-muted-foreground">{barTime} ET</span>
+      <span className="tabular text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
       {markers.map(({ label, bar, color }) => (
         <span key={label} className="flex items-center gap-1">
           <span
