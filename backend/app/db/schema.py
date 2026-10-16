@@ -491,3 +491,19 @@ plans = Table(
     Column("matched_trade_id", Integer, ForeignKey("trades.id")),
     Index("ix_plans_session_date", "session_date"),
 )
+
+
+# -- Desk MCP audit log (issue #12) -- #
+# One row per write-tool call, accepted or rejected. ts is naive UTC (shown as PT).
+# args_json is sanitized before it gets here: nothing shaped like an account/order id.
+audit = Table(
+    "audit",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ts", DateTime, nullable=False),  # UTC
+    Column("tool", Text, nullable=False),
+    Column("args_json", Text, nullable=False, default="{}"),
+    Column("result", Text, nullable=False),  # "ok" | "error: <reason>"
+    Column("mode", Text, nullable=False),    # mock | real
+    Index("ix_audit_ts", "ts"),
+)
