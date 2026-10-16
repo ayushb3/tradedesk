@@ -13,6 +13,9 @@ numpy==1.26.4
 webull-openapi-python-sdk==2.0.13
 # 6.2.2 optional: only needed when TRADEDESK_LLM=api (developer pay-per-token billing)
 anthropic>=0.40.0
+# Desk MCP server (stdio). 1.12.4 is the newest release that installs alongside the
+# pinned fastapi/starlette 0.41 and pydantic 2.10 (mcp>=1.13 needs pydantic>=2.11 / starlette 1.x).
+mcp==1.12.4
 # dev/test
 pytest==8.3.4
 httpx==0.28.1
