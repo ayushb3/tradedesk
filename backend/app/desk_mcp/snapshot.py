@@ -22,19 +22,20 @@ INSTRUCTIONS = (
     "action set, collection, doc_id and data exactly as given."
 )
 
-_STATS = ("net", "entries", "positions", "win_pct", "avg_win", "avg_loss", "rr",
+_STATS = ("net", "realized_before_fees", "fees", "entries", "positions", "win_pct", "avg_win", "avg_loss", "rr",
           "break_even_win_pct", "max_risk", "max_risk_x_stop", "max_risk_pct_account",
           "add_lower", "held_loser", "gave_back", "runner_paid", "deployed", "late_fills",
           "last_fill_pt", "stops", "n_wins", "n_losses", "n_closed", "sum_wins", "sum_losses")
 _POSITION = ("trade_key", "label", "ticker", "type", "strike", "expiry", "status", "qty_in",
-             "cost", "avg_in", "avg_out", "pnl", "r", "off_plan", "blown_max_loss")
-_FILL = ("side", "qty", "px", "cash", "ts_pt", "order_type", "pnl")
+             "cost", "avg_in", "avg_out", "pnl", "fees", "realized_before_fees", "r", "off_plan", "blown_max_loss")
+_FILL = ("side", "qty", "px", "cash", "ts_pt", "order_type", "pnl", "fees",
+         "realized_before_fees")
 _PLAN = ("created_pt", "caller", "symbol", "option_type", "strike", "size_usd",
          "max_loss_usd", "status", "late")
 _FIELDS = ("why", "how_felt", "notes", "callers", "size_written_first", "max_loss_declared",
            "closed_by_window_end")
 _LESSON = ("pattern", "lesson_id", "reason", "available")
-_PATTERNS = ("days", "net", "green_days", "green_sum", "red_days", "red_sum", "n_closed",
+_PATTERNS = ("days", "net", "realized_before_fees", "fees", "green_days", "green_sum", "red_days", "red_sum", "n_closed",
              "n_wins", "n_losses", "win_pct", "avg_win", "avg_loss", "rr",
              "break_even_win_pct", "tag_counts", "late_days", "late_fills", "stops",
              "biggest_risk")
@@ -119,7 +120,8 @@ def push_phone_snapshot(
         "generated_pt": generated_pt,
         "latest_date": days[0]["date"] if days else date,
         "line": {
-            **_pick(ls, ("amount", "start_date", "pnl", "left", "trades_counted")),
+            **_pick(ls, ("amount", "start_date", "pnl", "fees", "pnl_before_fees", "left",
+                          "trades_counted")),
             "line_hit": ls["today"]["line_hit"],
         },
         "as_of": meta_t["as_of"],

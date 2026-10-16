@@ -6,6 +6,11 @@ dataclasses too, so the API, the MCP server and migration scripts can all reuse 
 Conventions
 - P&L is on average cost, fees included (``cash`` already nets fees).
 - Option contracts are x100 (``CONTRACT_MULT``).
+- Fees per fill = the gap between cash moved and qty * px * 100 (buy: -cash - gross, sell:
+  gross - cash), clamped at 0 and rounded to cents. "Realized
+  before fees" is what the broker's options tab shows: ``pnl + fees``. Like ``pnl`` it
+  exists only for closed positions, and day / range ``fees`` count closed positions only,
+  so ``realized_before_fees - fees == net`` always holds. Rules (stop, target, line) stay on net.
 - ``Rules.daily_stop`` is negative; its magnitude is the per-day stop.
 - ``Rules.default_risk_pct`` is a percent of premium (30 means 30%), used as the
   risk for R when no max loss was written for the day.
@@ -85,6 +90,8 @@ class FillRow:
     pnl: float | None  # sells only: on average cost
     pnl_pct: float | None
     avg_in_after: float | None  # buys only: average entry price after this fill
+    fees: float = 0.0
+    realized_before_fees: float | None = None  # sells only: gross of fees, on average price
 
 
 @dataclass
@@ -113,6 +120,8 @@ class PositionAnalysis:
     n_buys: int
     written_max_loss: float | None = None  # plan's, else the day's; None if none written
     blown_max_loss: bool = False  # closed at a loss bigger than the written max loss
+    fees: float = 0.0  # every fill of the position (an open one shows fees paid so far)
+    realized_before_fees: float | None = None  # closed only: pnl + fees
 
 
 @dataclass
@@ -142,6 +151,8 @@ class DayStats:
     n_closed: int
     sum_wins: float
     sum_losses: float
+    fees: float = 0.0  # closed positions only, so realized_before_fees - fees == net
+    realized_before_fees: float = 0.0
 
 
 @dataclass
@@ -171,9 +182,20 @@ class AcrossDays:
     late_days: list[date]
     late_fills: int
     stops: StopUsage
+    fees: float = 0.0
+    realized_before_fees: float = 0.0
 
 
 # ---------------------------------------------------------------- helpers
+
+def _cents(x: float) -> float:
+    return round(x + 0.0, 2)
+
+
+def fill_fees(f: Fill) -> float:
+    """Fees paid on one fill: how far cash falls short of gross premium, never negative, to the cent."""
+    gross = f.qty * f.px * CONTRACT_MULT
+    return max(0.0, _cents(-f.cash - gross if f.side == "B" else gross - f.cash))
 
 def rr(avg_win: float | None, avg_loss: float | None) -> float | None:
     """Reward:risk = average win / |average loss|."""
@@ -203,22 +225,33 @@ def fill_rows(p: Position) -> list[FillRow]:
     run_cost = 0.0
     px_q = 0
     px_cost = 0.0
+    gross_q = 0
+    gross_cost = 0.0  # remaining cost at fill price, fees excluded
     rows: list[FillRow] = []
     for f in p.fills:
-        avg_now = fp = fp_pct = None
+        avg_now = fp = fp_pct = gross = None
         if f.side == "B":
             run_q += f.qty
             run_cost += -f.cash
             px_q += f.qty
             px_cost += f.px * f.qty
             avg_now = px_cost / px_q
+            gross_q += f.qty
+            gross_cost += f.px * f.qty * CONTRACT_MULT
         elif run_q > 0:
             basis = (run_cost / run_q) * f.qty
             fp = f.cash - basis
             fp_pct = fp / basis * 100 if basis else None
             run_cost -= basis
             run_q -= f.qty
-        rows.append(FillRow(f.side, f.qty, f.px, f.cash, f.ts, f.otype, fp, fp_pct, avg_now))
+            gbasis = (gross_cost / gross_q) * f.qty
+            gross = _cents(f.px * f.qty * CONTRACT_MULT - gbasis)
+            gross_cost -= gbasis
+            gross_q -= f.qty
+        rows.append(FillRow(
+            f.side, f.qty, f.px, f.cash, f.ts, f.otype, fp, fp_pct, avg_now,
+            fees=fill_fees(f), realized_before_fees=gross,
+        ))
     return rows
 
 
@@ -237,6 +270,8 @@ def analyze_position(
     avg_out = sum(f.px * f.qty for f in sells) / qty_out if qty_out else None
     closed = p.status != "open"
     pnl = proceeds - cost if closed else None
+    fees = _cents(sum(fill_fees(f) for f in p.fills))
+    gross_realized = _cents(pnl + fees) if pnl is not None else None
 
     run_q = 0
     run_cost = 0.0
@@ -278,6 +313,7 @@ def analyze_position(
         runner_paid=runner_paid, gave_back=gave_back, held_loser=held_loser,
         best_gap=best_gap, risk_x=risk_x, risk=risk, r=r, tags=[], n_buys=len(buys),
         written_max_loss=written, blown_max_loss=blown,
+        fees=fees, realized_before_fees=gross_realized,
     )
     a.tags = tags_for(a)
     return a
@@ -349,6 +385,8 @@ def analyze_day(
         stops=day.stops,
         n_wins=len(wins), n_losses=len(losses), n_closed=len(closed),
         sum_wins=sum(wins), sum_losses=sum(losses),
+        fees=_cents(sum(a.fees for a in closed)),
+        realized_before_fees=_cents(sum(a.realized_before_fees for a in closed)),
     )
     return DayResult(day=day.date, positions=ps, stats=stats)
 
@@ -384,4 +422,6 @@ def across_days(results: list[DayResult]) -> AcrossDays:
         late_days=[s.date for s in stats if s.late_fills > 0],
         late_fills=sum(s.late_fills for s in stats),
         stops=stops,
+        fees=_cents(sum(s.fees for s in stats)),
+        realized_before_fees=_cents(sum(s.realized_before_fees for s in stats)),
     )

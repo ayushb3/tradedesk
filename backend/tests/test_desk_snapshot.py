@@ -50,13 +50,14 @@ def test_shape_and_default_date(ctx):
                          ("snapshot_week", "current")}
     meta = docs[("snapshot", "meta")]
     assert meta["latest_date"] == "2026-10-13" and meta["generated_pt"] == "8:52 PT"
-    assert set(meta["line"]) == {"amount", "start_date", "pnl", "left", "trades_counted",
+    assert set(meta["line"]) == {"amount", "start_date", "pnl", "fees", "pnl_before_fees", "left", "trades_counted",
                                  "line_hit"}
     day = docs[("snapshot_days", "2026-10-13")]
     assert day["date"] == "2026-10-13" and len(day["positions"]) == 2
     pos = day["positions"][0]
     assert {"trade_key", "label", "pnl", "r", "tags", "plan", "off_plan", "fills"} <= set(pos)
-    assert set(pos["fills"][0]) == {"side", "qty", "px", "cash", "ts_pt", "order_type", "pnl"}
+    assert set(pos["fills"][0]) == {"side", "qty", "px", "cash", "ts_pt", "order_type", "pnl",
+                                     "fees", "realized_before_fees"}
     assert {"stats", "plans", "fields", "lessons", "off_plan_count", "plans_not_taken",
             "size_written_first", "daily_stop", "daily_target", "window"} <= set(day)
     week = docs[("snapshot_week", "current")]

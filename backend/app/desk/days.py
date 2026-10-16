@@ -259,6 +259,8 @@ class LineStatus:
     rules: Rules
     now: datetime
     pnl: float
+    fees: float
+    pnl_before_fees: float
     left: float
     trades_counted: int
     state: str  # before_window | in_window | closed
@@ -281,18 +283,23 @@ def line_status(
     today = _pt_date(rules, now)
     with engine.connect() as conn:
         rows = conn.execute(
-            select(trades_t.c.session_date, trades_t.c.net_pnl)
+            select(trades_t)
             .where(_base_filter())
             .where(trades_t.c.status == "closed")
             .where(trades_t.c.session_date >= rules.loss_line.start_date)
         ).fetchall()
+        # Fees on the very same closed trades the line counts.
+        by_day = _load_positions(conn, rules, rows)
+    fees = round(sum(
+        ledger.fill_fees(f) for lps in by_day.values() for lp in lps for f in lp.position.fills
+    ), 2)
     pnl = sum(float(r.net_pnl or 0.0) for r in rows)
     today_net = sum(float(r.net_pnl or 0.0) for r in rows if r.session_date == today)
     left = rules.loss_line.amount + min(0.0, pnl)
     start, end = window_bounds(rules, today)
     state = "before_window" if now < start else "in_window" if now <= end else "closed"
     return LineStatus(
-        rules=rules, now=now, pnl=pnl, left=left, trades_counted=len(rows), state=state,
+        rules=rules, now=now, pnl=pnl, fees=fees, pnl_before_fees=round(pnl + fees, 2), left=left, trades_counted=len(rows), state=state,
         today=today, today_net=today_net,
         stop_hit=today_net <= rules.daily_stop,
         target_hit=today_net >= rules.daily_target,

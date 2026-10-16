@@ -117,9 +117,9 @@ tbody tr.click:hover td { background: var(--soft); }
 .controls label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 select { font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); }
 
-.pos-list { display: grid; margin-top: 10px; }
+.pos-list { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: 10px; }
 .pos { border-top: 1px solid var(--rule); }
-.pos > button { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 26px minmax(0, 1.6fr) 92px minmax(0, 1fr) 104px; gap: 10px; align-items: center; padding: 10px 4px; }
+.pos > button { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 26px minmax(0, 1.6fr) 92px minmax(0, 1fr) 150px; gap: 10px; align-items: center; padding: 10px 4px; }
 .pos > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .pos > button:hover { background: var(--soft); }
 .seq { font-family: var(--f-num); font-size: 12px; color: var(--muted); }
@@ -177,7 +177,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
 @media (max-width: 640px) {
   .fills, .pos-act, .pos-extra { padding-left: 4px; }
   .eform fieldset { grid-template-columns: minmax(0, 1fr); }
-  .pos > button { grid-template-columns: 22px minmax(0, 1fr) 92px; }
+  .pos > button { grid-template-columns: 22px minmax(0, 1fr) 128px; }
   .pos .avg-col { display: none; }
   .pos .spark-col { grid-column: 2; grid-row: 2; }
   .plan { grid-template-columns: 60px minmax(0, 1fr); }
@@ -206,6 +206,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
       <span class="line-big" id="line-left">—</span>
       <span class="num" id="line-used"></span>
     </div>
+    <div class="sub num" id="line-fees"></div>
     <div class="meter" role="img" id="meter-label" aria-label="Loss line not loaded"><i id="meter" style="width:0%"></i></div>
     <div class="ticks num" id="ticks"><span>$0 lost</span><span></span><span>trading stops</span></div>
     <div class="chips" id="today"></div>
@@ -225,13 +226,13 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     <div class="tbl-wrap" style="margin-top:8px">
       <table id="pat">
         <thead><tr>
-          <th>Day</th><th>Caller</th><th>Net</th><th>Last fill (PT)</th><th>Stop orders</th><th>Entries</th><th>Positions</th><th>Off plan</th><th>Win %</th><th>Avg win / loss</th><th>R:R</th><th>Biggest risk</th><th>Added lower</th><th>Held loser down</th><th>Gave back</th><th>Runner paid</th>
+          <th>Day</th><th>Caller</th><th>Realized</th><th>Fees</th><th>Net</th><th>Last fill (PT)</th><th>Stop orders</th><th>Entries</th><th>Positions</th><th>Off plan</th><th>Win %</th><th>Avg win / loss</th><th>R:R</th><th>Biggest risk</th><th>Added lower</th><th>Held loser down</th><th>Gave back</th><th>Runner paid</th>
         </tr></thead>
         <tbody></tbody>
         <tfoot></tfoot>
       </table>
     </div>
-    <p class="legend"><b>Last fill</b>: red when a fill came after the window closed. <b>Stop orders</b>: stop orders used; "trailed" counts each move, "pulled" means cancelled with no replacement. <b>Off plan</b>: positions with no plan card written before the entry. <b>Added lower</b>: bought more below the running average. <b>Held loser down</b>: a losing position whose later exits were lower than the first. <b>Gave back</b>: a scaled-out winner whose later exits were lower than the first. <b>Runner paid</b>: later exits higher than the first. <b>R:R</b>: average win ÷ average loss, with the win rate it needs to break even. <b>R</b> on a position: P&amp;L ÷ the max loss on its plan card, or the default share of premium when none was written. <b>Biggest risk</b>: the most premium in one position, as a multiple of the daily stop.</p>
+    <p class="legend"><b>Realized</b>: what the broker's options tab reports, before fees. <b>Fees</b>: paid on the closed positions. <b>Net</b> = realized − fees; the daily stop, target and loss line all use net. <b>Last fill</b>: red when a fill came after the window closed. <b>Stop orders</b>: stop orders used; "trailed" counts each move, "pulled" means cancelled with no replacement. <b>Off plan</b>: positions with no plan card written before the entry. <b>Added lower</b>: bought more below the running average. <b>Held loser down</b>: a losing position whose later exits were lower than the first. <b>Gave back</b>: a scaled-out winner whose later exits were lower than the first. <b>Runner paid</b>: later exits higher than the first. <b>R:R</b>: average win ÷ average loss, with the win rate it needs to break even. <b>R</b> on a position: P&amp;L ÷ the max loss on its plan card, or the default share of premium when none was written. <b>Biggest risk</b>: the most premium in one position, as a multiple of the daily stop.</p>
   </section>
 
   <section class="sheet" aria-label="Day detail" id="detail">
@@ -388,6 +389,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     $("line-h").textContent = `The ${fmt0(L.amount, false)} line`;
     $("line-left").innerHTML = `<span class="${L.left <= 0 ? "loss" : ""}">${fmt(L.left, false)}</span> <span class="sub" style="font-family:var(--f-body);font-size:14px;font-weight:400">left before the line</span>`;
     $("line-used").innerHTML = `<span class="${cls(L.pnl)}">${fmt(L.pnl)}</span> <span class="mut">since ${esc(L.start_date)} · ${L.trades_counted} trades</span>`;
+    $("line-fees").innerHTML = L.fees == null ? "" : `fees since ${esc(L.start_date)}: <b>${fmt(L.fees, false)}</b> · before fees <b class="${cls(L.pnl_before_fees)}">${fmt(L.pnl_before_fees)}</b>`;
     $("meter").style.width = pct + "%";
     $("meter-label").setAttribute("aria-label", `${pct.toFixed(0)}% of the loss line used`);
     $("ticks").innerHTML = `<span>$0 lost</span><span>${fmt0(-L.amount / 2)}</span><span>${fmt0(-L.amount)} · trading stops</span>`;
@@ -443,7 +445,9 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
       return `<tr class="click ${r.date === state.sel ? "sel" : ""}" data-d="${r.date}">
         <td>${esc(shortDate(r.date))}</td>
         <td>${caller}</td>
-        <td class="num ${cls(r.net)}">${fmt0(r.net)}</td>
+        <td class="num ${cls(s.realized_before_fees)}">${fmt(s.realized_before_fees)}</td>
+        <td class="num mut">${fmt(s.fees, false)}</td>
+        <td class="num ${cls(r.net)}"><b>${fmt(r.net)}</b></td>
         <td class="num">${!s.last_fill_pt ? "—" : s.late_fills ? `<span class="cell-bad">${hm(s.last_fill_pt)}</span>` : hm(s.last_fill_pt)}</td>
         <td class="num">${!stops ? "—" : !stops.placed ? '<span class="mut">0</span>' : `${stops.placed}${stops.moves ? ` <span class="mut">(trailed ×${stops.moves})</span>` : ""}${stops.pulled ? ` · <span class="cell-bad">${stops.pulled} pulled</span>` : ""}`}</td>
         <td class="num">${r.entries}</td>
@@ -464,7 +468,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     const sum = (k) => rows.reduce((t, r) => t + ((r.stats || {})[k] || 0), 0);
     const off = rows.reduce((t, r) => t + (r.off_plan_count || 0), 0);
     $("pat").querySelector("tfoot").innerHTML = P ? `<tr>
-      <td><b>All</b></td><td></td><td class="num ${cls(P.net)}"><b>${fmt0(P.net)}</b></td>
+      <td><b>All</b></td><td></td><td class="num ${cls(P.realized_before_fees)}">${fmt(P.realized_before_fees)}</td><td class="num mut">${fmt(P.fees, false)}</td><td class="num ${cls(P.net)}"><b>${fmt(P.net)}</b></td>
       <td class="num">${(P.late_days || []).length} late ${(P.late_days || []).length === 1 ? "day" : "days"}</td>
       <td class="num">${P.stops ? `${P.stops.placed} used · trailed ×${P.stops.moves}${P.stops.pulled ? ` · ${P.stops.pulled} pulled` : ""}` : "—"}</td>
       <td class="num">${rows.reduce((t, r) => t + r.entries, 0)}</td><td class="num">${rows.reduce((t, r) => t + r.positions, 0)}</td>
@@ -553,10 +557,11 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
       const fday = f.ts ? new Date(f.ts).toLocaleDateString("en-CA", { timeZone: TZ }) : D.date;
       const pnlCell = f.pnl == null ? `<span class="mut">—</span>` : `<span class="${cls(f.pnl)}">${fmt(f.pnl)}</span> <span class="mut">${f.pnl_pct == null ? "" : f.pnl_pct.toFixed(0) + "%"}</span>`;
       return `<tr><td class="num mut">${j + 1}</td><td class="${f.side === "B" ? "side-b" : "side-s"}">${f.side === "B" ? "Buy" : "Sell"}${f.order_type && f.order_type !== "limit" ? ` <span class="chip ${f.order_type === "stop" ? "g" : "a"}">${esc(f.order_type)}</span>` : ""}</td>
-        <td class="num">${f.qty}</td><td class="num">${px(f.px)}</td><td class="num mut">${fmt(f.cash)}</td><td class="num">${pnlCell}</td>
+        <td class="num">${f.qty}</td><td class="num">${px(f.px)}</td><td class="num mut">${fmt(f.cash)}</td><td class="num mut">${fmt(f.fees, false)}</td><td class="num">${pnlCell}</td>
         <td class="num mut">${f.avg_in_after == null ? "" : px(f.avg_in_after)}</td><td class="num ${late ? "loss" : "mut"}">${fday !== D.date ? fday.slice(5) + " " : ""}${esc(f.ts_pt)}</td></tr>`;
     }).join("");
-    const pnlTxt = p.pnl == null ? `<span class="mut">open</span>` : `<span class="${cls(p.pnl)}">${fmt(p.pnl)}</span>`;
+    const pnlTxt = p.pnl == null ? `<span class="mut">open</span>` : `<span class="${cls(p.pnl)}" title="Net, after fees">${fmt(p.pnl)}</span>`;
+    const split = `<small>${p.realized_before_fees == null ? "" : `realized ${fmt(p.realized_before_fees)} · `}fees ${fmt(p.fees, false)}</small>`;
     const pct = p.pnl == null || !p.cost ? "" : `<small>${pctTxt((p.pnl / p.cost) * 100)}${p.r == null ? "" : ` · <span title="P&amp;L ÷ ${fmt0(p.risk, false)} risk">${p.r >= 0 ? "+" : "−"}${Math.abs(p.r).toFixed(1)}R</span>`}</small>`;
     return `<div class="pos ${isOpen ? "open" : ""}" data-k="${k}">
       <button type="button" aria-expanded="${isOpen}">
@@ -565,11 +570,11 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
           <span class="tags">${chips.join("")}</span></span>
         <span class="spark-col">${spark(p)}</span>
         <span class="avg avg-col">in <b>${px(p.avg_in)}</b> → out <b>${px(p.avg_out)}</b>${p.gave_back && p.best_gap > 0.5 ? `<br>${fmt0(p.best_gap, false)} more if all sold at the best exit` : ""}</span>
-        <span class="pnl">${pnlTxt}${pct}</span>
+        <span class="pnl">${pnlTxt}${split}${pct}</span>
       </button>
       ${posActions(p, D, k)}
       <div class="fills"><div class="tbl-wrap"><table>
-        <thead><tr><th>#</th><th>Side</th><th>Qty</th><th>Price</th><th>Cash</th><th>P&amp;L</th><th>Avg in after</th><th>Time (PT)</th></tr></thead>
+        <thead><tr><th>#</th><th>Side</th><th>Qty</th><th>Price</th><th>Cash</th><th>Fees</th><th>P&amp;L</th><th>Avg in after</th><th>Time (PT)</th></tr></thead>
         <tbody>${fills}</tbody></table></div></div>
     </div>`;
   }
@@ -643,6 +648,9 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
         <div class="chips">${callers.length ? callers.map((c) => `<span class="chip a">caller: ${esc(c)}</span>`).join("") : `<span class="chip a">caller: not answered</span>`}</div>
       </div>
       <div class="kpis">
+        <div class="kpi"><b class="${cls(s.realized_before_fees)}">${allOpen ? "—" : fmt(s.realized_before_fees)}</b><span>realized, before fees (matches the broker)</span></div>
+        <div class="kpi"><b class="mut">${fmt(s.fees, false)}</b><span>fees on closed positions</span></div>
+        <div class="kpi"><b class="${allOpen ? "mut" : cls(s.net)}" style="font-weight:800">${allOpen ? "—" : fmt(s.net)}</b><span>net, after fees · the stop and target use this</span></div>
         <div class="kpi"><b>${s.entries}</b><span>entries (buy fills)</span></div>
         <div class="kpi"><b>${s.positions}</b><span>positions</span></div>
         <div class="kpi"><b>${fmt0(s.deployed, false)}</b><span>premium put to work</span></div>
@@ -918,7 +926,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     if (!M) return;
     state.snap = true;
     const L = M.line || {};
-    state.line = { as_of: M.as_of, amount: L.amount, start_date: L.start_date, pnl: L.pnl, left: L.left, trades_counted: L.trades_counted,
+    state.line = { as_of: M.as_of, amount: L.amount, start_date: L.start_date, pnl: L.pnl, fees: L.fees, pnl_before_fees: L.pnl_before_fees, left: L.left, trades_counted: L.trades_counted,
       state: "snapshot", now_pt: `snapshot ${M.generated_pt}`, today: { line_hit: !!L.line_hit, window: {} } };
     state.days = { as_of: M.as_of, days: (state.snapDays || []).map((d) => ({
       date: d.date, net: d.stats.net, positions: d.stats.positions, entries: d.stats.entries, win_pct: d.stats.win_pct, rr: d.stats.rr,

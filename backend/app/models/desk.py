@@ -56,6 +56,8 @@ class FillOut(BaseModel):
     pnl: float | None = None
     pnl_pct: float | None = None
     avg_in_after: float | None = None
+    fees: float = 0.0
+    realized_before_fees: float | None = None  # sells only
 
 
 class PlanRef(BaseModel):
@@ -98,10 +100,14 @@ class PositionOut(BaseModel):
     off_plan: bool = False
     blown_max_loss: bool = False
     written_max_loss: float | None = None
+    fees: float = 0.0
+    realized_before_fees: float | None = None  # closed only: pnl + fees
 
 
 class DayStatsOut(BaseModel):
     net: float
+    realized_before_fees: float = 0.0  # closed positions; the broker's realized figure
+    fees: float = 0.0  # closed positions; realized_before_fees - fees == net
     entries: int
     positions: int
     win_pct: float | None = None
@@ -138,6 +144,8 @@ class WindowOut(BaseModel):
 class DaySummary(BaseModel):
     date: date_type
     net: float
+    realized_before_fees: float = 0.0
+    fees: float = 0.0
     positions: int
     entries: int
     win_pct: float | None = None
@@ -205,6 +213,8 @@ class PatternsResponse(BaseModel):
     date_to: date_type | None = None
     days: int
     net: float
+    realized_before_fees: float = 0.0
+    fees: float = 0.0
     green_days: int
     green_sum: float
     red_days: int
@@ -243,7 +253,9 @@ class LineResponse(BaseModel):
     now_pt: str
     start_date: date_type
     amount: float
-    pnl: float  # every closed trade since start_date
+    pnl: float  # every closed trade since start_date (net, after fees)
+    fees: float = 0.0  # fees on those same trades
+    pnl_before_fees: float = 0.0  # pnl + fees
     left: float  # amount + min(0, pnl)
     trades_counted: int
     state: str  # before_window | in_window | closed
