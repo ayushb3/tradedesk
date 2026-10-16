@@ -31,7 +31,8 @@ from .schema import metadata
 # v4 (M8c): concepts, lesson_concepts, concept_links, knowledge_concept_runs (new tables).
 # v5 (M8c PR-2): lesson_sheets (new table, created by create_all).
 # v6 (M9a): agent_sessions, agent_messages (new tables, created by create_all).
-SCHEMA_VERSION = 6
+# v7 (issue #3): trades.trade_key (stable id across re-imports) + backfill.
+SCHEMA_VERSION = 7
 
 # Standalone metadata so the bookkeeping table is created alongside the app
 # tables but is not part of the domain `metadata` exported to callers.
@@ -130,6 +131,43 @@ def _apply_column_migrations(conn) -> None:
 
     if "contract_label" not in trade_cols:
         conn.execute(text("ALTER TABLE trades ADD COLUMN contract_label TEXT"))
+
+    # trades.trade_key (issue #3): stable identity = hash of the opening fill's
+    # provider_fill_id. Existing local DBs get the column, a backfill from each
+    # trade's opening fill (trade_fills.seq = 0), and the unique index. Existing
+    # trade ids are NOT changed, so every FK already pointing at them stays valid.
+    if "trade_key" not in trade_cols:
+        conn.execute(text("ALTER TABLE trades ADD COLUMN trade_key TEXT"))
+    _backfill_trade_keys(conn)
+    conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS uq_trades_trade_key ON trades (trade_key)")
+    )
+
+
+def _backfill_trade_keys(conn) -> None:
+    """Idempotently set trade_key on non-sim trades that lack one."""
+    from .trade_key import make_trade_key
+
+    rows = conn.execute(
+        text(
+            "SELECT t.id, f.provider_fill_id FROM trades t "
+            "JOIN trade_fills tf ON tf.trade_id = t.id AND tf.seq = 0 "
+            "JOIN fills f ON f.id = tf.fill_id "
+            "WHERE t.trade_key IS NULL AND t.simulated = 0"
+        )
+    ).fetchall()
+    for trade_id, pfid in rows:
+        key = make_trade_key(pfid)
+        if key is None:
+            continue
+        taken = conn.execute(
+            text("SELECT 1 FROM trades WHERE trade_key = :k"), {"k": key}
+        ).first()
+        if taken is None:
+            conn.execute(
+                text("UPDATE trades SET trade_key = :k WHERE id = :i"),
+                {"k": key, "i": trade_id},
+            )
 
 
 _KNOWLEDGE_PREFIX = "knowledge_"

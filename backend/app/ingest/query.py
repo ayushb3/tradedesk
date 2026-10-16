@@ -193,6 +193,7 @@ def _hydrate(conn, row) -> Trade:
     trade_id = m["id"]
     return Trade(
         id=trade_id,
+        trade_key=m.get("trade_key"),
         symbol=m["symbol"],
         contract_label=m.get("contract_label"),
         direction=Direction(m["direction"]),

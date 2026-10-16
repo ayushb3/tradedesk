@@ -37,10 +37,11 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.engine import Engine
 
 from app.db.connection import get_engine, init_db
+from app.db.trade_key import make_trade_key
 from app.db.schema import fills as fills_t
 from app.db.schema import trade_enrichment as enrich_t
 from app.db.schema import trade_fills as trade_fills_t
@@ -458,9 +459,10 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
     re-attach the enrichment to the freshly built trade in
     `_restore_enrichment`.
 
-    Trades whose opening fill has no ``provider_fill_id`` cannot be re-keyed
-    deterministically and are skipped (their enrichment is not carried over) —
-    live fills always carry one, so this only affects hand-inserted rows.
+    ``trade_key`` is read from the ``trades.trade_key`` column (a hash of that
+    provider_fill_id, see ``app.db.trade_key``), so the snapshot still works
+    after a full refresh has wiped the fills. Trades without a key (opening
+    fill had no ``provider_fill_id``) are skipped.
 
     ``r_multiple`` is intentionally NOT snapshotted: it is derived from
     ``stop_price`` and the (possibly changed) avg entry/exit of the rebuilt
@@ -468,27 +470,12 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
     """
     snapshot: dict[str, dict] = {}
 
-    trade_ids = [
-        r[0]
-        for r in conn.execute(
-            select(trades_t.c.id).where(trades_t.c.simulated.is_(False))
-        ).fetchall()
-    ]
-    for trade_id in trade_ids:
-        # Opening fill: lowest seq in trade_fills -> its provider_fill_id.
-        opening = conn.execute(
-            select(fills_t.c.provider_fill_id)
-            .select_from(
-                trade_fills_t.join(fills_t, trade_fills_t.c.fill_id == fills_t.c.id)
-            )
-            .where(trade_fills_t.c.trade_id == trade_id)
-            .order_by(trade_fills_t.c.seq)
-            .limit(1)
-        ).first()
-        trade_key = opening[0] if opening is not None else None
-        if not trade_key:
-            continue  # no stable identity — cannot re-key across the rebuild
-
+    keyed = conn.execute(
+        select(trades_t.c.id, trades_t.c.trade_key).where(
+            trades_t.c.simulated.is_(False), trades_t.c.trade_key.is_not(None)
+        )
+    ).fetchall()
+    for trade_id, trade_key in keyed:
         trade_row = conn.execute(
             select(trades_t.c.stop_price).where(trades_t.c.id == trade_id)
         ).first()
@@ -534,6 +521,36 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
             "tag_ids": tag_ids,
         }
     return snapshot
+
+
+def _snapshot_trade_ids(conn) -> dict[str, int]:
+    """Map trade_key -> existing integer id for every keyed non-sim trade."""
+    return {
+        key: tid
+        for tid, key in conn.execute(
+            select(trades_t.c.id, trades_t.c.trade_key).where(
+                trades_t.c.simulated.is_(False), trades_t.c.trade_key.is_not(None)
+            )
+        ).fetchall()
+    }
+
+
+def _next_free_trade_id(conn) -> int:
+    """First id above every trade id ever referenced, so a vanished trade's id
+    is never handed to a different trade (which would adopt its debriefs)."""
+    top = conn.execute(select(func.max(trades_t.c.id))).scalar() or 0
+    for tbl, col in (
+        ("debriefs", "trade_id"),
+        ("scenarios", "source_trade_id"),
+        ("trade_enrichment", "trade_id"),
+        ("trade_tags", "trade_id"),
+    ):
+        v = conn.execute(text(f"SELECT MAX({col}) FROM {tbl}")).scalar()
+        top = max(top, v or 0)
+    for (ref,) in conn.execute(text("SELECT subject_ref FROM agent_sessions")).fetchall():
+        if ref and ref.startswith("trade:") and ref[6:].isdigit():
+            top = max(top, int(ref[6:]))
+    return int(top) + 1
 
 
 def _recompute_r_multiple(m, stop_price: float | None) -> float | None:
@@ -583,7 +600,11 @@ def _restore_enrichment(conn, trade_id: int, row: dict, snap: dict) -> None:
         )
 
 
-def _rebuild_trades(conn, snapshot: dict[str, dict] | None = None) -> int:
+def _rebuild_trades(
+    conn,
+    snapshot: dict[str, dict] | None = None,
+    key_ids: dict[str, int] | None = None,
+) -> int:
     """Delete + rebuild all non-simulated trades from non-simulated fills.
 
     User-entered enrichment (stop_price, notes/grade/checklist/screenshots, tags)
@@ -595,9 +616,19 @@ def _rebuild_trades(conn, snapshot: dict[str, dict] | None = None) -> int:
     is None we take it here (safe when no fills were wiped, e.g. an incremental
     refresh). ``r_multiple`` is recomputed from the restored stop rather than
     snapshotted, since the rebuilt trade's avgs may have shifted.
+
+    **Stable ids (issue #3).** Each rebuilt trade whose ``trade_key`` matches an
+    existing trade is re-inserted with that trade's OLD integer ``id``, so
+    anything keyed on ``trades.id`` (debriefs, agent_sessions ``trade:<id>``,
+    scenarios.source_trade_id, plans/day_fields later) stays attached. New
+    trades get ids above every id ever referenced; ids are never recycled.
+    ``key_ids`` (trade_key -> id) is snapshotted by the caller pre-wipe, or here.
     """
     if snapshot is None:
         snapshot = _snapshot_enrichment(conn)
+    if key_ids is None:
+        key_ids = _snapshot_trade_ids(conn)
+    next_id = _next_free_trade_id(conn)
 
     # Delete existing non-sim trades and their fill links (idempotent rebuild).
     sim_false_ids = [
@@ -650,18 +681,24 @@ def _rebuild_trades(conn, snapshot: dict[str, dict] | None = None) -> int:
             row = t["row"]
             row["symbol"] = symbol
             row["contract_label"] = label
-            res = conn.execute(trades_t.insert().values(**row))
-            trade_id = int(res.inserted_primary_key[0])
+            opening_fill_id = _opening_fill_id(t["fill_seq"])
+            trade_key = make_trade_key(
+                fill_pfid.get(opening_fill_id) if opening_fill_id else None
+            )
+            trade_id = key_ids.pop(trade_key, None) if trade_key else None
+            if trade_id is None:
+                trade_id = next_id
+                next_id += 1
+            row["id"] = trade_id
+            row["trade_key"] = trade_key
+            conn.execute(trades_t.insert().values(**row))
             for seq, fill_id in enumerate(t["fill_seq"]):
                 conn.execute(
                     trade_fills_t.insert().values(
                         trade_id=trade_id, fill_id=fill_id, seq=seq
                     )
                 )
-            # Re-attach snapshotted enrichment via the stable trade_key = the
-            # opening fill's provider_fill_id (matches _snapshot_enrichment).
-            opening_fill_id = _opening_fill_id(t["fill_seq"])
-            trade_key = fill_pfid.get(opening_fill_id) if opening_fill_id else None
+            # Re-attach snapshotted enrichment via the stable trade_key.
             if trade_key and trade_key in snapshot:
                 _restore_enrichment(conn, trade_id, row, snapshot[trade_key])
             built += 1
@@ -740,6 +777,7 @@ def import_fills(provider, engine: Engine | None = None, *, full: bool = False) 
                 "real fills; point TRADEDESK_DB_PATH at a separate demo database"
             )
         snapshot = _snapshot_enrichment(conn)
+        key_ids = _snapshot_trade_ids(conn)
         if force_full:
             conn.execute(
                 fills_t.delete()
@@ -747,6 +785,6 @@ def import_fills(provider, engine: Engine | None = None, *, full: bool = False) 
                 .where(_not_export_fill())
             )
         fills_imported = _upsert_fills(conn, provider_fills)
-        trades_built = _rebuild_trades(conn, snapshot)
+        trades_built = _rebuild_trades(conn, snapshot, key_ids)
 
     return {"fills_imported": fills_imported, "trades_built": trades_built}

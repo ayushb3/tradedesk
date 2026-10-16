@@ -139,6 +139,12 @@ trades = Table(
     # from journal analytics by default. The ALTER TABLE for this column on
     # existing DBs lives in connection.py (_apply_column_migrations).
     Column("context", String, nullable=False, default="real"),
+    # Stable identity (issue #3): hash of the opening fill's provider_fill_id.
+    # `_rebuild_trades` reuses the existing `id` of the trade with the same key,
+    # so integer FKs to trades.id never orphan. NULL for sim/training trades.
+    # Unique index `uq_trades_trade_key` is created in connection.py.
+    Column("trade_key", String),
+    Index("uq_trades_trade_key", "trade_key", unique=True),
 )
 
 
