@@ -32,7 +32,7 @@ def window_out(start, end, rules: Rules) -> WindowOut:
 
 def stats_out(s, rules: Rules) -> DayStatsOut:
     return DayStatsOut(
-        net=s.net, entries=s.entries, positions=s.positions, win_pct=s.win_pct,
+        net=s.net, realized_before_fees=s.realized_before_fees, fees=s.fees, entries=s.entries, positions=s.positions, win_pct=s.win_pct,
         avg_win=s.avg_win, avg_loss=s.avg_loss, rr=s.rr,
         break_even_win_pct=s.break_even_win_pct, max_risk=s.max_risk,
         max_risk_x_stop=s.max_risk_x_stop, max_risk_pct_account=s.max_risk_pct_account,
@@ -52,7 +52,7 @@ def position_out(lp, a, rules: Rules) -> PositionOut:
         ticker=p.ticker, type=p.type, strike=p.strike, expiry=p.expiry,
         status=p.status, swing=p.swing, qty_in=a.qty_in, qty_out=a.qty_out,
         cost=a.cost, proceeds=a.proceeds, avg_in=a.avg_in, avg_out=a.avg_out,
-        pnl=a.pnl, risk=a.risk, r=a.r, stop_multiple=a.risk_x,
+        pnl=a.pnl, fees=a.fees, realized_before_fees=a.realized_before_fees, risk=a.risk, r=a.r, stop_multiple=a.risk_x,
         add_lower=a.add_lower, add_higher=a.add_higher, add_same=a.add_same,
         runner_paid=a.runner_paid, gave_back=a.gave_back, held_loser=a.held_loser,
         best_gap=a.best_gap,
@@ -66,6 +66,7 @@ def position_out(lp, a, rules: Rules) -> PositionOut:
                 side=f.side, qty=f.qty, px=f.px, cash=f.cash, ts=f.ts,
                 ts_pt=desk_days.pt_clock(f.ts, rules), order_type=f.otype,
                 pnl=f.pnl, pnl_pct=f.pnl_pct, avg_in_after=f.avg_in_after,
+                fees=f.fees, realized_before_fees=f.realized_before_fees,
             )
             for f in a.fills
         ],
@@ -82,7 +83,9 @@ def day_callers(d) -> list[str]:
 def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
     out = [
         DaySummary(
-            date=d.result.day, net=d.result.stats.net, positions=d.result.stats.positions,
+            date=d.result.day, net=d.result.stats.net,
+            realized_before_fees=d.result.stats.realized_before_fees, fees=d.result.stats.fees,
+            positions=d.result.stats.positions,
             entries=d.result.stats.entries, win_pct=d.result.stats.win_pct,
             rr=d.result.stats.rr, max_risk_x_stop=d.result.stats.max_risk_x_stop,
             late_fills=d.result.stats.late_fills, has_fields=d.fields is not None,
@@ -148,7 +151,8 @@ def patterns_response(rules: Rules, a, days, d_from, d_to, as_of) -> PatternsRes
     return PatternsResponse(
         lessons=lessons,
         tz=rules.timezone, as_of=as_of, date_from=d_from, date_to=d_to,
-        days=a.days, net=a.net, green_days=a.green_days, green_sum=a.green_sum,
+        days=a.days, net=a.net, realized_before_fees=a.realized_before_fees, fees=a.fees,
+        green_days=a.green_days, green_sum=a.green_sum,
         red_days=a.red_days, red_sum=a.red_sum, n_closed=a.n_closed, n_wins=a.n_wins,
         n_losses=a.n_losses, win_pct=a.win_pct, avg_win=a.avg_win, avg_loss=a.avg_loss,
         rr=a.rr, break_even_win_pct=a.break_even_win_pct, tag_counts=a.tag_counts,
@@ -163,7 +167,7 @@ def line_response(ls, as_of: datetime | None) -> LineResponse:
         tz=rules.timezone, as_of=as_of, now=ls.now,
         now_pt=desk_days.pt_clock(ls.now, rules),
         start_date=rules.loss_line.start_date, amount=rules.loss_line.amount,
-        pnl=ls.pnl, left=ls.left, trades_counted=ls.trades_counted, state=ls.state,
+        pnl=ls.pnl, fees=ls.fees, pnl_before_fees=ls.pnl_before_fees, left=ls.left, trades_counted=ls.trades_counted, state=ls.state,
         today=LineToday(
             date=ls.today, net=ls.today_net, daily_stop=rules.daily_stop,
             daily_target=rules.daily_target, stop_hit=ls.stop_hit,

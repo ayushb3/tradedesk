@@ -30,6 +30,7 @@ Two tools write: `annotate_trade` (caller, grade, notes on one position) and `ad
 | Refresh failed | server errors after a good read | amber dot "stale", last good numbers stay |
 | Loss line | always on top | $ left, P&L since the start date, meter, today's window state, stop/target chips |
 | Day | tap a day in the strip or the table | net, KPIs, rule chips, plan cards, positions that open into fills (time PT), lessons |
+| Realized / Fees / Net | line card, day KPIs, positions, fills, across-days table | Realized is before fees (what the broker's options tab shows), Net = Realized - Fees is the bold number; stop, target and loss line stay on net; day and line fees count closed positions only |
 | No days | empty DB | strip says "No days in TradeDesk yet. Run the export, then ask Claude to import it."; the day area shows the same with an "Ask Claude to import" copy button (mock mode always has days; fake it by pointing the server at an empty DB) |
 | Open positions | a position with no exit yet (`status: "open"`, `pnl: null`) | position shows "still open" and P&L "open"; the day gets a "1 still open" chip and a note |
 | Export older than today | a weekday, window closed (after 08:30 PT), newest imported fill dated before today (PT) | amber note under the line: "Last import is from <date>; run the export after the close." Mock mode shows it as soon as the window has closed, because the synthetic fills are older than today |
