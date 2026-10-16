@@ -42,3 +42,17 @@ Two tools write: `annotate_trade` (caller, grade, notes on one position) and `ad
 | Ask Claude | tap it on a day or a position | copies `Review my day <date> with get_day: ...` or `Review trade <trade_key> (trade_id N) on <date> with get_trade`; if the clipboard is blocked, the text is shown selected in a box |
 
 The phone snapshot comes with issue #18.
+
+## Phone snapshot (path A, issue #18)
+
+When TradeDesk does not answer (the phone, a browser, or the server off), the page reads the last
+snapshot from its own `db`: `snapshot/meta`, `snapshot_days/<date>`, `snapshot_week/current`.
+Claude fills them after a review: call `push_phone_snapshot(date)` and write each returned item with
+the ArtifactData tool (`set`, collection, doc_id, data). The page then shows a blue
+"snapshot · <time> PT" badge in place of the grey banner, and is read-only: no edit, plan or
+Ask Claude controls. Live data always wins when the server answers.
+
+| State | How to get it | Expected |
+|---|---|---|
+| Snapshot | open the page on the phone after a push | "snapshot · 8:52 PT" badge, the snapshotted days, no controls |
+| Neither | no server and no snapshot yet | grey banner |

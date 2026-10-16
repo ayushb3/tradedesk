@@ -53,6 +53,7 @@ h3 { font-family: var(--f-display); font-stretch: 85%; font-weight: 700; font-si
 .fresh i { width: 8px; height: 8px; border-radius: 50%; background: var(--off); display: inline-block; }
 .fresh.live i { background: var(--gain); }
 .fresh.stale i { background: var(--warn); }
+.fresh.snap i { background: var(--accent); }
 .banner { background: var(--off-soft); color: var(--ink); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 16px; display: grid; gap: 4px; }
 .banner[hidden] { display: none; }
 .banner b { font-family: var(--f-display); font-stretch: 85%; font-size: 15px; }
@@ -284,6 +285,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
 
   function banner(kind) {
     const b = $("banner");
+    if (kind && state.snap && (kind === "nomcp" || kind === "notconnected")) kind = null;
     if (!kind) { b.hidden = true; b.innerHTML = ""; return; }
     const copy = {
       nomcp: ["TradeDesk isn't reachable from this view", "This page reads your local TradeDesk server, which only answers inside the Claude desktop app. Open the page there."],
@@ -309,6 +311,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     const el = $("fresh"), t = $("fresh-txt");
     const errs = Object.entries(state.errs).filter(([k, c]) => !(c === "tool_error" && (k === "day" || k === "todayDay"))).map(([, c]) => c);
     const asOf = state.line?.as_of || state.days?.as_of;
+    if (state.snap) { el.className = "fresh snap"; t.textContent = `snapshot · ${state.snapMeta.generated_pt}${state.snapMeta.latest_date ? ` · latest day ${state.snapMeta.latest_date}` : ""}`; return; }
     if (!state.mcp) { el.className = "fresh"; t.textContent = "offline · no TradeDesk"; return; }
     if (!state.line && !state.days) { el.className = "fresh"; t.textContent = errs.length ? "no data" : "connecting…"; return; }
     const imported = asOf ? `imported ${ptStamp(Date.parse(asOf))}` : "no import yet";
@@ -322,6 +325,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
 
   // ---------- shared bits: Ask Claude, focus, notices, lock ----------
   function askUI(prompt, key, label) {
+    if (state.snap) return "";
     const a = state.ask && state.ask.key === key ? state.ask : null;
     return `<button class="mini" type="button" data-act="ask" data-ask="${esc(prompt)}" data-akey="${esc(key)}" data-f="ask:${esc(key)}">${esc(label)}</button>`
       + (a && a.mode === "copied" ? `<span class="wr-msg ok" role="status">Copied. Paste it into Claude.</span>` : "")
@@ -387,8 +391,14 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     $("meter").style.width = pct + "%";
     $("meter-label").setAttribute("aria-label", `${pct.toFixed(0)}% of the loss line used`);
     $("ticks").innerHTML = `<span>$0 lost</span><span>${fmt0(-L.amount / 2)}</span><span>${fmt0(-L.amount)} · trading stops</span>`;
-    $("line-sub").textContent = `now ${L.now_pt}`;
+    $("line-sub").textContent = state.snap ? L.now_pt : `now ${L.now_pt}`;
     const T = L.today || {}, w = T.window || {};
+    if (state.snap) {
+      $("today").innerHTML = (T.line_hit ? `<span class="chip r">line hit · trading is over</span>` : "")
+        + `<span class="chip a">read-only phone view · nothing can be traded, imported or edited here</span>`;
+      renderNotices();
+      return;
+    }
     const st = { before_window: ["a", `before the window · opens ${w.start_pt}`], in_window: ["w", `in the window · closes ${w.end_pt}`], closed: ["a", `window closed · ${w.start_pt}–${w.end_pt}`] }[L.state] || ["a", L.state];
     const chips = [`<span class="chip ${st[0]}">${esc(st[1])}</span>`,
       `<span class="chip ${T.net ? (T.net > 0 ? "g" : "r") : "a"}">today ${fmt(T.net)}</span>`];
@@ -527,7 +537,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
   }
 
   function posRow(p, D, i) {
-    const k = String(p.trade_id);
+    const k = String(p.trade_id ?? p.trade_key);
     const isOpen = state.open.has(k);
     const strike = Number.isInteger(p.strike) ? p.strike.toLocaleString("en-US") : p.strike;
     const exp = p.expiry === D.date ? "0DTE" : String(p.expiry).slice(5).replace("-", "/");
@@ -539,8 +549,8 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     p.tags.forEach((t) => chips.push(`<span class="chip ${esc(t.kind)}">${esc(t.text)}</span>`));
     const end = Date.parse(D.window.end);
     const fills = p.fills.map((f, j) => {
-      const late = Date.parse(f.ts) > end;
-      const fday = new Date(f.ts).toLocaleDateString("en-CA", { timeZone: TZ });
+      const late = !!f.ts && Date.parse(f.ts) > end;
+      const fday = f.ts ? new Date(f.ts).toLocaleDateString("en-CA", { timeZone: TZ }) : D.date;
       const pnlCell = f.pnl == null ? `<span class="mut">—</span>` : `<span class="${cls(f.pnl)}">${fmt(f.pnl)}</span> <span class="mut">${f.pnl_pct == null ? "" : f.pnl_pct.toFixed(0) + "%"}</span>`;
       return `<tr><td class="num mut">${j + 1}</td><td class="${f.side === "B" ? "side-b" : "side-s"}">${f.side === "B" ? "Buy" : "Sell"}${f.order_type && f.order_type !== "limit" ? ` <span class="chip ${f.order_type === "stop" ? "g" : "a"}">${esc(f.order_type)}</span>` : ""}</td>
         <td class="num">${f.qty}</td><td class="num">${px(f.px)}</td><td class="num mut">${fmt(f.cash)}</td><td class="num">${pnlCell}</td>
@@ -818,6 +828,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
       if (rows.length && !keep) state.sel = rows[rows.length - 1].date;
       else if (!rows.length && state.sel && !(state.picked && state.sel === todayPT())) state.sel = null;
     }
+    if (state.snap) state.day = (state.snapDays || []).find((d) => d.date === state.sel) || null;
     syncWatches();
     renderLine();
     renderLock();
@@ -836,6 +847,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
   function onEvent(key, retract) {
     return (ev) => {
       if (ev.type === "data") {
+        if (state.snap) { state.snap = false; state.line = state.days = state.pat = state.day = null; }
         delete state.errs[key];
         state[key] = ev.result.payload;
         state.stored[key] = ev.result.cache?.storedAt || Date.now();
@@ -846,6 +858,7 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
         if (DENIALS.has(code)) {
           if (retract) state[key] = null;
           banner(bannerFor(code));
+          if (key === "line" || key === "days") startSnapshot();
         }
       }
       render();
@@ -887,11 +900,41 @@ button.lnk { font: inherit; font-size: 13px; background: none; border: 0; color:
     $("detail").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
+  // ---------- phone snapshot (path A) ----------
+  // Claude writes push_phone_snapshot's docs into this page's db. Used only when TradeDesk itself does not answer; read-only.
+  async function startSnapshot() {
+    if (state.snapStarted) return;
+    state.snapStarted = true;
+    const db = window.claude ? await window.claude.use("db").catch(() => null) : null;
+    if (!db) return;
+    db.doc("snapshot/meta").onSnapshot((d) => { state.snapMeta = d.exists ? d.data() : null; applySnapshot(); }, () => {});
+    db.collection("snapshot_days").onSnapshot((q) => { state.snapDays = q.docs.map((d) => d.data()).filter((d) => d && d.date); applySnapshot(); }, () => {});
+    db.doc("snapshot_week/current").onSnapshot((d) => { state.snapWeek = d.exists ? d.data() : null; applySnapshot(); }, () => {});
+  }
+
+  function applySnapshot() {
+    if (state.mcp && (state.line || state.days) && !state.snap) return; // live data wins
+    const M = state.snapMeta;
+    if (!M) return;
+    state.snap = true;
+    const L = M.line || {};
+    state.line = { as_of: M.as_of, amount: L.amount, start_date: L.start_date, pnl: L.pnl, left: L.left, trades_counted: L.trades_counted,
+      state: "snapshot", now_pt: `snapshot ${M.generated_pt}`, today: { line_hit: !!L.line_hit, window: {} } };
+    state.days = { as_of: M.as_of, days: (state.snapDays || []).map((d) => ({
+      date: d.date, net: d.stats.net, positions: d.stats.positions, entries: d.stats.entries, win_pct: d.stats.win_pct, rr: d.stats.rr,
+      max_risk_x_stop: d.stats.max_risk_x_stop, late_fills: d.stats.late_fills, off_plan_count: d.off_plan_count, stats: d.stats,
+      callers: d.fields?.callers?.length ? d.fields.callers : [...new Set((d.plans || []).map((p) => p.caller))],
+      size_written_first: d.size_written_first })) };
+    state.pat = state.snapWeek;
+    banner(null);
+    render();
+  }
+
   bindWrap();
   (async () => {
     const mcp = window.claude ? await window.claude.use("mcp").catch(() => null) : null;
     state.mcp = mcp;
-    if (!mcp) { banner("nomcp"); render(); return; }
+    if (!mcp) { banner("nomcp"); render(); startSnapshot(); return; }
     mcp.watchTool(SERVER, "line_status", null, onEvent("line", true), { refetchInterval: 60000 });
     mcp.watchTool(SERVER, "list_days", null, onEvent("days", true), { refetchInterval: 60000 });
     mcp.watchTool(SERVER, "patterns", {}, onEvent("pat", true), { refetchInterval: 120000 });
