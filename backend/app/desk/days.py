@@ -18,7 +18,7 @@ one stop, so ``placed`` equals ``filled`` (the stop chains we can see), and
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -31,9 +31,12 @@ from app.db.schema import trade_fills as trade_fills_t
 from app.db.schema import trades as trades_t
 from app.desk import ledger
 from app.desk.day_fields import get_day_fields
+from app.desk.matching import effective_status
+from app.desk.plans import list_plans
 from app.desk.ledger import DayInput, DayResult, Fill, Position, StopUsage
 from app.desk.rules import Rules, account_size, load_rules, window_bounds
 from app.models.desk import DayFields
+from app.models.plans import Plan
 
 UTC = timezone.utc
 
@@ -76,6 +79,8 @@ class LoadedPosition:
     trade_key: str | None
     label: str | None
     position: Position
+    plan: Plan | None = None
+    off_plan: bool = True
 
 
 def _fill_cash(side: str, qty: float, px: float, mult: float, fees: float) -> float:
@@ -157,18 +162,39 @@ class DayData:
     loaded: list[LoadedPosition]
     rules: Rules
     fields: DayFields | None
+    plans: list[Plan] = field(default_factory=list)  # status is the effective one
+    plans_not_taken: int = 0
+    off_plan_count: int = 0
+    size_written_first: bool | None = None  # True only if every trade has a non-late plan
+    blown_max_loss: bool = False
 
 
 def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
     loaded = by_day.get(day, [])
     fields = get_day_fields(day, engine)
+    plans = list_plans(day, engine)
+    by_trade = {p.matched_trade_id: p for p in plans if p.matched_trade_id is not None}
+    for lp in loaded:
+        plan = by_trade.get(lp.trade_id)
+        lp.plan = plan
+        lp.off_plan = plan is None
+        lp.position.plan_max_loss = plan.max_loss_usd if plan else None
     di = DayInput(
         date=day, positions=[lp.position for lp in loaded],
         stops=_stops_for(conn, [lp.trade_id for lp in loaded]),
         max_loss=fields.max_loss_declared if fields else None,
     )
     res = ledger.analyze_day(di, rules, account_size(rules))
-    return DayData(res, loaded, rules, fields)
+    shown = [p.model_copy(update={"status": effective_status(p, rules)}) for p in plans]
+    return DayData(
+        res, loaded, rules, fields, plans=shown,
+        plans_not_taken=sum(1 for p in shown if p.status == "unmatched"),
+        off_plan_count=sum(1 for lp in loaded if lp.off_plan),
+        size_written_first=(
+            all(lp.plan is not None and not lp.plan.late for lp in loaded) if loaded else None
+        ),
+        blown_max_loss=any(a.blown_max_loss for a in res.positions),
+    )
 
 
 def _rows(conn, d_from: date | None = None, d_to: date | None = None):
@@ -208,7 +234,7 @@ def get_day(
     with engine.connect() as conn:
         by_day = _load_positions(conn, rules, _rows(conn, day, day))
         data = _analyze(conn, engine, rules, by_day, day)
-    if not data.loaded and data.fields is None:
+    if not data.loaded and data.fields is None and not data.plans:
         return None
     return data
 

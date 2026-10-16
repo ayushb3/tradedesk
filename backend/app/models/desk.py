@@ -5,6 +5,7 @@ from datetime import date as date_type
 
 from pydantic import BaseModel, Field
 
+from .plans import Plan
 from .utc import UtcDatetime
 
 
@@ -57,6 +58,13 @@ class FillOut(BaseModel):
     avg_in_after: float | None = None
 
 
+class PlanRef(BaseModel):
+    id: int
+    caller: str
+    max_loss: float
+    late: bool
+
+
 class PositionOut(BaseModel):
     trade_id: int
     trade_key: str | None = None
@@ -86,6 +94,10 @@ class PositionOut(BaseModel):
     best_gap: float
     tags: list[TagOut]
     fills: list[FillOut]
+    plan: PlanRef | None = None
+    off_plan: bool = False
+    blown_max_loss: bool = False
+    written_max_loss: float | None = None
 
 
 class DayStatsOut(BaseModel):
@@ -133,6 +145,8 @@ class DaySummary(BaseModel):
     max_risk_x_stop: float
     late_fills: int
     has_fields: bool
+    off_plan_count: int = 0
+    blown_max_loss: bool = False
 
 
 class DaysResponse(BaseModel):
@@ -151,6 +165,11 @@ class DayDetail(BaseModel):
     stats: DayStatsOut
     positions: list[PositionOut]
     fields: DayFields | None = None
+    plans: list[Plan] = Field(default_factory=list)  # incl. "planned, not taken" (unmatched)
+    plans_not_taken: int = 0  # a good outcome: the plan was written and not forced
+    off_plan_count: int = 0
+    size_written_first: bool | None = None  # derived: every trade has a non-late plan
+    blown_max_loss: bool = False
 
 
 class BiggestRisk(BaseModel):

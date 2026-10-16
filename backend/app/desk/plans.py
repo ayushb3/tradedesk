@@ -150,6 +150,13 @@ def add_plan(
             )
         )
         pid = res.inserted_primary_key[0]
+    try:  # best-effort: the day's trades may already be imported
+        from app.desk.matching import match_day
+
+        match_day(session_date, engine, finalize=False)
+    except Exception:  # noqa: BLE001 - a plan must save even if matching fails
+        pass
+    with engine.connect() as conn:
         row = conn.execute(select(plans_t).where(plans_t.c.id == pid)).one()
     return _to_model(row)
 
