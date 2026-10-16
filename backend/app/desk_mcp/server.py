@@ -5,7 +5,7 @@ from functools import lru_cache
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from . import rules_tools, tools, writes
+from . import rules_tools, snapshot, tools, writes
 
 # Read tools are annotated read-only so the Claude app can cache them and skip confirms.
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
@@ -57,6 +57,11 @@ def create_server(ctx: tools.Ctx | None = None) -> FastMCP:
     def line_status() -> dict:
         """Loss line P&L and left, plus today's state, stop_hit, target_hit, line_hit. Times are PT."""
         return tools.line_status(get())
+
+    @mcp.tool(annotations=READ_ONLY)
+    def push_phone_snapshot(date: str | None = None) -> dict:
+        """Build the phone snapshot docs for a day (default: latest). Returns them; Claude writes each to the desk page db with ArtifactData. Times are PT."""
+        return snapshot.push_phone_snapshot(get(), date)
 
     @mcp.tool(annotations=WRITE)
     def import_robinhood(path: str) -> dict:
