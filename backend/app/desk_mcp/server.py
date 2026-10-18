@@ -45,7 +45,7 @@ def create_server(ctx: tools.Ctx | None = None) -> FastMCP:
 
     @mcp.tool(annotations=READ_ONLY)
     def get_trade(id: int) -> dict:
-        """One position by trade_id, with its fills and its plan card if any. Times are PT."""
+        """One position by trade_id, with its fills, its plan card if any, and its excursions (MAE/MFE in $ and R, stop line, post-exit path; "option bars unavailable" when none). Times are PT."""
         return tools.get_trade(get(), id)
 
     @mcp.tool(annotations=READ_ONLY)

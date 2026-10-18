@@ -116,3 +116,67 @@ class DayTradeCard(BaseModel):
 class DayTradesResponse(BaseModel):
     date: str  # ISO date
     trades: list[DayTradeCard] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Trade excursions (market data 3, #51): GET /api/trades/{id}/excursions
+# --------------------------------------------------------------------------- #
+class ExcursionFill(BaseModel):
+    """One fill of the position, listed even when option bars are unavailable."""
+
+    side: str  # "B" | "S"
+    qty: int
+    px: float
+    ts: UtcDatetime
+    ts_pt: str  # clock time in PT
+
+
+class HoldExcursionOut(BaseModel):
+    """MAE/MFE over the hold on the position's average cost (signed: MAE <= 0)."""
+
+    mae_usd: float
+    mfe_usd: float
+    mae_r: float | None = None
+    mfe_r: float | None = None
+    mae_per_contract: float
+    mfe_per_contract: float
+    mae_ts: UtcDatetime | None = None
+    mfe_ts: UtcDatetime | None = None
+    mae_ts_pt: str | None = None
+    mfe_ts_pt: str | None = None
+    drawdown_minutes: int
+    crossed_stop: bool
+    crossed_stop_at: UtcDatetime | None = None
+    crossed_stop_at_pt: str | None = None
+
+
+class PostExitWindowOut(BaseModel):
+    minutes: int
+    best_r: float | None = None
+    worst_r: float | None = None
+    bars: int = 0
+    complete: bool = False
+
+
+class TradeExcursionsResponse(BaseModel):
+    """Excursions for one option position. ``available`` is false (with a
+    ``reason``) when option bars could not be had; fills are still listed.
+    There is intentionally no dollars-left-on-the-table field."""
+
+    trade_id: int
+    tz: str = "America/Los_Angeles"
+    tz_label: str = "PT"
+    available: bool
+    reason: str | None = None
+    contract: str | None = None
+    estimated: bool = False  # premium bars are a Black-Scholes fallback
+    method: str | None = None
+    status: str  # "open" | "closed"
+    avg_in: float | None = None
+    qty: int = 0
+    risk: float | None = None  # same dollars-at-risk the ledger uses for R
+    risk_source: str  # "written_max_loss" | "default_risk_pct"
+    stop_price: float | None = None  # premium where the position has lost `risk`
+    fills: list[ExcursionFill] = Field(default_factory=list)
+    hold: HoldExcursionOut | None = None
+    post_exit: list[PostExitWindowOut] = Field(default_factory=list)

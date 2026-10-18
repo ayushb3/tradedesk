@@ -15,12 +15,15 @@ import type {
 // MFE/MAE band colors mirror the up/down candle theme (favorable = teal).
 const MFE_COLOR = "#26a69a";
 const MAE_COLOR = "#ef5350";
+const STOP_COLOR = "#d9a441";
 
 interface OptionPremiumSectionProps {
   option: ReviewOption;
   premiumBars: Candle[] | null;
   fills: ReviewFill[];
   excursion: Excursion | null;
+  /** Premium where the position has lost its risk (#51); drawn as a "Stop" line. */
+  stopPrice?: number | null;
   trade: Trade;
   hoveredFillId: number | null;
   onHoverFill: (id: number | null) => void;
@@ -62,12 +65,16 @@ export function OptionPremiumSection({
   premiumBars,
   fills,
   excursion,
+  stopPrice,
   trade,
   hoveredFillId,
   onHoverFill,
 }: OptionPremiumSectionProps) {
   const estimated = option.synthetic || option.method === "bs_interp";
   const bands = excursionBands(excursion, trade);
+  if (stopPrice != null && Number.isFinite(stopPrice)) {
+    bands.push({ price: stopPrice, color: STOP_COLOR, title: "Stop" });
+  }
   const bars = premiumBars ?? [];
 
   return (

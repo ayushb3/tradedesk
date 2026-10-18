@@ -19,7 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.analytics.options import compute_excursion
 from app.analytics.review import downsample_closes
 from app.api.deps import provider_dep
+from app.desk.rules import load_rules
 from app.ingest.option_bars import get_option_bars_for_trade
+from app.ingest.trade_excursions import trade_excursions
 from app.ingest.query import (
     get_trade,
     get_trade_fills,
@@ -33,6 +35,7 @@ from app.models.review import (
     Excursion,
     OptionBarsResponse,
     ReviewOption,
+    TradeExcursionsResponse,
     TradeReviewResponse,
     UnderlyingDescriptor,
 )
@@ -146,6 +149,25 @@ def trade_option_bars(
     if ob is None:
         raise HTTPException(status_code=404, detail="trade has no option contract")
     return OptionBarsResponse(bars=ob.bars, synthetic=ob.synthetic, method=ob.method)
+
+
+@router.get("/trades/{trade_id}/excursions", response_model=TradeExcursionsResponse)
+def trade_excursions_route(
+    trade_id: int, provider: DataProvider = Depends(provider_dep)
+) -> TradeExcursionsResponse:
+    """MAE/MFE over the hold ($ and R), the stop line, time in drawdown and the
+    post-exit best/worst at 15/30/60 min (R). R uses the desk ledger's own risk
+    (written max loss, else ``default_risk_pct`` of premium). When option bars
+    are unavailable the response has ``available=false`` and still lists the
+    fills. Read-only; there is no dollars-left-on-the-table figure."""
+    try:
+        rules = load_rules()
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    res = trade_excursions(trade_id, rules, provider)
+    if res is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return res
 
 
 @router.get("/journal/days/{day}/trades", response_model=DayTradesResponse)
