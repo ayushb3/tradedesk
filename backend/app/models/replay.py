@@ -8,11 +8,13 @@ these arrays progressively and MUST NOT recompute forward.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
 from app.models.market import Candle
+from app.models.trades import Side
+from app.models.utc import UtcDatetime
 
 
 class ReplaySessionResponse(BaseModel):
@@ -32,3 +34,37 @@ class ReplaySessionResponse(BaseModel):
     levels: dict[str, list[float | None]] = Field(default_factory=dict)
 
     meta: dict = Field(default_factory=dict)  # {"or_minutes": int, "tz": str, "timeframe": str}
+
+
+class ReplayFill(BaseModel):
+    """A trade fill revealed to the replay. Never carries P&L."""
+
+    seq: int
+    role: str  # "entry" | "exit"
+    side: Side
+    qty: float
+    price: float
+    ts: UtcDatetime
+    time_pt: str  # e.g. "06:47:12 PT" (display zone, labelled)
+
+
+class ReplayFillsResponse(BaseModel):
+    """Fills at or before `playhead` only. Later fills are never serialized."""
+
+    trade_id: int
+    playhead: UtcDatetime
+    fills: list[ReplayFill]
+
+
+class ReplayTradeResponse(BaseModel):
+    """'Replay my trade': the day's underlying session, started `lead_minutes`
+    before the trade's entry, with fills gated by the playhead."""
+
+    trade_id: int
+    symbol: str
+    lead_minutes: int
+    start_ts: UtcDatetime  # entry time minus lead
+    start_index: int       # first candle at or after start_ts
+    playhead: UtcDatetime
+    session: ReplaySessionResponse
+    fills: list[ReplayFill]

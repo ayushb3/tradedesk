@@ -171,8 +171,18 @@ def compute_replay_session(
         candles=candles,
         indicators=indicators,
         levels=levels,
-        meta={"or_minutes": or_min, "tz": tz, "timeframe": timeframe},
+        meta=_session_meta(candles, or_min, tz, timeframe),
     )
+
+
+def _session_meta(candles: list[Candle], or_min: int, tz: str, timeframe: str) -> dict:
+    """Meta for a replay session; carries the provider's ``source_label`` (e.g.
+    "SPY (proxy)") when the bars are a stand-in."""
+    meta: dict = {"or_minutes": or_min, "tz": tz, "timeframe": timeframe}
+    label = next((c.source_label for c in candles if c.source_label), None)
+    if label:
+        meta["source_label"] = label
+    return meta
 
 
 def _compute_indicators_for_candles(

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AlertCircle, ServerCrash } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,7 +13,7 @@ import {
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { TradePanel } from "@/components/replay/TradePanel";
-import { useReplaySession } from "@/lib/queries";
+import { useReplaySession, useReplayTrade, useReplayTradeFills } from "@/lib/queries";
 import { useReplay } from "@/lib/useReplay";
 import { formatEt, valueAt } from "@/lib/chart";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
@@ -20,7 +21,7 @@ import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
+import { ApiError, type ReplayFill, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
 
 const DEFAULT_SYMBOL = "AAPL";
 const DEFAULT_DATE = "2026-07-01";
@@ -31,16 +32,39 @@ export function ReplayPage() {
   const [config, setConfig] = useState<ReplayConfig>(DEFAULT_REPLAY_CONFIG);
   const [trades, setTrades] = useState<SimTrade[]>([]);
 
-  const { data, isLoading, isError, error } = useReplaySession({
+  // 'Replay my trade' mode: ?trade=<id>&lead=<minutes>
+  const [params, setParams] = useSearchParams();
+  const tradeParam = Number(params.get("trade"));
+  const tradeId = Number.isInteger(tradeParam) && tradeParam > 0 ? tradeParam : null;
+  const lead = Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
+
+  const freeSession = useReplaySession({
     symbol,
     date,
     timeframe: config.timeframe,
     emaPeriods: config.emaPeriods,
     rsiPeriod: config.rsiPeriod,
     orMinutes: config.orMinutes,
+    enabled: tradeId === null,
   });
+  const tradeReplay = useReplayTrade(tradeId, lead);
+  const active = tradeId !== null ? tradeReplay : freeSession;
+  const { isLoading, isError, error } = active;
+  const data: ReplaySession | undefined =
+    tradeId !== null ? tradeReplay.data?.session : freeSession.data;
 
   const replay = useReplay(data);
+
+  // Start `lead` minutes before the trade's entry.
+  const startIndex = tradeReplay.data?.start_index;
+  const { setIndex } = replay;
+  useEffect(() => {
+    if (tradeId !== null && startIndex !== undefined) setIndex(startIndex);
+  }, [tradeId, startIndex, setIndex]);
+
+  const playheadTs =
+    tradeId !== null && data ? (data.candles[replay.currentIndex]?.ts ?? null) : null;
+  const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
 
   const ready = !isLoading && !isError && data && replay.total > 0;
 
@@ -65,6 +89,14 @@ export function ReplayPage() {
         onSymbolChange={setSymbol}
         date={date}
         onDateChange={setDate}
+        controls={
+          <TradeReplayPicker
+            tradeId={tradeId}
+            lead={lead}
+            onStart={(id, l) => setParams({ trade: String(id), lead: String(l) })}
+            onClear={() => setParams({})}
+          />
+        }
       />
 
       <div className="flex min-h-0 flex-1">
@@ -99,6 +131,12 @@ export function ReplayPage() {
         </div>
 
         <aside className="hidden w-80 shrink-0 border-l border-border md:block">
+          {tradeId !== null && (
+            <FillsPanel
+              fills={fillsQuery.data?.fills ?? []}
+              sourceLabel={data?.meta.source_label}
+            />
+          )}
           <TradePanel
             symbol={symbol}
             sessionDate={date}
@@ -109,6 +147,91 @@ export function ReplayPage() {
           />
         </aside>
       </div>
+    </div>
+  );
+}
+
+function TradeReplayPicker({
+  tradeId,
+  lead,
+  onStart,
+  onClear,
+}: {
+  tradeId: number | null;
+  lead: number;
+  onStart: (id: number, lead: number) => void;
+  onClear: () => void;
+}) {
+  const [idText, setIdText] = useState(tradeId !== null ? String(tradeId) : "");
+  const [leadText, setLeadText] = useState(String(lead));
+  const id = Number(idText);
+  const valid = Number.isInteger(id) && id > 0;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <label htmlFor="replay-trade-id">Replay my trade</label>
+      <input
+        id="replay-trade-id"
+        className="tabular h-8 w-20 rounded-md border border-border bg-transparent px-2"
+        placeholder="trade id"
+        inputMode="numeric"
+        value={idText}
+        onChange={(e) => setIdText(e.target.value)}
+      />
+      <input
+        aria-label="Lead minutes"
+        className="tabular h-8 w-14 rounded-md border border-border bg-transparent px-2"
+        inputMode="numeric"
+        value={leadText}
+        onChange={(e) => setLeadText(e.target.value)}
+      />
+      <span className="text-muted-foreground">min before</span>
+      <button
+        type="button"
+        disabled={!valid}
+        className="h-8 rounded-md border border-border px-2 disabled:opacity-50"
+        onClick={() => onStart(id, Math.min(240, Math.max(0, Number(leadText) || 0)))}
+      >
+        Start
+      </button>
+      {tradeId !== null && (
+        <button type="button" className="h-8 px-2 text-muted-foreground" onClick={onClear}>
+          Exit
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FillsPanel({
+  fills,
+  sourceLabel,
+}: {
+  fills: ReplayFill[];
+  sourceLabel?: string;
+}) {
+  return (
+    <div className="border-b border-border p-3 text-xs">
+      <div className="mb-1 font-semibold">Your fills</div>
+      <div className="mb-2 text-muted-foreground">
+        Hidden until the playhead reaches them. Decide first, then compare.
+        {sourceLabel ? ` Bars: ${sourceLabel}.` : ""}
+      </div>
+      {fills.length === 0 ? (
+        <div className="text-muted-foreground">No fills yet.</div>
+      ) : (
+        <ul className="space-y-1">
+          {fills.map((f) => (
+            <li key={f.seq} className="tabular flex justify-between">
+              <span>
+                {f.time_pt} {f.role}
+              </span>
+              <span>
+                {f.side} {f.qty} @ {f.price.toFixed(2)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -134,6 +257,9 @@ function ChartLegend({
   return (
     <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-xs backdrop-blur">
       <span className="font-semibold tracking-tight">{session.symbol}</span>
+      {session.meta.source_label && (
+        <span className="text-muted-foreground">{session.meta.source_label}</span>
+      )}
       <span className="tabular text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {specs.map((o) => {
