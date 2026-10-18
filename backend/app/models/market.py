@@ -18,6 +18,9 @@ class Candle(BaseModel):
     close: float
     volume: float
     timeframe: str = "1m"
+    # Set when the bars are a stand-in, e.g. "SPY (proxy)" for SPX. Optional and
+    # omitted by most providers (backward compatible).
+    source_label: str | None = None
 
 
 class OptionContract(BaseModel):
