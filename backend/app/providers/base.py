@@ -45,6 +45,12 @@ def get_provider(settings: Settings | None = None) -> DataProvider:
     """Return the active provider based on settings.mode. Imports are lazy so a
     missing Webull SDK never breaks mock mode (and vice-versa)."""
     settings = settings or get_settings()
+    if settings.market_data == "alpaca":
+        # Market data from Alpaca (read-only); fills/positions/account still come
+        # from the mode provider. Missing keys raise on first use, not here.
+        from app.providers.alpaca import AlpacaProvider
+
+        return AlpacaProvider(settings)
     if settings.mode == "webull":
         from app.providers.webull import WebullProvider
 

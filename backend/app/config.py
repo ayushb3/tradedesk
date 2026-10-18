@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     )
 
     mode: Literal["mock", "webull"] = "mock"
+    # Market-data source for candles/option bars (TRADEDESK_MARKET_DATA).
+    # "mock" (default) needs no keys. "alpaca" uses the read-only Alpaca
+    # market-data REST API (keys: APCA_API_KEY_ID / APCA_API_SECRET_KEY).
+    market_data: Literal["mock", "alpaca"] = "mock"
+    # Alpaca stock feed (TRADEDESK_ALPACA_FEED): sip (default, full volume) | iex.
+    # Falls back to iex on 403 and for windows ending within 15 min of now.
+    alpaca_feed: str = "sip"
     # The one desk DB (TRADEDESK_DB_PATH). Relative values resolve against the
     # repo root, never the cwd, so `make dev`, scripts and the MCP server all
     # open the same file with no flags.

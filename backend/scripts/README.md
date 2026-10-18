@@ -186,3 +186,17 @@ claude mcp add tradedesk --scope project \
 
 On macOS/Linux use `.../backend/.venv/bin/python`. Verify with `claude mcp list`
 (or `make desk-mcp-check`); the server exposes 7 tools.
+
+## alpaca_probe.py — Alpaca market-data probe
+
+Read-only check of what the Alpaca data API returns for your keys. Put
+`APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` in the gitignored `.env` (or env), then:
+
+```bash
+python backend/scripts/alpaca_probe.py --stock SPY --day 2026-06-19 \
+    --option SPY260619C00600000 --option SPXW260619C06000000
+```
+
+Prints HTTP status, bar count, first/last bar time (PT), feed and request range per
+symbol. Never prints keys. Exit 0 even on 403/404 (that is a finding); exit 2 if
+keys are missing. To use the provider in the app set `TRADEDESK_MARKET_DATA=alpaca`.
