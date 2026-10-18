@@ -10,13 +10,19 @@ index with candles: value at i uses only candles[0..i]. See models/replay.py.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import provider_dep, settings_dep
 from app.config import Settings
-from app.models.replay import ReplaySessionResponse
+from app.models.replay import (
+    ReplayFill,
+    ReplayFillsResponse,
+    ReplaySessionResponse,
+    ReplayTradeResponse,
+)
 from app.providers.base import DataProvider
 
 router = APIRouter(tags=["replay"])
@@ -102,3 +108,97 @@ def replay_session(
         )
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="indicators service not implemented")
+
+
+# --------------------------------------------------------------------------- #
+# Replay my trade
+# --------------------------------------------------------------------------- #
+_DEFAULT_LEAD_MINUTES = 15
+_MAX_LEAD_MINUTES = 240
+_PT = ZoneInfo("America/Los_Angeles")
+
+
+def _as_utc(ts: datetime) -> datetime:
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
+def _load_trade_or_404(trade_id: int):
+    from app.ingest.query import get_trade
+
+    trade = get_trade(trade_id)
+    if trade is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return trade
+
+
+def revealed_fills(trade_id: int, playhead: datetime) -> list[ReplayFill]:
+    """Server-side gate: only fills with ts <= playhead are ever returned."""
+    from app.ingest.query import get_trade_fills
+
+    head = _as_utc(playhead)
+    out: list[ReplayFill] = []
+    for f in get_trade_fills(trade_id):
+        if _as_utc(f.ts) <= head:
+            out.append(
+                ReplayFill(
+                    seq=f.seq,
+                    role=f.role,
+                    side=f.side,
+                    qty=f.qty,
+                    price=f.price,
+                    ts=f.ts,
+                    time_pt=_as_utc(f.ts).astimezone(_PT).strftime("%H:%M:%S PT"),
+                )
+            )
+    return out
+
+
+@router.get("/replay/trade/{trade_id}", response_model=ReplayTradeResponse)
+def replay_trade(
+    trade_id: int,
+    lead_minutes: int = Query(_DEFAULT_LEAD_MINUTES, ge=0, le=_MAX_LEAD_MINUTES),
+    playhead: datetime | None = Query(
+        None, description="Reveal fills at or before this time. Default: the start."
+    ),
+    timeframe: str = Query("1m"),
+    provider: DataProvider = Depends(provider_dep),
+    settings: Settings = Depends(settings_dep),
+) -> ReplayTradeResponse:
+    if timeframe not in _SUPPORTED_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"unsupported timeframe {timeframe!r}")
+    trade = _load_trade_or_404(trade_id)
+    start_ts = _as_utc(trade.open_ts) - timedelta(minutes=lead_minutes)
+    head = _as_utc(playhead) if playhead is not None else start_ts
+
+    from app.indicators.service import compute_replay_session
+
+    session = compute_replay_session(
+        provider, trade.symbol.upper(), trade.session_date, settings, timeframe=timeframe
+    )
+    start_index = next(
+        (i for i, c in enumerate(session.candles) if _as_utc(c.ts) >= start_ts),
+        max(len(session.candles) - 1, 0),
+    )
+    return ReplayTradeResponse(
+        trade_id=trade_id,
+        symbol=session.symbol,
+        lead_minutes=lead_minutes,
+        start_ts=start_ts,
+        start_index=start_index,
+        playhead=head,
+        session=session,
+        fills=revealed_fills(trade_id, head),
+    )
+
+
+@router.get("/replay/trade/{trade_id}/fills", response_model=ReplayFillsResponse)
+def replay_trade_fills(
+    trade_id: int,
+    playhead: datetime = Query(..., description="Reveal fills at or before this time."),
+) -> ReplayFillsResponse:
+    """Light poll for the UI as the playhead moves (no candles re-sent)."""
+    _load_trade_or_404(trade_id)
+    head = _as_utc(playhead)
+    return ReplayFillsResponse(
+        trade_id=trade_id, playhead=head, fills=revealed_fills(trade_id, head)
+    )

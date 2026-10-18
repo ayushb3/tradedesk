@@ -31,7 +31,9 @@ import {
   type KnowledgeModulesResponse,
   type KnowledgeProgressResponse,
   type PatchTradeRequest,
+  type ReplayFills,
   type ReplaySession,
+  type ReplayTrade,
   type ReplaySessionParams,
   type SimTrade,
   type Tag,
@@ -57,7 +59,7 @@ export function useCandles(params: CandlesParams) {
  * the query key, so changing any of them refetches from the backend.
  */
 export function useReplaySession(params: ReplaySessionParams) {
-  const { symbol, date, timeframe = "1m", emaPeriods, rsiPeriod, orMinutes } = params;
+  const { symbol, date, timeframe = "1m", emaPeriods, rsiPeriod, orMinutes, enabled = true } = params;
   return useQuery<ReplaySession>({
     queryKey: [
       "replay-session",
@@ -70,7 +72,29 @@ export function useReplaySession(params: ReplaySessionParams) {
     ],
     queryFn: () =>
       api.replaySession({ symbol, date, timeframe, emaPeriods, rsiPeriod, orMinutes }),
-    enabled: Boolean(symbol && date),
+    enabled: enabled && Boolean(symbol && date),
+  });
+}
+
+/** 'Replay my trade': the day's session started `lead` minutes before entry. */
+export function useReplayTrade(tradeId: number | null, leadMinutes: number) {
+  return useQuery<ReplayTrade>({
+    queryKey: ["replay-trade", tradeId, leadMinutes],
+    queryFn: () => api.replayTrade(tradeId as number, leadMinutes),
+    enabled: tradeId !== null,
+  });
+}
+
+/**
+ * Fills revealed at the playhead. The server only returns fills at or before
+ * `playhead`; the UI never filters hidden fills itself.
+ */
+export function useReplayTradeFills(tradeId: number | null, playhead: string | null) {
+  return useQuery<ReplayFills>({
+    queryKey: ["replay-trade-fills", tradeId, playhead],
+    queryFn: () => api.replayTradeFills(tradeId as number, playhead as string),
+    enabled: tradeId !== null && playhead !== null,
+    placeholderData: (prev) => prev,
   });
 }
 

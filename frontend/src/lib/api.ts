@@ -26,6 +26,8 @@ export interface Candle {
   close: number;
   volume: number;
   timeframe: string;
+  /** Set when the bars are a stand-in, e.g. "SPY (proxy)". */
+  source_label?: string | null;
 }
 
 export type Timeframe = "1m" | "5m" | "15m" | "30m" | "1h" | "1d";
@@ -124,6 +126,38 @@ export type LevelSeriesMap = Partial<Record<LevelKey, AlignedSeries>>;
 export interface ReplaySessionMeta {
   or_minutes: number;
   tz: string;
+  /** Present when the provider serves a stand-in, e.g. "SPY (proxy)". */
+  source_label?: string;
+}
+
+/** A trade fill revealed by the playhead. Never carries P&L. */
+export interface ReplayFill {
+  seq: number;
+  role: "entry" | "exit";
+  side: "buy" | "sell";
+  qty: number;
+  price: number;
+  ts: string;
+  /** Display-zone time, already labelled, e.g. "07:30:00 PT". */
+  time_pt: string;
+}
+
+/** GET /api/replay/trade/{id} - 'replay my trade'. */
+export interface ReplayTrade {
+  trade_id: number;
+  symbol: string;
+  lead_minutes: number;
+  start_ts: string;
+  start_index: number;
+  playhead: string;
+  session: ReplaySession;
+  fills: ReplayFill[];
+}
+
+export interface ReplayFills {
+  trade_id: number;
+  playhead: string;
+  fills: ReplayFill[];
 }
 
 /** Full replay payload: GET /api/replay/session?symbol=&date= */
@@ -148,6 +182,8 @@ export interface ReplaySessionParams {
   rsiPeriod?: number;
   /** Opening-range window in minutes for OR levels. Default from settings (5). */
   orMinutes?: number;
+  /** Set false to skip the fetch (e.g. in trade-replay mode). Default true. */
+  enabled?: boolean;
 }
 
 /** Timeframes the replay endpoint supports (mirrors backend _SUPPORTED_TIMEFRAMES). */
@@ -938,6 +974,16 @@ export const api = {
     if (rsiPeriod != null) qs.set("rsi_period", String(rsiPeriod));
     if (orMinutes != null) qs.set("or_minutes", String(orMinutes));
     return request<ReplaySession>(`/replay/session?${qs.toString()}`);
+  },
+
+  replayTrade(tradeId: number, leadMinutes = 15): Promise<ReplayTrade> {
+    const qs = new URLSearchParams({ lead_minutes: String(leadMinutes) });
+    return request<ReplayTrade>(`/replay/trade/${tradeId}?${qs.toString()}`);
+  },
+
+  replayTradeFills(tradeId: number, playhead: string): Promise<ReplayFills> {
+    const qs = new URLSearchParams({ playhead });
+    return request<ReplayFills>(`/replay/trade/${tradeId}/fills?${qs.toString()}`);
   },
 
   createSimTrade(body: CreateSimTradeRequest): Promise<SimTrade> {
