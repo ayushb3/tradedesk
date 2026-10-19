@@ -20,7 +20,7 @@ export interface RuleChip {
 
 const KEPT_LABELS: Record<RuleResult["code"], string> = {
   before_cutoff: "Before cutoff",
-  daily_stop: "Stop respected",
+  daily_stop: "Daily stop OK",
   max_loss_written: "Max loss written",
   call_source: "Call source ?",
   size_within_plan: "Size within plan",
@@ -28,10 +28,19 @@ const KEPT_LABELS: Record<RuleResult["code"], string> = {
 
 const BROKEN_LABELS: Partial<Record<RuleResult["code"], string>> = {
   before_cutoff: "After cutoff",
-  daily_stop: "Stop broken",
+  daily_stop: "Daily stop broken",
   max_loss_written: "No max loss written",
   call_source: "Own idea",
   size_within_plan: "Over planned size",
+};
+
+/** Unknown (kept === null): neutral wording, never the kept label. */
+const UNKNOWN_LABELS: Record<RuleResult["code"], string> = {
+  before_cutoff: "Cutoff ?",
+  daily_stop: "Daily stop ?",
+  max_loss_written: "Max loss ?",
+  call_source: "Call source ?",
+  size_within_plan: "No plan size",
 };
 
 const ORDER: RuleResult["code"][] = [
@@ -51,6 +60,7 @@ export function ruleChips(results: RuleResult[] | undefined | null): RuleChip[] 
     let label = KEPT_LABELS[code];
     if (code === "call_source" && r.kept === true) label = "Mentor call";
     else if (r.kept === false) label = BROKEN_LABELS[code] ?? label;
+    else if (r.kept === null) label = UNKNOWN_LABELS[code];
     return { code, label, tone: toneOf(r.kept), detail: r.detail };
   });
 }

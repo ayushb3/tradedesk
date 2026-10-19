@@ -25,7 +25,7 @@ const chips = ruleChips([
   rr("max_loss_written", false),
 ]);
 eq("chip order", chips.map((c) => c.code), ["call_source", "max_loss_written", "before_cutoff", "size_within_plan"]);
-eq("chip labels", chips.map((c) => c.label), ["Mentor call", "No max loss written", "After cutoff", "Size within plan"]);
+eq("chip labels", chips.map((c) => c.label), ["Mentor call", "No max loss written", "After cutoff", "No plan size"]);
 eq("chip tones", chips.map((c) => c.tone), ["kept", "broken", "broken", "unknown"]);
 eq("chip detail", chips[0].detail, "d-call_source");
 eq("own idea label", ruleChips([rr("call_source", false)])[0].label, "Own idea");
@@ -120,3 +120,7 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log("tradeReview checks passed");
+
+// daily stop chip says "Daily stop" so it is never read as the trade's own stop
+eq("daily stop kept label", ruleChips([rr("daily_stop", true)])[0].label, "Daily stop OK");
+eq("daily stop broken label", ruleChips([rr("daily_stop", false)])[0].label, "Daily stop broken");
