@@ -26,6 +26,7 @@ import {
   spreadLabels,
 } from "@/lib/stackedReplay";
 import { EMA_GREYS } from "@/lib/stackIndicators";
+import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
 
 // Keep in sync with the tokens in index.css (lightweight-charts needs literal colors).
 const THEME = {
@@ -75,6 +76,12 @@ interface Props {
   onStopChange?: (price: number, final: boolean) => void;
   /** Fills the server has revealed so far (gated server-side). */
   fills: ReplayFill[];
+  /**
+   * Trade review: a static, post-trade view. There is no playhead; `playheadSec` is the last
+   * minute whose bar is drawn, bars after `exitSec` are grey, and the wheel zooms only while a
+   * modifier key is held (a plain wheel scrolls the page). Replay never sets this.
+   */
+  staticView?: { exitSec: number | null };
 }
 
 interface Layout {
@@ -136,7 +143,10 @@ export function StackedReplayChart({
   simFills = [],
   onStopChange,
   fills,
+  staticView,
 }: Props) {
+  const isStatic = staticView !== undefined;
+  const staticExit = staticView?.exitSec ?? null;
   const topEl = useRef<HTMLDivElement>(null);
   const bottomEl = useRef<HTMLDivElement>(null);
   const panes = useRef<{ top: PaneRuntime | null; bottom: PaneRuntime } | undefined>(undefined);
@@ -153,6 +163,9 @@ export function StackedReplayChart({
   });
 
   const timeline = useMemo(() => buildTimeline(startSec, endSec), [startSec, endSec]);
+  const timelineLast = useRef(0);
+  timelineLast.current = timeline.length - 1;
+  const fitKey = useRef<string | null>(null);
   const hasTop = top !== null;
 
   const entrySec = revealedFillTime(fills, "entry", playheadSec);
@@ -205,9 +218,12 @@ export function StackedReplayChart({
           tickMarkFormatter: fmt.tickMarkFormatter,
           visible: showAxis,
         },
-        // The window is fixed: no wheel zoom or drag pan.
-        handleScroll: false,
-        handleScale: false,
+        // Replay: the window is fixed (no zoom or pan). Review: drag pans, and the wheel is
+        // handled below (modifier + wheel zooms; a plain wheel is left to the page).
+        handleScroll: isStatic
+          ? { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }
+          : false,
+        handleScale: isStatic ? { mouseWheel: false, pinch: false, axisPressedMouseMove: false } : false,
         autoSize: false,
       });
       const series = chart.addCandlestickSeries({
@@ -269,6 +285,49 @@ export function StackedReplayChart({
       });
     }
 
+    if (isStatic) {
+      // Keep the panes' visible ranges identical (same grid, so same logical indices) and
+      // re-measure the overlays whenever the range moves.
+      let rangeSyncing = false;
+      for (const src of all) {
+        src.chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+          setLayoutTick((n) => n + 1);
+          if (rangeSyncing || !range) return;
+          rangeSyncing = true;
+          try {
+            for (const dst of all) if (dst !== src) dst.chart.timeScale().setVisibleLogicalRange(range);
+          } finally {
+            rangeSyncing = false;
+          }
+        });
+      }
+    }
+    const wheelCleanups: (() => void)[] = [];
+    if (isStatic) {
+      const attach = (el: HTMLDivElement | null, rt: PaneRuntime | null) => {
+        if (!el || !rt) return;
+        const onWheel = (e: WheelEvent) => {
+          if (!isZoomWheel(e)) return; // plain wheel: the page scrolls
+          e.preventDefault();
+          const ts = rt.chart.timeScale();
+          const r = ts.getVisibleLogicalRange();
+          if (!r) return;
+          const x = e.clientX - el.getBoundingClientRect().left;
+          const anchor = ts.coordinateToLogical(x) ?? (r.from + r.to) / 2;
+          ts.setVisibleLogicalRange(zoomRange(r, anchor, e.deltaY > 0 ? 1.2 : 1 / 1.2, timelineLast.current));
+        };
+        const onDbl = () => all.forEach((p) => p.chart.timeScale().fitContent());
+        el.addEventListener("wheel", onWheel, { passive: false });
+        el.addEventListener("dblclick", onDbl);
+        wheelCleanups.push(() => {
+          el.removeEventListener("wheel", onWheel);
+          el.removeEventListener("dblclick", onDbl);
+        });
+      };
+      attach(topEl.current, topPane);
+      attach(bottomNode, bottomPane);
+    }
+
     const resize = () => {
       if (topPane && topEl.current)
         topPane.chart.applyOptions({
@@ -288,20 +347,23 @@ export function StackedReplayChart({
     ro.observe(bottomNode);
 
     return () => {
+      wheelCleanups.forEach((fn) => fn());
+      fitKey.current = null;
       ro.disconnect();
       for (const p of all) p.chart.remove();
       panes.current = undefined;
       stopLine.current = null;
       avgLine.current = null;
     };
-  }, [hasTop]);
+  }, [hasTop, isStatic]);
 
   // ---- data: aligned on the shared grid, revealed up to the playhead ---------
   useEffect(() => {
     const p = panes.current;
     if (!p) return;
     const feed = (rt: PaneRuntime, spec: PaneSpec) => {
-      rt.series.setData(alignedCandles(timeline, spec.candles, playheadSec));
+      const aligned = alignedCandles(timeline, spec.candles, playheadSec);
+      rt.series.setData(isStatic ? greyAfterExit(aligned, staticExit) : aligned);
       const line = spec.vwap
         ? timeline
             .filter((t) => t <= playheadSec && spec.vwap!.has(t))
@@ -333,9 +395,14 @@ export function StackedReplayChart({
     };
     if (p.top && top) feed(p.top, top);
     feed(p.bottom, bottom);
-    for (const rt of [p.top, p.bottom]) rt?.chart.timeScale().fitContent();
+    // Review keeps the user's zoom across data changes (after-exit toggle); fit once per window.
+    const key = `${startSec}:${endSec}:${hasTop}`;
+    if (!isStatic || fitKey.current !== key) {
+      fitKey.current = key;
+      for (const rt of [p.top, p.bottom]) rt?.chart.timeScale().fitContent();
+    }
     setLayoutTick((n) => n + 1);
-  }, [timeline, top, bottom, playheadSec, hasTop]);
+  }, [timeline, top, bottom, playheadSec, hasTop, isStatic, staticExit, startSec, endSec]);
 
   // ---- stop line (amber), contract pane only ---------------------------------
   useEffect(() => {
@@ -483,7 +550,8 @@ export function StackedReplayChart({
       />
     ) : null;
 
-  const shown = hoverSec ?? playheadSec;
+  // Replay reads out the playhead bar; the static review reads out only what is hovered.
+  const shown = hoverSec ?? (isStatic ? null : playheadSec);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
@@ -494,6 +562,7 @@ export function StackedReplayChart({
           layout={layouts.top}
           shown={shown}
           playheadSec={playheadSec}
+          isStatic={isStatic}
           hovered={hoverSec !== null}
           elRef={topEl}
           showTicks
@@ -506,6 +575,7 @@ export function StackedReplayChart({
         layout={layouts.bottom}
         shown={shown}
         playheadSec={playheadSec}
+        isStatic={isStatic}
         hovered={hoverSec !== null}
         elRef={bottomEl}
         showTicks={!top}
@@ -520,6 +590,7 @@ function Pane({
   layout,
   shown,
   playheadSec,
+  isStatic,
   hovered,
   elRef,
   showTicks,
@@ -528,14 +599,15 @@ function Pane({
   className: string;
   spec: PaneSpec;
   layout: Layout;
-  shown: number;
+  shown: number | null;
   playheadSec: number;
+  isStatic: boolean;
   hovered: boolean;
   elRef: React.RefObject<HTMLDivElement>;
   showTicks: boolean;
   overlay?: React.ReactNode;
 }) {
-  const bar = candleAt(spec.candles, shown, playheadSec);
+  const bar = shown === null ? null : candleAt(spec.candles, shown, playheadSec);
   const { width, playX, entryX, exitX } = layout;
   const windowEnd = exitX ?? playX;
   return (
@@ -549,10 +621,16 @@ function Pane({
             style={{ left: entryX, width: Math.max(0, windowEnd - entryX) }}
           />
         )}
-        {playX !== null && (
+        {!isStatic && playX !== null && (
           <div
             className="absolute inset-y-0 bg-grey/15"
             style={{ left: playX, width: Math.max(0, width - playX) }}
+          />
+        )}
+        {isStatic && exitX !== null && (
+          <div
+            className="absolute inset-y-0 bg-grey/10"
+            style={{ left: exitX, width: Math.max(0, width - exitX) }}
           />
         )}
         {entryX !== null && (
@@ -565,7 +643,7 @@ function Pane({
             {showTicks && <TickLabel>OUT</TickLabel>}
           </div>
         )}
-        {playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
+        {!isStatic && playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
         {spreadLabels(layout.levelYs, LEVEL_LABEL_GAP, layout.height).map((lv) => (
           <span
             key={lv.label}
@@ -587,10 +665,10 @@ function Pane({
         <span className="label-caps text-label font-semibold">{spec.label}</span>
         {spec.badge}
         <span className="num text-label text-muted-foreground">
-          {ptClock(shown)}
-          {hovered ? "" : " · playhead"}
+          {shown === null ? "hover a bar for OHLC" : ptClock(shown)}
+          {hovered || isStatic ? "" : " · playhead"}
         </span>
-        {bar ? (
+        {shown === null ? null : bar ? (
           <span className="num flex gap-2 text-label">
             <span>O {bar.open.toFixed(2)}</span>
             <span>H {bar.high.toFixed(2)}</span>

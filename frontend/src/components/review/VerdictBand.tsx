@@ -23,8 +23,6 @@ interface Props {
   trade: Trade;
   label: string;
   tally: DayTally | null;
-  onSetCallSource: (v: "mentor" | "own" | null) => void;
-  callSourcePending: boolean;
 }
 
 /**
@@ -32,9 +30,8 @@ interface Props {
  * the rule chips and the day tally against the daily stop. Replaces the six equal-weight
  * header stats. P&L is shown loud but is never a score.
  */
-export function VerdictBand({ trade, label, tally, onSetCallSource, callSourcePending }: Props) {
+export function VerdictBand({ trade, label, tally }: Props) {
   const chips = ruleChips(trade.rule_results);
-  const source = trade.enrichment?.call_source ?? null;
   const assumed = trade.r_basis === "assumed";
 
   return (
@@ -94,27 +91,6 @@ export function VerdictBand({ trade, label, tally, onSetCallSource, callSourcePe
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-label label-caps text-muted-foreground">Call</span>
-              <div className="inline-flex overflow-hidden rounded-md border border-border" role="group" aria-label="Call source">
-                {(["mentor", "own"] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    disabled={callSourcePending}
-                    aria-pressed={source === v}
-                    onClick={() => onSetCallSource(source === v ? null : v)}
-                    className={cn(
-                      "px-3 py-1 text-label capitalize transition-colors disabled:opacity-60",
-                      source === v ? "bg-play text-white" : "bg-transparent text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {tally && (
               <span className="num text-body" data-testid="day-tally" title="Net of every trade closed up to and including this one">
                 <span className="text-label label-caps text-muted-foreground">Day after this trade </span>
