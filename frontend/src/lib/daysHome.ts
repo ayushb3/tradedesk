@@ -111,7 +111,7 @@ export function calendarMarks(days: DeskDaySummary[]): Record<string, DayMark> {
     if (d.positions <= 0) continue;
     const broken = RULE_CODES.filter((c) => resultOf(d, c) === false);
     const s = d.stop_result;
-    const stopBreach = resultOf(d, "daily_stop") === false || (!!s && (s.trades_after > 0 || s.blown_past));
+    const stopBreach = resultOf(d, "daily_stop") === false || (!!s && (s.trades_after > 0 || !!s.past_tolerance));
     if (broken.length || stopBreach) out[d.date] = { broken, stopBreach };
   }
   return out;

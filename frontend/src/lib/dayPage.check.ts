@@ -63,6 +63,9 @@ const day: DeskDayDetail = {
     trades_after: 2,
     trade_ids_after: [3, 2],
     blown_past: true,
+    tolerance_pct: 30,
+    break_limit: -130,
+    past_tolerance: true,
   },
   positions: [
     pos(2, "2026-01-05T14:50:00Z", "2026-01-05T14:55:00Z", -30, -0.5, "assumed", [
@@ -89,7 +92,7 @@ eq("assumed count", v.assumedCount, 1);
 eq("chip labels", v.chips.map((c) => c.label), [
   "Daily stop hit 06:50 PT",
   "2 trades after stop",
-  "Blown past the stop",
+  "Past the -$100 stop by more than 30%",
   "2 after cutoff",
   "Target not reached",
 ]);
@@ -113,6 +116,16 @@ const kept = dayVerdict({
 eq("kept stop tone", kept.chips[0].tone, "kept");
 eq("target reached", kept.chips[kept.chips.length - 1].label, "Target reached");
 eq("no cutoff chip when none late", kept.chips.some((c) => c.key === "cutoff"), false);
+const within = dayVerdict({
+  ...day,
+  stop_result: { ...day.stop_result!, trades_after: 0, trade_ids_after: [], past_tolerance: false },
+});
+eq("within tolerance: stop chip kept", within.chips[0].tone, "kept");
+eq(
+  "within tolerance: grey note",
+  within.chips.filter((c) => c.key === "blown").map((c) => [c.label, c.tone]),
+  [["Past the stop, within 30%", "unknown"]],
+);
 eq("no positions -> sum R null", dayVerdict({ ...day, positions: [] }).sumR, null);
 eq(
   "not-hit chip",

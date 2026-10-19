@@ -87,7 +87,10 @@ class StopResultOut(BaseModel):
     trade_ids_after: list[int] = Field(default_factory=list)
     crossed_by: int | None = None  # trade whose sell reached the limit
     crossed_net: float | None = None  # day net after that trade's last sell
-    blown_past: bool = False  # that trade left the day strictly past the limit (rule broken)
+    blown_past: bool = False  # that trade left the day strictly past the limit
+    tolerance_pct: float = 0.0  # rules.daily_stop_tolerance_pct
+    break_limit: float = 0.0  # limit x (1 + tolerance)
+    past_tolerance: bool = False  # that trade left the day past break_limit (rule broken)
 
 
 class PositionOut(BaseModel):

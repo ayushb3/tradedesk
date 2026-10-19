@@ -16,9 +16,11 @@ Rules (codes are stable, the UI maps them to labels):
                        fill by fill in time order) reaches ``rules.daily_stop``. Rules on
                        NET, like the ledger. Broken for trades opened strictly after the hit
                        time, AND for the trade that crossed the stop when its last sell left
-                       the day's net strictly past the limit (the loss itself is the break;
-                       owner default 2026-10-19). Landing exactly on the limit is kept. Day
-                       level: broken when either happened.
+                       the day's net strictly past ``break_limit`` = stop x (1 + tolerance),
+                       ``rules.daily_stop_tolerance_pct`` (owner 2026-10-19: a -250 stop at
+                       30% breaks below -325; between -250 and -325 is kept). ``blown_past``
+                       still means "strictly past the stop itself". Day level: broken when
+                       either happened.
 - ``max_loss_written`` a max loss was written before entry: a matched plan that is not
                        ``late``, else the day's declared max loss (its timing is not
                        recorded, so it is trusted). A late plan counts as NOT written.
@@ -81,6 +83,9 @@ class StopResult:
     crossed_by: int | None = None  # trade whose sell fill reached the limit
     crossed_net: float | None = None  # day net after that trade's last sell
     blown_past: bool = False  # crossed_net strictly past the limit
+    tolerance_pct: float = 0.0  # rules.daily_stop_tolerance_pct
+    break_limit: float = 0.0  # limit x (1 + tolerance); past this the crossing trade is a break
+    past_tolerance: bool = False  # crossed_net strictly past break_limit (rule broken)
 
 
 @dataclass
@@ -174,11 +179,17 @@ def _daily_stop(t: TradeInput, stop: StopResult, rules: Rules) -> RuleResult:
             "daily_stop", False,
             f"Entered {_pt(ts, rules, seconds=True)}, {mins} min after the daily stop was hit at {hit}",
         )
-    if t.trade_id == stop.crossed_by and stop.blown_past:
+    if t.trade_id == stop.crossed_by and stop.past_tolerance:
         return RuleResult(
             "daily_stop", False,
             f"Took the day to {_usd(stop.crossed_net or 0)}, past the "
-            f"{_usd(rules.daily_stop)} daily stop (hit {hit})",
+            f"{_usd(rules.daily_stop)} stop by more than {stop.tolerance_pct:g}% (hit {hit})",
+        )
+    if t.trade_id == stop.crossed_by and stop.blown_past:
+        return RuleResult(
+            "daily_stop", True,
+            f"Took the day to {_usd(stop.crossed_net or 0)}, within {stop.tolerance_pct:g}% "
+            f"of the {_usd(rules.daily_stop)} stop (hit {hit})",
         )
     return RuleResult("daily_stop", True, f"Entered before the daily stop was hit at {hit}")
 
@@ -254,6 +265,9 @@ def evaluate_day(day: date, inputs: list[TradeInput], rules: Rules) -> DayRules:
     end = window_bounds(rules, day)[1]
     hit, hit_at, net, crossed_by, crossed_net = _stop_hit(inputs, rules)
     blown_past = crossed_net is not None and crossed_net < rules.daily_stop - EPS
+    tol = rules.daily_stop_tolerance_pct
+    break_limit = rules.daily_stop * (1 + tol / 100)
+    past_tolerance = crossed_net is not None and crossed_net < break_limit - EPS
     after = [
         t.trade_id for t in inputs
         if hit_at is not None and (ts := _open_ts(t.analysis)) is not None and ts > hit_at
@@ -263,6 +277,7 @@ def evaluate_day(day: date, inputs: list[TradeInput], rules: Rules) -> DayRules:
         hit_at_pt=_pt(hit_at, rules, seconds=True) if hit_at else None,
         trades_after=len(after), trade_ids_after=after,
         crossed_by=crossed_by, crossed_net=crossed_net, blown_past=blown_past,
+        tolerance_pct=tol, break_limit=break_limit, past_tolerance=past_tolerance,
     )
     trades = {t.trade_id: _trade_results(t, end, stop, rules) for t in inputs}
 
@@ -283,11 +298,17 @@ def evaluate_day(day: date, inputs: list[TradeInput], rules: Rules) -> DayRules:
             f"Daily stop {_usd(rules.daily_stop)} hit {stop.hit_at_pt}; "
             f"{len(after)} trade{'s' if len(after) != 1 else ''} after it",
         )
-    elif blown_past:
+    elif past_tolerance:
         stop_day = RuleResult(
             "daily_stop", False,
-            f"Daily stop {_usd(rules.daily_stop)} blown past {stop.hit_at_pt}: "
-            f"day went to {_usd(crossed_net or 0)}; no trades after it",
+            f"Daily stop {_usd(rules.daily_stop)} hit {stop.hit_at_pt}: day went to "
+            f"{_usd(crossed_net or 0)}, past the stop by more than {tol:g}%; no trades after it",
+        )
+    elif blown_past:
+        stop_day = RuleResult(
+            "daily_stop", True,
+            f"Daily stop {_usd(rules.daily_stop)} hit {stop.hit_at_pt}: day went to "
+            f"{_usd(crossed_net or 0)}, within {tol:g}% of the stop; no trades after it",
         )
     else:
         stop_day = RuleResult(

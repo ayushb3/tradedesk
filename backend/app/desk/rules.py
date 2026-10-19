@@ -58,6 +58,9 @@ class Rules(BaseModel):
     daily_target: float
     loss_line: LossLine
     default_risk_pct: float = 30
+    # How far past the daily stop one losing trade may take the day before that is a break
+    # (percent of the stop): 30 with a -250 stop breaks only below -325.
+    daily_stop_tolerance_pct: float = 30
     account_size: AccountSize
     rules: list[Rule] = Field(default_factory=list)
     lessons: dict[str, list[LessonLink]] = Field(default_factory=dict)
@@ -121,6 +124,8 @@ def validate(text: str) -> list[str]:
         )
     if not 0 < model.default_risk_pct <= 100:
         errors.append("default_risk_pct must be between 0 and 100")
+    if not 0 <= model.daily_stop_tolerance_pct <= 100:
+        errors.append("daily_stop_tolerance_pct must be between 0 and 100")
     seen: set[int] = set()
     for r in model.rules:
         if r.number in seen:
