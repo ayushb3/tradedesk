@@ -621,6 +621,52 @@ export interface DayTradeCard {
   sparkline: Sparkline | null;
 }
 
+/** One fill of a desk position (times pre-formatted in PT by the server). */
+export interface DeskFill {
+  side: "B" | "S";
+  qty: number;
+  px: number;
+  ts: string;
+  ts_pt: string;
+}
+
+/** A desk position: one round trip, with its R and per-trade rule verdicts. */
+export interface DeskPosition {
+  trade_id: number;
+  label?: string | null;
+  ticker: string;
+  type: string;
+  strike: number;
+  status: string;
+  pnl: number | null;
+  r: number | null;
+  r_basis: string;
+  rule_results: RuleResult[];
+  fills: DeskFill[];
+}
+
+/** The day's stop state (net, closed positions, fees in). */
+export interface DeskStopResult {
+  limit: number;
+  hit: boolean;
+  net: number;
+  hit_at_pt?: string | null;
+  trades_after: number;
+  trade_ids_after: number[];
+  blown_past: boolean;
+}
+
+/** GET /api/days/{date}: the fields the day page reads. */
+export interface DeskDayDetail {
+  date: string;
+  daily_stop: number;
+  daily_target: number;
+  stats: { net: number; n_closed: number };
+  positions: DeskPosition[];
+  rule_results: RuleResult[];
+  stop_result: DeskStopResult | null;
+}
+
 /** GET /api/journal/days/{date}/trades — that session-day's trade cards. */
 export interface DayTradesResponse {
   date: string;
@@ -1079,6 +1125,10 @@ export const api = {
 
   replayDaySoFar(tradeId: number): Promise<ReplayDaySoFar> {
     return request<ReplayDaySoFar>(`/replay/trade/${tradeId}/day-so-far`);
+  },
+
+  deskDay(date: string): Promise<DeskDayDetail> {
+    return request<DeskDayDetail>(`/days/${date}`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

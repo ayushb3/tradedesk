@@ -34,6 +34,7 @@ import {
   type ReplayContract,
   type ReplayDaySoFar,
   type ReplayFills,
+  type DeskDayDetail,
   type ReplaySession,
   type ReplayTrade,
   type ReplaySessionParams,
@@ -244,6 +245,16 @@ export function useTradeExcursions(id: number | string | null, enabled = true) {
     queryKey: ["trade-excursions", id],
     queryFn: () => api.tradeExcursions(id as number | string),
     enabled: enabled && id !== null && id !== undefined,
+  });
+}
+
+/** The desk's view of one day: net, stop state, positions with R and rule results. */
+export function useDeskDay(date: string | null) {
+  return useQuery<DeskDayDetail>({
+    queryKey: ["desk-day", date],
+    queryFn: () => api.deskDay(date as string),
+    enabled: Boolean(date),
+    retry: false,
   });
 }
 
