@@ -13,6 +13,7 @@ import {
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { StackedReplayChart } from "@/components/replay/StackedReplayChart";
+import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import {
@@ -22,6 +23,7 @@ import {
   useReplayTradeFills,
 } from "@/lib/queries";
 import { useReplay } from "@/lib/useReplay";
+import { useSimSession } from "@/lib/useSimSession";
 import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
 import {
   candlesInWindow,
@@ -191,6 +193,20 @@ export function ReplayPage() {
     };
   }, [inTrade, data, revealedFills, playheadSec]);
 
+  // Trade-mode sim: fills at the playhead bar's close on the premium pane.
+  const playCandle = inTrade && data ? (data.candles[replay.currentIndex] ?? null) : null;
+  const sim = useSimSession({
+    resetKey: endKey,
+    symbol: contractData?.symbol ?? tradeSession?.symbol ?? "",
+    sessionDate: tradeSession?.session_date ?? date,
+    writtenStop: contractData?.stop_price ?? null,
+  });
+  const simPos = sim.state.position;
+  const simFills = useMemo(
+    () => sim.state.trips.flatMap((t) => t.fills).concat(simPos.fills),
+    [sim.state.trips, simPos.fills],
+  );
+
   const ready = !isLoading && !isError && data && replay.total > 0;
 
   const visibility: ChartVisibility = {
@@ -261,7 +277,11 @@ export function ReplayPage() {
                 startSec={startSec}
                 endSec={endSec}
                 playheadSec={playheadSec}
-                stopPrice={windowed.contractCandles ? (contractData?.stop_price ?? null) : null}
+                stopPrice={windowed.contractCandles ? simPos.stop : null}
+                stopAssumed={simPos.stopAssumed}
+                avgPrice={windowed.contractCandles && simPos.qty > 0 ? simPos.avg : null}
+                simFills={windowed.contractCandles ? simFills : []}
+                onStopChange={sim.onSetStop}
                 fills={windowed.contractCandles ? revealedFills : []}
               />
             </div>
@@ -304,14 +324,26 @@ export function ReplayPage() {
               }
             />
           )}
-          <TradePanel
-            symbol={symbol}
-            sessionDate={date}
-            tz={data?.meta.tz ?? "America/New_York"}
-            currentCandle={data ? data.candles[replay.currentIndex] ?? null : null}
-            trades={trades}
-            onTradeCreated={(t) => setTrades((prev) => [...prev, t])}
-          />
+          {inTrade ? (
+            <SimPanel
+              candle={playCandle}
+              state={sim.state}
+              enabled={windowed?.contractCandles != null}
+              onBuy={() => sim.onBuy(playCandle)}
+              onSell={() => sim.onSell(playCandle)}
+              onCloseAll={() => sim.onCloseAll(playCandle)}
+              logError={sim.logError}
+            />
+          ) : (
+            <TradePanel
+              symbol={symbol}
+              sessionDate={date}
+              tz={data?.meta.tz ?? "America/New_York"}
+              currentCandle={data ? data.candles[replay.currentIndex] ?? null : null}
+              trades={trades}
+              onTradeCreated={(t) => setTrades((prev) => [...prev, t])}
+            />
+          )}
         </aside>
       </div>
     </div>
