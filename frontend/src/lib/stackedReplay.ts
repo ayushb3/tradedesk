@@ -14,10 +14,6 @@ import { isoToUtcSeconds } from "@/lib/chart";
 export const MINUTE = 60;
 /** Initial x-range: lead start + a fixed 90 min (depends only on the entry). */
 export const INITIAL_WINDOW_MIN = 90;
-/** y-domain padding: this fraction of the revealed range, never less than the floor. */
-export const DOMAIN_PAD = 0.25;
-const DOMAIN_FLOOR_FRAC = 0.05; // of the mid price
-const DOMAIN_FLOOR_ABS = 0.05;
 
 export const floorMinute = (sec: number): number => Math.floor(sec / MINUTE) * MINUTE;
 
@@ -64,49 +60,6 @@ export function candleAt(
 ): Candle | null {
   if (minuteSec > playheadSec) return null;
   return candles.find((c) => floorMinute(isoToUtcSeconds(c.ts)) === minuteSec) ?? null;
-}
-
-export interface Domain {
-  minValue: number;
-  maxValue: number;
-}
-
-/**
- * y-domain from the bars revealed so far (lead start .. playhead), padded
- * generously, that only ever EXPANDS: it is left untouched until a revealed bar
- * (or an extra level such as the stop) leaves it, and then grows with fresh
- * padding. It never shrinks, so there is no jitter during playback, and it
- * never reflects bars the playhead has not reached.
- */
-export function growDomain(
-  prev: Domain | null,
-  candles: Candle[],
-  playheadSec: number,
-  extra: (number | null | undefined)[] = [],
-): Domain | null {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const c of candles) {
-    if (isoToUtcSeconds(c.ts) > playheadSec) break; // candles are chronological
-    lo = Math.min(lo, c.low);
-    hi = Math.max(hi, c.high);
-  }
-  for (const v of extra) {
-    if (v == null) continue;
-    lo = Math.min(lo, v);
-    hi = Math.max(hi, v);
-  }
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return prev;
-  if (prev && lo >= prev.minValue && hi <= prev.maxValue) return prev;
-  const mid = (lo + hi) / 2;
-  const floor = Math.max(Math.abs(mid) * DOMAIN_FLOOR_FRAC, DOMAIN_FLOOR_ABS);
-  const pad = Math.max((hi - lo) * DOMAIN_PAD, floor);
-  const next = { minValue: lo - pad, maxValue: hi + pad };
-  if (!prev) return next;
-  return {
-    minValue: Math.min(prev.minValue, next.minValue),
-    maxValue: Math.max(prev.maxValue, next.maxValue),
-  };
 }
 
 /**

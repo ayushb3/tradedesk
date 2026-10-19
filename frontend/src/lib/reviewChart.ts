@@ -7,6 +7,7 @@ import type { CandlestickData, UTCTimestamp, WhitespaceData } from "lightweight-
 import type { Trade, TradeExcursions } from "./api";
 const isoToUtcSeconds = (iso: string): number => Math.floor(new Date(iso).getTime() / 1000);
 import { DISPLAY_TZ_LABEL, formatClock, formatCurrency } from "./format";
+import { fitWindow } from "./priceChartWindow";
 const MINUTE = 60;
 const floorMinute = (sec: number): number => Math.floor(sec / MINUTE) * MINUTE;
 
@@ -20,6 +21,8 @@ export interface ReviewWindow {
   endSec: number;
   /** Minute of the (last) exit, or null for an open trade. */
   exitSec: number | null;
+  /** Set when the bars end before exit + 30 min: the last bar's minute. */
+  noDataAfterSec: number | null;
 }
 
 /**
@@ -32,13 +35,16 @@ export function reviewWindow(
   firstBarSec: number,
   lastBarSec: number,
 ): ReviewWindow {
-  const entry = floorMinute(isoToUtcSeconds(openTs));
   const exit = closeTs ? floorMinute(isoToUtcSeconds(closeTs)) : null;
-  const start = Math.max(floorMinute(firstBarSec), entry - LEAD_MIN * MINUTE);
-  const rawEnd = exit === null ? lastBarSec : exit + TAIL_MIN * MINUTE;
-  const end = Math.min(lastBarSec, rawEnd);
-  if (!(start < end)) return { startSec: floorMinute(firstBarSec), endSec: lastBarSec, exitSec: exit };
-  return { startSec: start, endSec: end, exitSec: exit };
+  const w = fitWindow({
+    entrySec: isoToUtcSeconds(openTs),
+    exitSec: exit,
+    firstBarSec,
+    lastBarSec,
+    leadMin: LEAD_MIN,
+    tailMin: TAIL_MIN,
+  });
+  return { startSec: w.startSec, endSec: w.endSec, exitSec: exit, noDataAfterSec: w.noDataAfterSec };
 }
 
 /** Last minute whose bar is drawn: the window end, or the exit while after-exit bars are hidden. */
