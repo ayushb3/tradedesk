@@ -149,7 +149,7 @@ export interface ReplayTrade {
   lead_minutes: number;
   start_ts: string;
   start_index: number;
-  /** Exit + 30 min: right edge of the x-range. Never the exit itself. */
+  /** Exit + 30 min, only once the playhead is at or past the exit. */
   window_end_ts: string | null;
   playhead: string;
   session: ReplaySession;
@@ -182,6 +182,8 @@ export interface ReplayFills {
   trade_id: number;
   playhead: string;
   fills: ReplayFill[];
+  /** Exit + 30 min; present only once the playhead is at or past the exit. */
+  window_end_ts?: string | null;
 }
 
 /** Full replay payload: GET /api/replay/session?symbol=&date= */

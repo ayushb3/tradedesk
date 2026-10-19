@@ -18,7 +18,8 @@ import {
   alignedCandles,
   buildTimeline,
   candleAt,
-  fixedDomain,
+  growDomain,
+  type Domain,
   floorMinute,
   revealedFillTime,
 } from "@/lib/stackedReplay";
@@ -83,8 +84,6 @@ interface PaneRuntime {
   vwap: ISeriesApi<"Line">;
 }
 
-type Domain = ReturnType<typeof fixedDomain>;
-
 /**
  * Two stacked panes on one shared minute grid: contract premium (~60%) over SPY
  * (~40%). Both series carry every minute of the window (whitespace where there is
@@ -105,7 +104,7 @@ export function StackedReplayChart({
   const bottomEl = useRef<HTMLDivElement>(null);
   const panes = useRef<{ top: PaneRuntime | null; bottom: PaneRuntime } | undefined>(undefined);
   const stopLine = useRef<IPriceLine | null>(null);
-  const domains = useRef<{ top: Domain; bottom: Domain }>({ top: null, bottom: null });
+  const domains = useRef<{ top: Domain | null; bottom: Domain | null }>({ top: null, bottom: null });
 
   const [hoverSec, setHoverSec] = useState<number | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -120,12 +119,17 @@ export function StackedReplayChart({
   const entrySec = revealedFillTime(fills, "entry", playheadSec);
   const exitSec = revealedFillTime(fills, "exit", playheadSec);
 
-  // Fixed domains: depend only on the window's bars (and the stop), never the playhead.
-  const topCandles = top?.candles;
-  const bottomCandles = bottom.candles;
+  // y-domains grow with the revealed bars only (never shrink, never see the
+  // future). Reset when the window changes.
+  const domainKey = `${startSec}:${hasTop}`;
+  const domainKeyRef = useRef(domainKey);
+  if (domainKeyRef.current !== domainKey) {
+    domainKeyRef.current = domainKey;
+    domains.current = { top: null, bottom: null };
+  }
   domains.current = {
-    top: topCandles ? fixedDomain(topCandles, [stopPrice]) : null,
-    bottom: fixedDomain(bottomCandles),
+    top: top ? growDomain(domains.current.top, top.candles, playheadSec, [stopPrice]) : null,
+    bottom: growDomain(domains.current.bottom, bottom.candles, playheadSec),
   };
 
   // ---- create the charts once per layout (stacked / SPY only) ---------------

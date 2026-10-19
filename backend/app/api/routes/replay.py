@@ -126,9 +126,12 @@ def _as_utc(ts: datetime) -> datetime:
 _AFTER_EXIT_MINUTES = 30
 
 
-def _window_end(trade) -> datetime | None:
-    """Right edge of the replay x-range: exit + 30 min (None while the trade is open)."""
-    if trade.close_ts is None:
+def _window_end(trade, head: datetime) -> datetime | None:
+    """Real right edge of the x-range (exit + 30 min), revealed only once the
+    playhead is at or past the exit. Before that it is None: the exit time must
+    never be derivable from anything sent early. The client starts from a fixed
+    window that depends only on the entry and extends when this arrives."""
+    if trade.close_ts is None or _as_utc(head) < _as_utc(trade.close_ts):
         return None
     return _as_utc(trade.close_ts) + timedelta(minutes=_AFTER_EXIT_MINUTES)
 
@@ -196,7 +199,7 @@ def replay_trade(
         lead_minutes=lead_minutes,
         start_ts=start_ts,
         start_index=start_index,
-        window_end_ts=_window_end(trade),
+        window_end_ts=_window_end(trade, head),
         playhead=head,
         session=session,
         fills=revealed_fills(trade_id, head),
@@ -209,10 +212,13 @@ def replay_trade_fills(
     playhead: datetime = Query(..., description="Reveal fills at or before this time."),
 ) -> ReplayFillsResponse:
     """Light poll for the UI as the playhead moves (no candles re-sent)."""
-    _load_trade_or_404(trade_id)
+    trade = _load_trade_or_404(trade_id)
     head = _as_utc(playhead)
     return ReplayFillsResponse(
-        trade_id=trade_id, playhead=head, fills=revealed_fills(trade_id, head)
+        trade_id=trade_id,
+        playhead=head,
+        fills=revealed_fills(trade_id, head),
+        window_end_ts=_window_end(trade, head),
     )
 
 
@@ -238,7 +244,7 @@ def replay_trade_contract(
     head = _as_utc(playhead) if playhead is not None else start_ts
     base = dict(
         trade_id=trade_id, lead_minutes=lead_minutes, start_ts=start_ts, playhead=head,
-        session_date=trade.session_date, window_end_ts=_window_end(trade),
+        session_date=trade.session_date, window_end_ts=_window_end(trade, head),
     )
 
     bars, contract, reason = fetch_bars(trade_id, provider)

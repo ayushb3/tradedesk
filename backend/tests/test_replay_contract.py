@@ -156,22 +156,40 @@ def test_unknown_trade_404(client):
     assert client.get("/api/replay/trade/999999/contract").status_code == 404
 
 
-def test_window_end_is_exit_plus_30_minutes_on_both_endpoints(client):
+def _exit_time(client, tid) -> datetime:
+    fills = client.get(
+        f"/api/replay/trade/{tid}/fills", params={"playhead": _iso(600)}
+    ).json()["fills"]
+    return max(datetime.fromisoformat(f["ts"]) for f in fills if f["role"] == "exit")
+
+
+def test_window_end_is_withheld_until_the_playhead_reaches_the_exit(client):
+    """Nothing sent before the exit may equal or derive from the exit time."""
     tid = _tid(client)
+    exit_ts = _exit_time(client, tid)
+    before = _iso(int((exit_ts - ENTRY).total_seconds() // 60) - 1)
+    end = exit_ts + timedelta(minutes=30)
+    trade_path = f"/api/replay/trade/{tid}"  # underlying: the default (mock) provider
+
+    for params in ({}, {"playhead": before}):  # {} = the default playhead, the lead start
+        j = client.get(trade_path, params=params).json()
+        assert j["window_end_ts"] is None
+        assert all(f["role"] != "exit" for f in j["fills"])
+    fj = client.get(f"{trade_path}/fills", params={"playhead": before}).json()
+    assert fj["window_end_ts"] is None and all(f["role"] != "exit" for f in fj["fills"])
+
+    at = client.get(f"{trade_path}/fills", params={"playhead": exit_ts.isoformat()}).json()
+    assert datetime.fromisoformat(at["window_end_ts"]) == end
+    j = client.get(trade_path, params={"playhead": _iso(600)}).json()
+    assert datetime.fromisoformat(j["window_end_ts"]) == end
+
     _override(client, _Bars())
     try:
-        c = client.get(f"/api/replay/trade/{tid}/contract").json()
-        end = datetime.fromisoformat(c["window_end_ts"])
-        exit_fill = max(
-            datetime.fromisoformat(f["ts"])
-            for f in client.get(
-                f"/api/replay/trade/{tid}/fills", params={"playhead": _iso(600)}
-            ).json()["fills"]
-            if f["role"] == "exit"
-        )
-        assert end >= exit_fill + timedelta(minutes=30) - timedelta(minutes=1)
-        assert end <= exit_fill + timedelta(minutes=31)
-        # the early (unrevealed) response must not carry any exit fill
-        assert all(f["role"] != "exit" for f in c["fills"])
+        for params in ({}, {"playhead": before}):
+            c = client.get(f"{trade_path}/contract", params=params).json()
+            assert c["window_end_ts"] is None
+            assert all(f["role"] != "exit" for f in c["fills"])
+        c = client.get(f"{trade_path}/contract", params={"playhead": _iso(600)}).json()
+        assert datetime.fromisoformat(c["window_end_ts"]) == end
     finally:
         client.app.dependency_overrides.clear()

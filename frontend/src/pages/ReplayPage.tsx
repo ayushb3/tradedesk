@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AlertCircle, ServerCrash } from "lucide-react";
 
@@ -26,6 +26,7 @@ import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
 import {
   candlesInWindow,
   floorMinute,
+  INITIAL_WINDOW_MIN,
   revealedFillTime,
   spyPaneLabel,
 } from "@/lib/stackedReplay";
@@ -76,16 +77,18 @@ export function ReplayPage() {
       : null;
 
   const tradeSession = tradeReplay.data?.session;
-  // x-range: lead start .. exit + 30 min (window end). Falls back to the last bar
-  // while the trade is still open.
+  // x-range: lead start + a fixed 90 min (clamped to the session). That depends
+  // only on the entry. The real end (exit + 30 min) arrives with /fills only once
+  // the playhead reaches the exit; the range then extends if it is later.
   const startSec = tradeReplay.data ? floorMinute(isoToUtcSeconds(tradeReplay.data.start_ts)) : 0;
-  const windowEndTs = contractData?.window_end_ts ?? tradeReplay.data?.window_end_ts ?? null;
   const spyAll = tradeSession?.candles;
-  const endSec = windowEndTs
-    ? isoToUtcSeconds(windowEndTs)
-    : spyAll && spyAll.length > 0
-      ? isoToUtcSeconds(spyAll[spyAll.length - 1].ts)
-      : startSec;
+  const sessionEndSec =
+    spyAll && spyAll.length > 0 ? isoToUtcSeconds(spyAll[spyAll.length - 1].ts) : startSec;
+  const initialEndSec = Math.min(startSec + INITIAL_WINDOW_MIN * 60, sessionEndSec);
+  const [revealedEnd, setRevealedEnd] = useState<{ key: string; sec: number } | null>(null);
+  const endKey = `${tradeId}:${lead}`;
+  const revealedEndSec = revealedEnd?.key === endKey ? revealedEnd.sec : 0;
+  const endSec = Math.max(initialEndSec, Math.min(revealedEndSec, sessionEndSec));
 
   const windowed = useMemo(() => {
     if (!tradeSession) return null;
@@ -145,6 +148,30 @@ export function ReplayPage() {
   const playheadTs = inTrade && data ? (data.candles[replay.currentIndex]?.ts ?? null) : null;
   const playheadSec = playheadTs ? floorMinute(isoToUtcSeconds(playheadTs)) : startSec;
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
+  const windowEndTs = fillsQuery.data?.window_end_ts ?? null;
+  useEffect(() => {
+    if (!windowEndTs) return;
+    const sec = isoToUtcSeconds(windowEndTs);
+    setRevealedEnd((prev) => (prev?.key === endKey && prev.sec >= sec ? prev : { key: endKey, sec }));
+  }, [windowEndTs, endKey]);
+
+  // Extending the window changes the bar count, which resets the engine to bar 0;
+  // put the playhead (and playback) back where it was.
+  const lastRun = useRef({ total: 0, index: 0, playing: false });
+  const { setIndex, play } = replay;
+  useEffect(() => {
+    const prev = lastRun.current;
+    if (inTrade && prev.total > 0 && replay.total !== prev.total && replay.total > prev.total) {
+      setIndex(prev.index);
+      if (prev.playing) play();
+    }
+    lastRun.current = {
+      total: replay.total,
+      index: replay.total !== prev.total ? prev.index : replay.currentIndex,
+      playing: replay.total !== prev.total ? prev.playing : replay.isPlaying,
+    };
+  }, [inTrade, replay.total, replay.currentIndex, replay.isPlaying, setIndex, play]);
+
   const revealedFills = useMemo(
     () => (fillsQuery.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= playheadSec + 59),
     [fillsQuery.data, playheadSec],
