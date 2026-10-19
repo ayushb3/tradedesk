@@ -12,6 +12,7 @@ import {
 } from "lightweight-charts";
 
 import type { Candle, ReplayFill } from "@/lib/api";
+import type { SimFill } from "@/lib/simPosition";
 import { isoToUtcSeconds, makeDisplayFormatters } from "@/lib/chart";
 import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "@/lib/format";
 import {
@@ -33,6 +34,7 @@ const THEME = {
   play: "#3b82f6", // playhead / crosshair
   stop: "#f59e0b", // the stop
   vwap: "#22d3ee",
+  avg: "#a1a1aa", // blended average entry
 };
 const PRICE_SCALE_WIDTH = 72;
 
@@ -56,7 +58,15 @@ interface Props {
   endSec: number;
   /** Bar-open time of the playhead, epoch seconds. */
   playheadSec: number;
+  /** The sim's stop (amber, draggable); null while flat. */
   stopPrice: number | null;
+  stopAssumed?: boolean;
+  /** Blended average entry of the open sim position; null while flat. */
+  avgPrice?: number | null;
+  /** Fills of the user's sim buys/sells on the contract pane. */
+  simFills?: SimFill[];
+  /** Called while dragging the stop (final = false) and on release (final = true). */
+  onStopChange?: (price: number, final: boolean) => void;
   /** Fills the server has revealed so far (gated server-side). */
   fills: ReplayFill[];
 }
@@ -66,9 +76,10 @@ interface Layout {
   playX: number | null;
   entryX: number | null;
   exitX: number | null;
+  stopY: number | null;
 }
 
-const EMPTY_LAYOUT: Layout = { width: 0, playX: null, entryX: null, exitX: null };
+const EMPTY_LAYOUT: Layout = { width: 0, playX: null, entryX: null, exitX: null, stopY: null };
 
 const hm = new Intl.DateTimeFormat("en-US", {
   timeZone: DISPLAY_TZ,
@@ -98,12 +109,18 @@ export function StackedReplayChart({
   endSec,
   playheadSec,
   stopPrice,
+  stopAssumed = false,
+  avgPrice = null,
+  simFills = [],
+  onStopChange,
   fills,
 }: Props) {
   const topEl = useRef<HTMLDivElement>(null);
   const bottomEl = useRef<HTMLDivElement>(null);
   const panes = useRef<{ top: PaneRuntime | null; bottom: PaneRuntime } | undefined>(undefined);
   const stopLine = useRef<IPriceLine | null>(null);
+  const avgLine = useRef<IPriceLine | null>(null);
+  const dragging = useRef<number | null>(null);
   const domains = useRef<{ top: Domain | null; bottom: Domain | null }>({ top: null, bottom: null });
 
   const [hoverSec, setHoverSec] = useState<number | null>(null);
@@ -128,7 +145,9 @@ export function StackedReplayChart({
     domains.current = { top: null, bottom: null };
   }
   domains.current = {
-    top: top ? growDomain(domains.current.top, top.candles, playheadSec, [stopPrice]) : null,
+    top: top
+      ? growDomain(domains.current.top, top.candles, playheadSec, [stopPrice, avgPrice])
+      : null,
     bottom: growDomain(domains.current.bottom, bottom.candles, playheadSec),
   };
 
@@ -241,6 +260,7 @@ export function StackedReplayChart({
       for (const p of all) p.chart.remove();
       panes.current = undefined;
       stopLine.current = null;
+      avgLine.current = null;
     };
   }, [hasTop]);
 
@@ -278,10 +298,30 @@ export function StackedReplayChart({
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: "STOP",
+        title: stopAssumed ? "STOP (assumed)" : "STOP",
       });
     }
-  }, [stopPrice, hasTop]);
+  }, [stopPrice, stopAssumed, hasTop]);
+
+  // ---- blended average entry (grey dotted), contract pane only ----------------
+  useEffect(() => {
+    const rt = panes.current?.top;
+    if (!rt) return;
+    if (avgLine.current) {
+      rt.series.removePriceLine(avgLine.current);
+      avgLine.current = null;
+    }
+    if (avgPrice != null) {
+      avgLine.current = rt.series.createPriceLine({
+        price: avgPrice,
+        color: THEME.avg,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: "AVG",
+      });
+    }
+  }, [avgPrice, hasTop]);
 
   // ---- fill markers (contract pane only; prices are premium) -----------------
   useEffect(() => {
@@ -300,9 +340,21 @@ export function StackedReplayChart({
         text: `${f.role} ${f.qty} @ ${f.price.toFixed(2)} ${f.time_pt}`,
       });
     }
+    for (const f of simFills) {
+      const time = floorMinute(isoToUtcSeconds(f.ts));
+      if (time > playheadSec) continue;
+      const isBuy = f.side === "buy";
+      markers.push({
+        time: time as UTCTimestamp,
+        position: isBuy ? "belowBar" : "aboveBar",
+        color: THEME.play,
+        shape: isBuy ? "arrowUp" : "arrowDown",
+        text: `${isBuy ? "B" : "S"} ${f.price.toFixed(2)}`,
+      });
+    }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     rt.series.setMarkers(markers);
-  }, [fills, playheadSec, hasTop, timeline]);
+  }, [fills, simFills, playheadSec, hasTop, timeline]);
 
   // ---- overlay geometry (px) for the shaded future / window / ticks ----------
   useEffect(() => {
@@ -318,10 +370,59 @@ export function StackedReplayChart({
         playX: x(playheadSec),
         entryX: x(entrySec),
         exitX: x(exitSec),
+        stopY:
+          rt === p.top && stopPrice != null
+            ? (rt.series.priceToCoordinate(stopPrice) as number | null)
+            : null,
       };
     };
     setLayouts({ top: measure(p.top), bottom: measure(p.bottom) });
-  }, [layoutTick, playheadSec, entrySec, exitSec, hasTop]);
+  }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, hasTop]);
+
+  // ---- dragging the stop ---------------------------------------------------------
+  const priceAtPointer = (e: React.PointerEvent): number | null => {
+    const rt = panes.current?.top;
+    const el = topEl.current;
+    if (!rt || !el) return null;
+    const y = e.clientY - el.getBoundingClientRect().top;
+    const raw = rt.series.coordinateToPrice(y);
+    if (raw == null) return null;
+    const d = domains.current.top;
+    // Stay inside the fixed y-domain so a drag never rescales the pane.
+    const clamped = d ? Math.min(d.maxValue, Math.max(d.minValue, raw)) : raw;
+    const price = Math.round(clamped * 100) / 100;
+    return price > 0 ? price : null;
+  };
+  const stopHandle =
+    stopPrice != null && layouts.top.stopY != null && onStopChange ? (
+      <div
+        role="slider"
+        aria-label="Stop price"
+        aria-valuenow={stopPrice}
+        className="pointer-events-auto absolute inset-x-0 z-10 h-4 cursor-row-resize touch-none"
+        style={{ top: layouts.top.stopY - 8 }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          dragging.current = stopPrice;
+        }}
+        onPointerMove={(e) => {
+          if (dragging.current === null) return;
+          const price = priceAtPointer(e);
+          if (price === null) return;
+          dragging.current = price;
+          onStopChange(price, false);
+        }}
+        onPointerUp={() => {
+          if (dragging.current === null) return;
+          const price = dragging.current;
+          dragging.current = null;
+          onStopChange(price, true);
+        }}
+        onPointerCancel={() => {
+          dragging.current = null;
+        }}
+      />
+    ) : null;
 
   const shown = hoverSec ?? playheadSec;
 
@@ -337,6 +438,7 @@ export function StackedReplayChart({
           hovered={hoverSec !== null}
           elRef={topEl}
           showTicks
+          overlay={stopHandle}
         />
       )}
       <Pane
@@ -362,6 +464,7 @@ function Pane({
   hovered,
   elRef,
   showTicks,
+  overlay,
 }: {
   className: string;
   spec: PaneSpec;
@@ -371,6 +474,7 @@ function Pane({
   hovered: boolean;
   elRef: React.RefObject<HTMLDivElement>;
   showTicks: boolean;
+  overlay?: React.ReactNode;
 }) {
   const bar = candleAt(spec.candles, shown, playheadSec);
   const { width, playX, entryX, exitX } = layout;
@@ -403,6 +507,7 @@ function Pane({
           </div>
         )}
         {playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
+        {overlay}
       </div>
       {/* Header + OHLC readout for the hovered (or playhead) minute. */}
       <div className="pointer-events-none absolute left-3 top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-card/80 px-2 py-1 backdrop-blur">
