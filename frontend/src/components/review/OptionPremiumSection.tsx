@@ -1,9 +1,13 @@
+import { useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import { ExcursionReadout } from "@/components/review/ExcursionReadout";
 import { ReviewChart, type PriceBand } from "@/components/review/ReviewChart";
+import { Button } from "@/components/ui/button";
+import { isoToUtcSeconds } from "@/lib/chart";
+import { premiumWindow } from "@/lib/premiumWindow";
 import type {
   Candle,
   Excursion,
@@ -77,6 +81,20 @@ export function OptionPremiumSection({
   }
   const bars = premiumBars ?? [];
 
+  // Open on the trade (entry-15m .. exit+30m), not the whole session; "Whole
+  // session" (or normal zoom/pan) widens it. Bars after the exit are greyed.
+  const [wholeSession, setWholeSession] = useState(false);
+  const exitS = trade.close_ts ? isoToUtcSeconds(trade.close_ts) : null;
+  const visibleRange = useMemo(() => {
+    if (bars.length === 0) return null;
+    return premiumWindow(
+      isoToUtcSeconds(trade.open_ts),
+      exitS,
+      isoToUtcSeconds(bars[0].ts),
+      isoToUtcSeconds(bars[bars.length - 1].ts),
+    );
+  }, [bars, trade.open_ts, exitS]);
+
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -85,6 +103,16 @@ export function OptionPremiumSection({
         </h2>
         <span className="tabular text-xs text-muted-foreground">1m</span>
         {estimated && <EstimatedBadge />}
+        {bars.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => setWholeSession((v) => !v)}
+          >
+            {wholeSession ? "Fit to trade" : "Whole session"}
+          </Button>
+        )}
         {excursion && (
           <div className="ml-auto">
             <ExcursionReadout excursion={excursion} />
@@ -113,6 +141,8 @@ export function OptionPremiumSection({
             hoveredFillId={hoveredFillId}
             onHoverFill={onHoverFill}
             priceBands={bands}
+            visibleRange={wholeSession ? null : visibleRange}
+            dimAfter={exitS}
           />
         )}
       </div>

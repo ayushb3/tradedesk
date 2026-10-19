@@ -82,7 +82,16 @@ interface ReviewChartProps {
    * whose ts falls outside the visible candle window are skipped.
    */
   ruleCheckMarkers?: RuleCheckMarker[];
+  /**
+   * Initial visible range (epoch seconds). Omitted => fit all bars. The user can
+   * still zoom/pan freely; a new range (or new bars) re-frames the chart.
+   */
+  visibleRange?: { from: number; to: number } | null;
+  /** Bars opening after this epoch second are drawn greyed (post-exit). */
+  dimAfter?: number | null;
 }
+
+const DIM_COLOR = "rgba(161, 161, 170, 0.35)";
 
 function markerColor(f: ReviewFill, hovered: boolean): string {
   if (f.role === "exit") return hovered ? HILITE_EXIT : EXIT_COLOR;
@@ -128,6 +137,8 @@ export function ReviewChart({
   onHoverFill,
   priceBands,
   ruleCheckMarkers,
+  visibleRange,
+  dimAfter,
 }: ReviewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -228,15 +239,36 @@ export function ReviewChart({
       series.setData([]);
       return;
     }
-    series.setData(toCandlestickData(candles));
+    const data = toCandlestickData(candles);
+    series.setData(
+      dimAfter == null
+        ? data
+        : data.map((d) =>
+            (d.time as number) > dimAfter
+              ? { ...d, color: DIM_COLOR, borderColor: DIM_COLOR, wickColor: DIM_COLOR }
+              : d,
+          ),
+    );
 
-    // Fit the visible content once per distinct window (symbol/tf/length).
-    const key = `${candles[0]?.symbol}:${timeframe}:${candles.length}:${candles[0]?.ts}`;
+    // Frame once per distinct window (symbol/tf/length/range); zoom/pan after
+    // that is the user's.
+    const key = `${candles[0]?.symbol}:${timeframe}:${candles.length}:${candles[0]?.ts}:${visibleRange?.from ?? ""}:${visibleRange?.to ?? ""}`;
     if (fittedKeyRef.current !== key) {
-      chart.timeScale().fitContent();
+      if (visibleRange) {
+        try {
+          chart.timeScale().setVisibleRange({
+            from: visibleRange.from as UTCTimestamp,
+            to: visibleRange.to as UTCTimestamp,
+          });
+        } catch {
+          chart.timeScale().fitContent();
+        }
+      } else {
+        chart.timeScale().fitContent();
+      }
       fittedKeyRef.current = key;
     }
-  }, [candles, timeframe]);
+  }, [candles, timeframe, visibleRange, dimAfter]);
 
   // ---- markers (re-rendered on fills OR hover to drive the highlight) ------
   useEffect(() => {

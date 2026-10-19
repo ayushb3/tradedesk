@@ -379,14 +379,16 @@ def test_option_bars_cached_after_first_call(temp_engine):
     first = get_option_bars_for_trade(tid, MockProvider(Settings()), "1m", engine=temp_engine)
 
     # A provider that would explode if consulted — proves the 2nd call is cached.
-    class _Boom:
+    class _Boom(MockProvider):
+        cache_source = "mock"
+
         def get_option_bars(self, *a, **k):
             raise AssertionError("should have used the cache")
 
         def get_candles(self, *a, **k):
             raise AssertionError("should have used the cache")
 
-    second = get_option_bars_for_trade(tid, _Boom(), "1m", engine=temp_engine)
+    second = get_option_bars_for_trade(tid, _Boom(Settings()), "1m", engine=temp_engine)
     assert [c.close for c in second.bars] == [c.close for c in first.bars]
     assert second.method == first.method
 

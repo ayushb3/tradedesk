@@ -34,6 +34,7 @@ from .schema import metadata
 # v7 (issue #3): trades.trade_key (stable id across re-imports) + backfill.
 # v8 (issue #7): day_fields (new table, created by create_all).
 # v10 (issue #12): audit (new table, created by create_all).
+# (cache source fix: option_bars_cache.source is an idempotent column migration; no version bump.)
 SCHEMA_VERSION = 10
 
 # Standalone metadata so the bookkeeping table is created alongside the app
@@ -137,6 +138,16 @@ def _apply_column_migrations(conn) -> None:
 
     if "contract_label" not in trade_cols:
         conn.execute(text("ALTER TABLE trades ADD COLUMN contract_label TEXT"))
+
+    # option_bars_cache.source — provider that produced the row. Existing rows were
+    # written without provenance (mock rows could be served to the Alpaca provider),
+    # so they stay NULL = "unknown source" and no read ever matches them; they are
+    # replaced by the next fetch for the same bar.
+    cache_cols = {
+        r[1] for r in conn.execute(text("PRAGMA table_info(option_bars_cache)")).fetchall()
+    }
+    if cache_cols and "source" not in cache_cols:
+        conn.execute(text("ALTER TABLE option_bars_cache ADD COLUMN source TEXT"))
 
     # trades.trade_key (issue #3): stable identity = hash of the opening fill's
     # provider_fill_id. Existing local DBs get the column, a backfill from each

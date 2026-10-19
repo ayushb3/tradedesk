@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Maximize2,
+  Play,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -100,6 +101,7 @@ export function JournalDayPage() {
                     key={t.id}
                     trade={t}
                     onOpen={() => navigate(`/trades/${t.id}`)}
+                    onReplay={() => navigate(`/replay?trade=${t.id}&lead=15`)}
                   />
                 ))}
               </div>
@@ -116,9 +118,11 @@ export function JournalDayPage() {
 function TradeCard({
   trade,
   onOpen,
+  onReplay,
 }: {
   trade: DayTradeCard;
   onOpen: () => void;
+  onReplay: () => void;
 }) {
   const label = trade.contract_label ?? trade.symbol;
   const [expanded, setExpanded] = useState(false);
@@ -204,6 +208,15 @@ function TradeCard({
           {formatClock(trade.open_ts)}
           {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} {DISPLAY_TZ_LABEL}
         </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onReplay}
+          className="h-6 gap-1 px-2 text-[10px]"
+        >
+          <Play className="h-3 w-3" />
+          Replay this trade
+        </Button>
         <Button
           variant="outline"
           size="sm"
