@@ -500,7 +500,7 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <span className="text-label uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       <span className="text-sm">{children}</span>

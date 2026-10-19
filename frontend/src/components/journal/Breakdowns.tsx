@@ -30,7 +30,7 @@ export function Breakdown({
     <div className="rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span className="text-label uppercase tracking-wide text-muted-foreground">
           {keyLabel}
         </span>
       </div>
@@ -89,7 +89,7 @@ function BarRow({ row, maxAbs }: { row: ByRow; maxAbs: number }) {
             }}
           />
         </div>
-        <span className="tabular w-24 shrink-0 text-right text-[10px] text-muted-foreground">
+        <span className="tabular w-24 shrink-0 text-right text-label text-muted-foreground">
           {row.trade_count}t · {formatPercent(row.win_rate)} ·{" "}
           {formatNumber(row.avg_r)}R
         </span>

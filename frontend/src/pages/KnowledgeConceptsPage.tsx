@@ -46,7 +46,7 @@ function ConceptCard({ concept }: { concept: KnowledgeConceptSummary }) {
             {concept.definition}
           </p>
           {concept.aliases.length > 0 ? (
-            <p className="mt-auto truncate pt-1 text-[11px] text-muted-foreground/70">
+            <p className="mt-auto truncate pt-1 text-label text-muted-foreground/70">
               aka {concept.aliases.join(", ")}
             </p>
           ) : null}
@@ -153,7 +153,7 @@ export function KnowledgeConceptsPage() {
               ) : (
                 grouped.map((group) => (
                   <section key={group.category} className="flex flex-col gap-2">
-                    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                    <h2 className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
                       {categoryLabel(group.category)}
                     </h2>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -302,7 +302,7 @@ export function ScenarioAuthorPage() {
                   className="h-1 flex-1 cursor-pointer accent-primary"
                   aria-label="Scrub replay position"
                 />
-                <span className="tabular text-[11px] text-muted-foreground">
+                <span className="tabular text-label text-muted-foreground">
                   {engine.currentIndex + 1}/{total}
                 </span>
               </div>
@@ -514,7 +514,7 @@ export function ScenarioAuthorPage() {
                       key={action}
                       type="button"
                       onClick={() => toggleAction(action)}
-                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                      className={`rounded-full border px-2 py-0.5 text-label font-medium transition-colors ${
                         selected
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"

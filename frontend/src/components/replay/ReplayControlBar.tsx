@@ -205,7 +205,7 @@ export function ReplayControlBar({
       {replay.barLabel && (
         <div className="flex justify-center">
           <span
-            className="font-mono tabular-nums text-[11px] text-muted-foreground"
+            className="font-mono tabular-nums text-label text-muted-foreground"
             aria-live="polite"
           >
             {replay.barLabel}
@@ -256,7 +256,7 @@ function JumpToTimeInput({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         className={[
-          "w-16 rounded-md border bg-transparent px-2 py-1 text-[11px] tabular-nums",
+          "w-16 rounded-md border bg-transparent px-2 py-1 text-label tabular-nums",
           "placeholder:text-muted-foreground/50",
           "focus:outline-none focus:ring-1 focus:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -267,7 +267,7 @@ function JumpToTimeInput({
         aria-label={`Jump to time (${DISPLAY_TZ_LABEL})`}
         title={`Jump to time (${DISPLAY_TZ_LABEL}) — type HH:MM and press Enter`}
       />
-      <span className="text-[10px] text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
+      <span className="text-label text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
     </div>
   );
 }
@@ -361,7 +361,7 @@ function IndicatorsPopover({
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-2 text-[10px]"
+              className="h-6 px-2 text-label"
               onClick={() => {
                 onConfigChange(DEFAULT_REPLAY_CONFIG);
                 setEmaDraft(DEFAULT_REPLAY_CONFIG.emaPeriods.join(", "));
@@ -374,7 +374,7 @@ function IndicatorsPopover({
           {/* Overlay toggles */}
           {specs.length > 0 && (
             <section>
-              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
                 Overlays
               </p>
               <div className="flex flex-col gap-1">
@@ -396,7 +396,7 @@ function IndicatorsPopover({
 
           {/* Level toggles */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Levels
             </p>
             <div className="flex flex-col gap-1">
@@ -417,7 +417,7 @@ function IndicatorsPopover({
 
           {/* RSI toggle */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Subpane
             </p>
             <ToggleRow
@@ -432,7 +432,7 @@ function IndicatorsPopover({
 
           {/* Param inputs — trigger refetch upstream */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Parameters (refetch)
             </p>
             <div className="flex flex-col gap-2">

@@ -107,7 +107,7 @@ export function TradeExcursionsPanel({ data, isLoading, isError }: Props) {
           </div>
         </div>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-label uppercase tracking-wide text-muted-foreground">
         <span>Times in {data.tz_label}</span>
         {data.estimated && <EstimatedBadge />}
       </div>
@@ -121,7 +121,7 @@ function PostExit({ windows, closed }: { windows: PostExitWindow[]; closed: bool
   }
   return (
     <div className="mt-2 space-y-1 opacity-60" data-testid="post-exit-path">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <p className="text-label uppercase tracking-wide text-muted-foreground">
         After the final exit · best / worst, in R
       </p>
       <div className="grid grid-cols-3 gap-3">
@@ -132,7 +132,7 @@ function PostExit({ windows, closed }: { windows: PostExitWindow[]; closed: bool
               {fmtR(w.best_r)} / {fmtR(w.worst_r)}
             </div>
             {w.bars > 0 && !w.complete && (
-              <div className="text-[10px] text-muted-foreground">partial window</div>
+              <div className="text-label text-muted-foreground">partial window</div>
             )}
           </div>
         ))}
@@ -161,9 +161,9 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-label uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="text-sm">{children}</span>
-      {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
+      {sub && <span className="text-label text-muted-foreground">{sub}</span>}
     </div>
   );
 }

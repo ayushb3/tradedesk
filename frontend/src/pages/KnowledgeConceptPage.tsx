@@ -45,7 +45,7 @@ function RelatedChip({ related }: { related: KnowledgeRelatedConcept }) {
       className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs transition-colors hover:bg-accent/50"
     >
       <span className="text-foreground/90">{related.name}</span>
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+      <span className="text-label uppercase tracking-wide text-muted-foreground/70">
         {RELATION_LABEL[related.relation] ?? related.relation}
       </span>
     </Link>
@@ -147,7 +147,7 @@ export function KnowledgeConceptPage() {
 
               {data.related.length > 0 ? (
                 <section className="flex flex-col gap-2">
-                  <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  <h2 className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
                     Related concepts
                   </h2>
                   <div className="flex flex-wrap gap-2">
@@ -159,7 +159,7 @@ export function KnowledgeConceptPage() {
               ) : null}
 
               <section className="flex flex-col gap-2">
-                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                <h2 className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
                   Lessons that cover this ({data.lesson_count})
                 </h2>
                 {lessons.length > 0 ? (
