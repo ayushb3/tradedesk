@@ -175,6 +175,7 @@ export function usePatchTrade() {
     mutationFn: ({ id, body }) => api.patchTrade(id, body),
     onSuccess: (trade) => {
       qc.setQueryData(["trade", trade.id], trade);
+      void qc.invalidateQueries({ queryKey: ["trade-review"] });
       for (const root of JOURNAL_ROOTS) {
         void qc.invalidateQueries({ queryKey: [root] });
       }

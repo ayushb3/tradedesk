@@ -4,27 +4,18 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  MessageCircle,
   ServerCrash,
   Sparkles,
-  Play,
 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Drawer, DrawerBody, DrawerHeader } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FillTable } from "@/components/review/FillTable";
-import { ReviewChart, type RuleCheckMarker } from "@/components/review/ReviewChart";
-import { OptionPremiumSection } from "@/components/review/OptionPremiumSection";
+import { ReviewRail } from "@/components/review/ReviewRail";
+import { ReviewStackChart } from "@/components/review/ReviewStackChart";
 import { ExcursionReadout } from "@/components/review/ExcursionReadout";
 import { StoryStrip } from "@/components/review/StoryStrip";
 import { VerdictBand } from "@/components/review/VerdictBand";
@@ -33,35 +24,28 @@ import { DebriefPanel } from "@/components/review/DebriefPanel";
 import { TradeEnrichmentPanel } from "@/components/journal/TradeEnrichmentPanel";
 import {
   ApiError,
-  type Candle,
   type CriticResult,
   type Excursion,
   type ReviewFill,
   type ReviewOption,
-  type Timeframe,
   type Trade,
 } from "@/lib/api";
 import { formatDayMonth } from "@/lib/format";
 import {
   useAgentStatus,
-  useCandles,
   useDayTrades,
   useReviewDay,
   useRunCritic,
-  useSetCallSource,
   useTradeExcursions,
   useTradeReview,
 } from "@/lib/queries";
 import { dayTally } from "@/lib/tradeReview";
 
-/** Timeframes the review chart offers (subset of the underlying descriptor). */
-const REVIEW_TIMEFRAMES: readonly ("1m" | "5m")[] = ["1m", "5m"] as const;
-
 /**
- * Per-trade review: header stats + a static underlying chart with entry/exit
- * fill markers, a hover-linked fill table, the shared enrichment editor, and
- * prev/next navigation within the same session day. Process-first framing —
- * this is a review surface, never a celebration.
+ * Per-trade review: verdict band, story strip, the static stacked contract-over-SPY chart,
+ * the fills table and a slim rail (Replay, what was written before entry, setup tag, lesson,
+ * call source). Grade, checklist, screenshots and the Debrief live behind "More". Process-first
+ * framing: this is a review surface, never a celebration.
  */
 export function TradeReviewPage() {
   const { id = "" } = useParams<{ id: string }>();
@@ -81,9 +65,7 @@ export function TradeReviewPage() {
         <ReviewContent
           trade={data.trade}
           fills={data.fills}
-          timeframes={data.underlying.timeframes}
           option={data.option}
-          premiumBars={data.premium_bars}
           excursion={data.excursion}
           initialTab={initialTab}
         />
@@ -92,29 +74,26 @@ export function TradeReviewPage() {
   );
 }
 
-/** Right-column tabs in the cockpit. */
+/** Tabs inside the "More" drawer. */
 type RightTab = "journal" | "debrief";
 
 function ReviewContent({
   trade,
   fills,
-  timeframes,
   option,
-  premiumBars,
   excursion,
   initialTab,
 }: {
   trade: Trade;
   fills: ReviewFill[];
-  timeframes: Timeframe[];
   option: ReviewOption | null;
-  premiumBars: Candle[] | null;
   excursion: Excursion | null;
   initialTab: RightTab;
 }) {
   const navigate = useNavigate();
-  const [hoveredFillId, setHoveredFillId] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>(initialTab);
+  // ?debrief=1 (old debrief links) opens the drawer straight on the Debrief tab.
+  const [moreOpen, setMoreOpen] = useState(initialTab === "debrief");
   const critiqueRef = useRef<HTMLDivElement>(null);
 
   // ---- Trade Critic (PRD-M9 R6/R9) ----------------------------------------
@@ -147,28 +126,6 @@ function ReviewContent({
     );
   };
 
-  // Rule-check → chart marker mapping (R9): only checks that pin to a bar.
-  const ruleCheckMarkers: RuleCheckMarker[] = (critique?.rule_checks ?? [])
-    .filter((rc) => rc.evidence_bar_ref != null)
-    .map((rc) => ({
-      iso: rc.evidence_bar_ref as string,
-      adherence: rc.adherence,
-      label: rc.rule.length > 24 ? `${rc.rule.slice(0, 22)}…` : rc.rule,
-    }));
-
-  // Timeframe options: 1m/5m only for review (contract §4). Default 1m.
-  const options = REVIEW_TIMEFRAMES.filter((tf) => timeframes.includes(tf));
-  const available = options.length > 0 ? options : (["1m"] as const);
-  const [timeframe, setTimeframe] = useState<"1m" | "5m">(available[0]);
-
-  const candles = useCandles({
-    symbol: trade.symbol,
-    date: trade.session_date,
-    timeframe,
-  });
-
-  // Prev/next within the same session day — neighbors derived from the day's
-  // chronological trade list.
   const dayTrades = useDayTrades(trade.session_date);
   const ids = (dayTrades.data?.trades ?? []).map((t) => t.id);
   const idx = ids.indexOf(trade.id);
@@ -180,10 +137,9 @@ function ReviewContent({
   // Option trades only: MAE/MFE, the stop line and the post-exit path (#51).
   const excursions = useTradeExcursions(trade.id, option != null);
 
-  // Verdict band: the day tally through this trade's close, and the one-tap call source.
+  // Verdict band: the day tally through this trade's close.
   const reviewDay = useReviewDay(trade.session_date);
   const tally = dayTally(reviewDay.data, trade.id);
-  const setCallSource = useSetCallSource();
 
   return (
     <>
@@ -196,16 +152,6 @@ function ReviewContent({
         >
           <ArrowLeft className="h-4 w-4" />
           {formatDayMonth(trade.session_date)}
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate(`/replay?trade=${trade.id}&lead=15`)}
-          className="gap-1.5"
-        >
-          <Play className="h-4 w-4" />
-          Replay this trade
         </Button>
 
         {/* Critique (PRD-M9 R6) — only when the agent layer is available. */}
@@ -261,8 +207,6 @@ function ReviewContent({
             trade={trade}
             label={label}
             tally={tally}
-            callSourcePending={setCallSource.isPending}
-            onSetCallSource={(callSource) => setCallSource.mutate({ id: trade.id, callSource })}
           />
           {option && (
             <StoryStrip
@@ -275,93 +219,20 @@ function ReviewContent({
           <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
             {/* Chart + fills column */}
             <div className="flex flex-col gap-4">
-              {/* Option premium chart (options only) — the position's own price
-                  curve. Placed first: for an option trade the premium is what
-                  the trader actually experienced (PRD-M7 R4/R5/R9). */}
-              {option && (
-                <OptionPremiumSection
-                  option={option}
-                  premiumBars={premiumBars}
-                  fills={fills}
-                  stopPrice={excursions.data?.stop_price ?? null}
-                  trade={trade}
-                  hoveredFillId={hoveredFillId}
-                  onHoverFill={setHoveredFillId}
-                />
-              )}
+              <ReviewStackChart trade={trade} fills={fills} hasOption={option != null} />
+
+              {/* Share trades carry their MFE/MAE here (basis: underlying); option trades
+                  show it in the story strip above. */}
+              {!option && excursion && <ExcursionReadout excursion={excursion} />}
 
               <section className="space-y-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-sm font-semibold tracking-tight">
-                    {trade.symbol} underlying
-                  </h2>
-                  {/* Share trades carry their MFE/MAE here (basis: underlying);
-                      option trades show it in the premium section instead. */}
-                  {!option && excursion && (
-                    <ExcursionReadout excursion={excursion} />
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
-                    <Label htmlFor="tf" className="text-xs">
-                      Timeframe
-                    </Label>
-                    <Select
-                      value={timeframe}
-                      onValueChange={(v) => setTimeframe(v as "1m" | "5m")}
-                    >
-                      <SelectTrigger id="tf" className="tabular h-8 w-20">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {available.map((tf) => (
-                          <SelectItem key={tf} value={tf} className="tabular">
-                            {tf}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="h-[420px] rounded-lg border border-border bg-background/40 p-1">
-                  {candles.isLoading ? (
-                    <Skeleton className="h-full w-full" />
-                  ) : candles.isError ? (
-                    <div className="flex h-full items-center justify-center p-4">
-                      <Alert variant="default" className="max-w-md">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>Couldn't load the chart</AlertTitle>
-                        <AlertDescription>
-                          No candles returned for{" "}
-                          <span className="tabular">{trade.symbol}</span> on{" "}
-                          <span className="tabular">{trade.session_date}</span>.
-                        </AlertDescription>
-                      </Alert>
-                    </div>
-                  ) : (
-                    <ReviewChart
-                      candles={candles.data ?? []}
-                      fills={fills}
-                      timeframe={timeframe}
-                      hoveredFillId={hoveredFillId}
-                      onHoverFill={setHoveredFillId}
-                      ruleCheckMarkers={ruleCheckMarkers}
-                    />
-                  )}
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <h2 className="text-sm font-semibold tracking-tight">Fills</h2>
-                <FillTable
-                  fills={fills}
-                  hoveredFillId={hoveredFillId}
-                  onHoverFill={setHoveredFillId}
-                />
+                <h2 className="text-body font-semibold tracking-tight">Fills</h2>
+                <FillTable fills={fills} hoveredFillId={null} onHoverFill={() => {}} />
               </section>
 
               {/* Trade Critic output (PRD-M9). Errors surface inline; a
                   successful run renders the cited rule checks + prescription,
-                  and its bar refs annotate the chart above. */}
+                  per-rule checks and the prescription. */}
               {agentAvailable && (critic.isError || critique) && (
                 <section ref={critiqueRef} className="space-y-3">
                   <div className="flex items-center gap-2">
@@ -390,44 +261,47 @@ function ReviewContent({
               )}
             </div>
 
-            {/* Right column: Journal | Debrief tabs. The debrief interview
-                lives here (epic #64 / #63) so the annotated chart stays
-                visible in the left column throughout. */}
-            <aside className="flex min-h-0 flex-col gap-4 rounded-lg border border-border bg-card/40 p-4">
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  variant={rightTab === "journal" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setRightTab("journal")}
-                >
-                  Journal
-                </Button>
-                <Button
-                  variant={rightTab === "debrief" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setRightTab("debrief")}
-                  className="gap-1.5"
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  Debrief
-                </Button>
-              </div>
-
-              {rightTab === "journal" ? (
-                <TradeEnrichmentPanel trade={trade} />
-              ) : (
-                <div className="flex min-h-[480px] flex-col">
-                  <DebriefPanel
-                    key={trade.id}
-                    tradeId={trade.id}
-                    onGetCritique={agentAvailable ? focusCritique : undefined}
-                  />
-                </div>
-              )}
-            </aside>
+            <ReviewRail trade={trade} excursions={excursions.data} onOpenMore={() => setMoreOpen(true)} />
           </div>
         </div>
       </div>
+
+      <Drawer open={moreOpen} onClose={() => setMoreOpen(false)} title="More about this trade" className="max-w-lg">
+        <DrawerHeader>
+          <div className="flex items-center gap-2">
+            {(["journal", "debrief"] as const).map((t) => (
+              <Button
+                key={t}
+                variant={rightTab === t ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRightTab(t)}
+              >
+                {t === "journal" ? "Grade and checklist" : "Debrief"}
+              </Button>
+            ))}
+          </div>
+        </DrawerHeader>
+        <DrawerBody className="flex flex-col gap-4">
+          {rightTab === "journal" ? (
+            <TradeEnrichmentPanel trade={trade} omit={{ tags: true, notes: true }} />
+          ) : (
+            <div className="flex min-h-[480px] flex-1 flex-col">
+              <DebriefPanel
+                key={trade.id}
+                tradeId={trade.id}
+                onGetCritique={
+                  agentAvailable
+                    ? () => {
+                        setMoreOpen(false);
+                        focusCritique();
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          )}
+        </DrawerBody>
+      </Drawer>
     </>
   );
 }

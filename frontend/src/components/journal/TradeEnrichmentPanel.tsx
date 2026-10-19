@@ -43,6 +43,12 @@ interface TradeEnrichmentPanelProps {
    * not re-render the host.
    */
   onSavingChange?: (saving: boolean) => void;
+  /**
+   * Sections another surface already edits (Trade review's rail owns the setup tag and the
+   * one-line lesson). They are hidden here and left out of the PATCH, so a stale copy of
+   * them can never overwrite what the rail saved.
+   */
+  omit?: { tags?: boolean; notes?: boolean };
 }
 
 /** Imperative handle so a host (the drawer footer) can trigger save. */
@@ -60,7 +66,7 @@ export const TradeEnrichmentPanel = forwardRef<
   TradeEnrichmentPanelHandle,
   TradeEnrichmentPanelProps
 >(function TradeEnrichmentPanel(
-  { trade, showSaveButton = true, onSavingChange },
+  { trade, showSaveButton = true, onSavingChange, omit },
   ref,
 ) {
   const { toast } = useToast();
@@ -131,8 +137,8 @@ export const TradeEnrichmentPanel = forwardRef<
       return;
     }
     const body: PatchTradeRequest = {
-      notes: notes.trim(),
-      tag_ids: tagIds,
+      ...(omit?.notes ? {} : { notes: notes.trim() }),
+      ...(omit?.tags ? {} : { tag_ids: tagIds }),
       checklist,
       screenshots,
       ...(grade ? { grade } : {}),
@@ -173,6 +179,7 @@ export const TradeEnrichmentPanel = forwardRef<
 
   return (
     <>
+      {!omit?.tags && (
       <Section title="Tags">
         <div className="flex flex-wrap gap-1.5">
           {(allTags ?? []).length === 0 && tagIds.length === 0 ? (
@@ -218,6 +225,7 @@ export const TradeEnrichmentPanel = forwardRef<
           </Button>
         </div>
       </Section>
+      )}
 
       <Section title="Grade">
         <div className="flex gap-2">
@@ -290,13 +298,15 @@ export const TradeEnrichmentPanel = forwardRef<
         </ul>
       </Section>
 
-      <Section title="Notes">
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="What was the setup? What did you learn?"
-        />
-      </Section>
+      {!omit?.notes && (
+        <Section title="Notes">
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What was the setup? What did you learn?"
+          />
+        </Section>
+      )}
 
       <Section title="Screenshots">
         {screenshots.length > 0 && (
