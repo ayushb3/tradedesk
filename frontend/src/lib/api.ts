@@ -598,7 +598,7 @@ export interface TradeExcursions {
   post_exit: PostExitWindow[];
   after_exit?: AfterExit | null;
   /** "suspect_wicks": thin 1-min bars; `hold` is on wick-trimmed (body) extremes. */
-  quality?: "ok" | "suspect_wicks";
+  quality?: "ok" | "suspect_wicks" | "short_hold";
   quality_reason?: string | null;
   clamped?: boolean;
   suspect_wicks?: number;
@@ -1028,6 +1028,18 @@ function toQuery(
   return qs.toString();
 }
 
+/** GET /api/days/{date}: only the fields the Trade review day tally reads. */
+export interface ReviewDay {
+  date: string;
+  positions: {
+    trade_id: number;
+    status: string;
+    pnl: number | null;
+    fills: { side: string; ts: string }[];
+  }[];
+  stop_result?: { limit: number; hit: boolean; hit_at_pt?: string | null } | null;
+}
+
 export const api = {
   health(): Promise<Health> {
     return request<Health>("/health");
@@ -1107,6 +1119,10 @@ export const api = {
 
   replayDaySoFar(tradeId: number): Promise<ReplayDaySoFar> {
     return request<ReplayDaySoFar>(`/replay/trade/${tradeId}/day-so-far`);
+  },
+
+  reviewDay(date: string): Promise<ReviewDay> {
+    return request<ReviewDay>(`/days/${date}`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

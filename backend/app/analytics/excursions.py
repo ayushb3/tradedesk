@@ -37,6 +37,7 @@ from app.models.market import Candle
 
 CONTRACT_MULT = 100
 POST_EXIT_WINDOWS_MIN: tuple[int, ...] = (15, 30, 60)
+SHORT_HOLD_BARS = 2  # a closed hold touching this many bars or fewer is a short hold
 
 
 def _utc(ts: datetime) -> datetime:
@@ -71,6 +72,8 @@ class HoldExcursion:
     hold_bars: int
     crossed_stop: bool
     crossed_stop_at: datetime | None  # first bar whose low reached the stop line
+    short_hold: bool = False  # hold inside <= 2 bars: measured from the fills alone
+    short_hold_bars: int = 0  # how many bars the hold touched (N in 'held under N min')
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,8 @@ class Excursions:
     stop_price: float | None
     hold: HoldExcursion | None
     post_exit: list[PostExitWindow] = field(default_factory=list)
+    wicks: WickCheck | None = None  # set when fills were given (data-quality check)
+    raw_hold: HoldExcursion | None = None  # same bounds, wicks NOT trimmed (only when suspect)
 
 
 def stop_price(avg_in: float, qty: int, risk: float | None, mult: int = CONTRACT_MULT) -> float | None:
@@ -100,6 +105,48 @@ def stop_price(avg_in: float, qty: int, risk: float | None, mult: int = CONTRACT
         return None
     level = avg_in - risk / (mult * qty)
     return round(level, 4) if level > 0 else None
+
+
+Fill = tuple[datetime, float]  # (fill time, fill price)
+
+
+def bounded_hold_bars(
+    bars: list[Candle], *, fills: list[Fill], open_ts: datetime, close_ts: datetime
+) -> tuple[list[Candle], int]:
+    """The bars that describe the hold, edge minutes bounded by the fills.
+
+    A bar fully inside ``[open_ts, close_ts]`` counts whole. A bar that only partly
+    overlaps the hold (the one holding the opening fill, which opened before it, and the
+    one holding the final exit, which closes after it) also holds trading from OUTSIDE the
+    hold, so its high/low cannot be used. Each such edge bar is replaced by the fill
+    price(s) that fall inside it (open = first, close = last, high/low = their extremes).
+
+    Returns ``(bars, n_touched)``: the bounded bars in time order, and how many bars the
+    hold touched at all (1 = inside one minute).
+    """
+    if not bars:
+        return [], 0
+    o, c = _utc(open_ts), _utc(close_ts)
+    tf = timedelta(minutes=_tf_minutes(bars))
+    out: list[Candle] = []
+    touched = 0
+    for b in sorted(bars, key=lambda x: _utc(x.ts)):
+        t = _utc(b.ts)
+        if not (t + tf > o and (t < c or t <= o == c)):
+            continue
+        touched += 1
+        if t >= o and t + tf <= c:
+            out.append(b)
+            continue
+        px = [p for ts, p in sorted(fills, key=lambda f: _utc(f[0])) if t <= _utc(ts) < t + tf]
+        if not px:
+            continue
+        out.append(
+            b.model_copy(
+                update={"open": px[0], "close": px[-1], "high": max(px), "low": min(px)}
+            )
+        )
+    return out, touched
 
 
 def hold_excursion(
@@ -111,18 +158,30 @@ def hold_excursion(
     open_ts: datetime,
     close_ts: datetime,
     mult: int = CONTRACT_MULT,
+    fills: list[Fill] | None = None,
+    closed: bool = True,
 ) -> HoldExcursion | None:
     """MAE/MFE, time in drawdown and stop crossing over ``[open_ts, close_ts]``.
 
-    Returns None when no bar overlaps the hold.
+    With ``fills`` (the position's ``(ts, px)`` fills) the hold is measured on
+    ``bounded_hold_bars``: only bars fully inside the hold contribute their high/low, the
+    partly-overlapping edge minutes count as just their fill prices, so trading before the
+    entry or after the exit never becomes MFE/MAE or a stop crossing. A closed hold that
+    touches at most two bars is ``short_hold``: 1-min bars cannot resolve its path, so its
+    numbers come from the fills alone. Without ``fills`` every overlapping bar counts whole
+    (legacy behaviour). Returns None when no bar overlaps the hold.
     """
     if qty <= 0 or not bars:
         return None
     o, c = _utc(open_ts), _utc(close_ts)
     tf = timedelta(minutes=_tf_minutes(bars))
-    held = sorted(
-        (b for b in bars if _utc(b.ts) + tf > o and _utc(b.ts) <= c), key=lambda b: _utc(b.ts)
-    )
+    touched = 0
+    if fills:
+        held, touched = bounded_hold_bars(bars, fills=fills, open_ts=o, close_ts=c)
+    else:
+        held = sorted(
+            (b for b in bars if _utc(b.ts) + tf > o and _utc(b.ts) <= c), key=lambda b: _utc(b.ts)
+        )
     if not held:
         return None
 
@@ -153,6 +212,8 @@ def hold_excursion(
         hold_bars=len(held),
         crossed_stop=crossed_at is not None,
         crossed_stop_at=crossed_at,
+        short_hold=bool(fills) and closed and 0 < touched <= SHORT_HOLD_BARS,
+        short_hold_bars=touched if fills else 0,
     )
 
 
@@ -208,7 +269,8 @@ def post_exit_path(
 # premium. The check compares bar extremes during the hold with the hold's own
 # fill prices.
 #
-# RULE (documented, one place). Let ``lo``/``hi`` be the lowest/highest fill price
+# RULE (documented, one place). Only bars fully inside the hold are checked (the edge
+# minutes are bounded by the fills, see ``bounded_hold_bars``). Let ``lo``/``hi`` be the lowest/highest fill price
 # of the position and ``tol = max(WICK_MIN_ABS, WICK_REL * avg_in)``. A hold bar is a
 # suspect LOW wick when
 #     bar.low < lo - tol                      (strictly beyond the fills by more than tol)
@@ -256,8 +318,9 @@ def check_hold_wicks(
 ) -> WickCheck:
     """Flag (and trim) wicks during the hold that sit far beyond the fills. See RULE above.
 
-    Only bars overlapping ``[open_ts, close_ts]`` are checked (``close_ts`` None = to the
-    end); bars outside are returned untouched.
+    Only bars fully inside ``[open_ts, close_ts]`` are checked (``close_ts`` None = to the
+    end). The partly-overlapping edge minutes are bounded by the fills elsewhere
+    (``bounded_hold_bars``) and bars outside the hold are returned untouched.
     """
     tol = max(WICK_MIN_ABS, WICK_REL * avg_in)
     if not bars or not fill_prices:
@@ -270,7 +333,7 @@ def check_hold_wicks(
     out: list[Candle] = []
     for b in bars:
         t = _utc(b.ts)
-        if not (t + tf > o and (c is None or t <= c)):
+        if not (t >= o and (c is None or t + tf <= c)):
             out.append(b)
             continue
         body_lo, body_hi = min(b.open, b.close), max(b.open, b.close)
@@ -331,20 +394,32 @@ def compute_excursions(
     close_ts: datetime | None,
     mult: int = CONTRACT_MULT,
     windows: tuple[int, ...] = POST_EXIT_WINDOWS_MIN,
+    fills: list[Fill] | None = None,
+    trim_wicks: bool = True,
 ) -> Excursions:
     """Everything for one position. ``close_ts`` None (still open): the hold runs
-    to the last bar and there is no post-exit path."""
+    to the last bar and there is no post-exit path.
+
+    With ``fills`` the hold is bounded at its edge minutes (see ``hold_excursion``) and,
+    when ``trim_wicks``, suspect wicks on the interior bars are trimmed first; the result
+    carries the ``WickCheck`` and, if wicks were trimmed, ``raw_hold`` (same bounds, wicks
+    as printed). This is the one definition the trade review and the rollup share."""
     end = close_ts
     if end is None and bars:
         tf = timedelta(minutes=_tf_minutes(bars))
         end = max(_utc(b.ts) for b in bars) + tf
-    hold = (
-        hold_excursion(
-            bars, avg_in=avg_in, qty=qty, risk=risk, open_ts=open_ts, close_ts=end, mult=mult
+    hold_bars, check, raw_hold = bars, None, None
+    if fills and end is not None:
+        check = check_hold_wicks(
+            bars, fill_prices=[p for _, p in fills], avg_in=avg_in, open_ts=open_ts, close_ts=end
         )
-        if end is not None
-        else None
-    )
+        if trim_wicks:
+            hold_bars = check.bars
+    kw = dict(avg_in=avg_in, qty=qty, risk=risk, open_ts=open_ts, close_ts=end, mult=mult,
+              fills=fills, closed=close_ts is not None)
+    hold = hold_excursion(hold_bars, **kw) if end is not None else None
+    if check is not None and check.suspect and trim_wicks:
+        raw_hold = hold_excursion(bars, **kw)
     post = (
         post_exit_path(
             bars, avg_in=avg_in, qty=qty, risk=risk, exit_ts=close_ts, windows=windows, mult=mult
@@ -354,7 +429,7 @@ def compute_excursions(
     )
     return Excursions(
         avg_in=avg_in, qty=qty, risk=risk, stop_price=stop_price(avg_in, qty, risk, mult),
-        hold=hold, post_exit=post,
+        hold=hold, post_exit=post, wicks=check, raw_hold=raw_hold,
     )
 
 

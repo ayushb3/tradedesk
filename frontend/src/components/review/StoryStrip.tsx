@@ -17,7 +17,7 @@ interface Props {
 export function StoryStrip({ data, isLoading, isError }: Props) {
   if (isLoading) return <Skeleton className="h-20 w-full rounded-lg" />;
   const items = storyStrip(data);
-  const suspect = data?.quality === "suspect_wicks";
+  const suspect = data?.quality === "suspect_wicks" || data?.quality === "short_hold";
 
   return (
     <section className="rounded-lg border border-border bg-background/40 p-4" data-testid="story-strip">
@@ -52,7 +52,7 @@ export function StoryStrip({ data, isLoading, isError }: Props) {
             {data.estimated && <span className="text-stop">estimated premium (no traded bars)</span>}
             {suspect && (
               <span title={data.quality_reason ?? undefined} data-testid="thin-bars-note">
-                estimated from thin bars
+                {data?.quality === "short_hold" ? "estimated from the fills (short hold)" : "estimated from thin bars"}
               </span>
             )}
           </div>

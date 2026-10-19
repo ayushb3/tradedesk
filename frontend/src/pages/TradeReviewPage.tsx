@@ -46,13 +46,13 @@ import {
   useAgentStatus,
   useCandles,
   useDayTrades,
-  useDeskDay,
+  useReviewDay,
   useRunCritic,
   useSetCallSource,
   useTradeExcursions,
   useTradeReview,
 } from "@/lib/queries";
-import { dayTally, type ReviewDay } from "@/lib/tradeReview";
+import { dayTally } from "@/lib/tradeReview";
 
 /** Timeframes the review chart offers (subset of the underlying descriptor). */
 const REVIEW_TIMEFRAMES: readonly ("1m" | "5m")[] = ["1m", "5m"] as const;
@@ -181,8 +181,8 @@ function ReviewContent({
   const excursions = useTradeExcursions(trade.id, option != null);
 
   // Verdict band: the day tally through this trade's close, and the one-tap call source.
-  const deskDay = useDeskDay(trade.session_date);
-  const tally = dayTally(deskDay.data as ReviewDay | undefined, trade.id);
+  const reviewDay = useReviewDay(trade.session_date);
+  const tally = dayTally(reviewDay.data, trade.id);
   const setCallSource = useSetCallSource();
 
   return (

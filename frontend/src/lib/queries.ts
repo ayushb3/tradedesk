@@ -33,6 +33,7 @@ import {
   type PatchTradeRequest,
   type ReplayContract,
   type ReplayDaySoFar,
+  type ReviewDay,
   type ReplayFills,
   type ReplaySession,
   type ReplayTrade,
@@ -194,7 +195,7 @@ export function useSetCallSource() {
     onSuccess: (trade) => {
       void qc.invalidateQueries({ queryKey: ["trade-review"] });
       void qc.invalidateQueries({ queryKey: ["trade", trade.id] });
-      void qc.invalidateQueries({ queryKey: ["desk-day"] });
+      void qc.invalidateQueries({ queryKey: ["review-day"] });
       for (const root of JOURNAL_ROOTS) {
         void qc.invalidateQueries({ queryKey: [root] });
       }
@@ -441,6 +442,16 @@ export function useReplayDaySoFar(tradeId: number | null) {
     queryKey: ["replay-day-so-far", tradeId],
     queryFn: () => api.replayDaySoFar(tradeId as number),
     enabled: tradeId !== null,
+    retry: false,
+  });
+}
+
+/** The desk day (positions + stop result) behind the Trade review day tally. */
+export function useReviewDay(date: string | null) {
+  return useQuery<ReviewDay>({
+    queryKey: ["review-day", date],
+    queryFn: () => api.reviewDay(date as string),
+    enabled: Boolean(date),
     retry: false,
   });
 }

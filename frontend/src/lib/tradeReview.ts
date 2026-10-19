@@ -5,7 +5,7 @@
  * the excursions endpoint, which measures on the same ledger risk (`resolve_r`), so the
  * numbers agree. Nothing here carries a dollar figure for the after-exit path.
  */
-import type { DeskDay, RuleResult, TradeExcursions } from "./api";
+import type { ReviewDay, RuleResult, TradeExcursions } from "./api";
 import { formatR } from "./format";
 
 export type Tone = "kept" | "broken" | "unknown";
@@ -57,13 +57,6 @@ export function ruleChips(results: RuleResult[] | undefined | null): RuleChip[] 
 
 // ---------------------------------------------------------------------------
 // Day tally
-
-type StopResult = {
-  limit: number;
-  hit: boolean;
-  hit_at_pt?: string | null;
-};
-export type ReviewDay = DeskDay & { stop_result?: StopResult | null };
 
 export interface DayTally {
   /** Net of every position closed at or before this trade's close, this one included. */
@@ -125,7 +118,7 @@ const hhmm = (pt: string | null | undefined) => (pt ? pt.replace(/(\d{1,2}:\d{2}
 export function storyStrip(x: TradeExcursions | undefined | null): StoryItem[] | null {
   if (!x || !x.available || !x.hold) return null;
   const h = x.hold;
-  const est = x.quality === "suspect_wicks";
+  const est = x.quality === "suspect_wicks" || x.quality === "short_hold";
   const items: StoryItem[] = [];
 
   items.push({

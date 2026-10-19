@@ -2,8 +2,8 @@
  * Self-check for tradeReview.ts (synthetic numbers only).
  * Run: npm run check:sim
  */
-import type { RuleResult, TradeExcursions } from "./api";
-import { dayTally, ruleChips, storyStrip, type ReviewDay } from "./tradeReview";
+import type { ReviewDay, RuleResult, TradeExcursions } from "./api";
+import { dayTally, ruleChips, storyStrip } from "./tradeReview";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -42,7 +42,6 @@ const pos = (id: number, status: string, pnl: number | null, from: string, to: s
     { side: "B", ts: at(from) },
     { side: "S", ts: at(to) },
   ],
-  plan: null,
 });
 const day: ReviewDay = {
   date: "2026-01-05",
@@ -52,7 +51,6 @@ const day: ReviewDay = {
     pos(3, "closed", -40, "14:40", "14:50"),
     pos(4, "open", null, "15:00", "15:00"),
   ],
-  fields: null,
   stop_result: { limit: -100, hit: true, hit_at_pt: "06:30 PT" },
 };
 const t2 = dayTally(day, 2)!;

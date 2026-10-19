@@ -199,7 +199,8 @@ class TradeExcursionsResponse(BaseModel):
     hold: HoldExcursionOut | None = None
     post_exit: list[PostExitWindowOut] = Field(default_factory=list)
     after_exit: AfterExitOut | None = None
-    # Data quality (thin 1-min bars): "ok" | "suspect_wicks". When suspect, `hold` is
+    # Data quality (thin 1-min bars): "ok" | "suspect_wicks" | "short_hold" (hold inside <= 2 bars:
+    # MAE/MFE from the fills alone). When suspect, `hold` is
     # computed on bars trimmed to their body extremes (`clamped`), the raw R values are on
     # `hold.raw_mae_r` / `hold.raw_mfe_r`, and `quality_reason` says what was found.
     quality: str = "ok"

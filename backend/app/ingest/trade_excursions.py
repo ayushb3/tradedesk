@@ -20,7 +20,7 @@ from datetime import date
 from sqlalchemy.engine import Engine
 
 from app.analytics.excursions import (
-    back_to_entry, check_hold_wicks, compute_excursions,
+    back_to_entry, compute_excursions,
 )
 from app.desk import days as desk_days
 from app.desk.ledger import PositionAnalysis
@@ -85,15 +85,13 @@ def build_trade_excursions(
     sells = [f for f in a.fills if f.side == "S"]
     close_ts = sells[-1].ts if a.closed and sells else None
     open_ts = a.fills[0].ts
-    # Data-quality check: trim stray wicks that sit far beyond the fills, then measure on
-    # the trimmed bars. The raw values stay on the response so nothing is hidden.
-    check = check_hold_wicks(
-        bars.bars, fill_prices=[f.px for f in a.fills], avg_in=a.avg_in,
-        open_ts=open_ts, close_ts=close_ts,
+    # One shared measurement (also used by the rollup): edge minutes bounded by the fills,
+    # suspect wicks on the interior bars trimmed. The raw values stay on the response.
+    ex = compute_excursions(
+        bars.bars, avg_in=a.avg_in, qty=a.qty_in, risk=a.risk, open_ts=open_ts,
+        close_ts=close_ts, fills=[(f.ts, f.px) for f in a.fills],
     )
-    kw = dict(avg_in=a.avg_in, qty=a.qty_in, risk=a.risk, open_ts=open_ts, close_ts=close_ts)
-    ex = compute_excursions(check.bars, **kw)
-    raw = compute_excursions(bars.bars, **kw).hold if check.suspect else None
+    check, raw = ex.wicks, ex.raw_hold
     hold = None
     if ex.hold is not None:
         h = ex.hold
@@ -126,7 +124,14 @@ def build_trade_excursions(
             ),
         )
     quality = {}
-    if check.suspect:
+    if ex.hold is not None and ex.hold.short_hold:
+        n = ex.hold.short_hold_bars
+        quality = dict(
+            quality="short_hold", suspect_wicks=0,
+            quality_reason=f"held under {n} min; 1-min bars can't resolve the path. "
+            "MAE and MFE come from the fills alone.",
+        )
+    elif check is not None and check.suspect:
         n = len(check.suspect)
         quality = dict(
             quality="suspect_wicks", clamped=True, suspect_wicks=n,

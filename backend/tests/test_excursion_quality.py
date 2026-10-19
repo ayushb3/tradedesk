@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.analytics.excursions import (
-    WICK_MIN_ABS, WICK_REL, back_to_entry, check_hold_wicks, compute_excursions,
+    WICK_MIN_ABS, WICK_REL, back_to_entry, bounded_hold_bars, check_hold_wicks, compute_excursions,
 )
 from app.models.market import Candle
 
@@ -78,13 +80,95 @@ def test_cheap_contract_uses_absolute_floor():
     assert r.quality == "suspect_wicks"
 
 
-def test_trimming_changes_mae_and_removes_a_phantom_stop_cross():
-    bars = [bar(1, 2.50, 2.60, 1.25, 2.52), bar(2, 2.55, 2.70, 2.52, 2.68)]
-    kw = dict(avg_in=AVG, qty=1, risk=75.0, open_ts=OPEN, close_ts=CLOSE)
-    raw = compute_excursions(bars, **kw).hold
-    trimmed = compute_excursions(check(bars).bars, **kw).hold
-    assert raw.crossed_stop and raw.mae_r < -1.0
-    assert not trimmed.crossed_stop and trimmed.mae_r == 0.0
+LONG_OPEN = T0 + timedelta(minutes=1, seconds=20)
+LONG_CLOSE = T0 + timedelta(minutes=6, seconds=30)
+LONG_FILLS = [(LONG_OPEN, 2.50), (LONG_CLOSE, 2.68)]
+
+
+def long_bars(wick_low=None):
+    """Entry minute 1, interior minutes 2..5, exit minute 6 (mid-minute fills)."""
+    return [
+        bar(1, 2.50, 2.60, 2.45, 2.55),
+        bar(2, 2.55, 2.62, 2.50, 2.60),
+        bar(3, 2.60, 2.66, wick_low if wick_low is not None else 2.55, 2.62),
+        bar(4, 2.62, 2.70, 2.58, 2.66),
+        bar(5, 2.66, 2.72, 2.60, 2.68),
+        bar(6, 2.68, 2.70, 2.62, 2.66),
+    ]
+
+
+def measure(bars, **over):
+    kw = dict(avg_in=AVG, qty=1, risk=75.0, open_ts=LONG_OPEN, close_ts=LONG_CLOSE, fills=LONG_FILLS)
+    kw.update(over)
+    return compute_excursions(bars, **kw)
+
+
+def test_interior_wick_is_trimmed_and_phantom_stop_cross_removed():
+    bars = long_bars(wick_low=1.25)
+    ex = measure(bars)
+    assert ex.wicks.quality == "suspect_wicks"
+    assert ex.raw_hold.crossed_stop and ex.raw_hold.mae_r < -1.0
+    assert not ex.hold.crossed_stop and ex.hold.mae_r == 0.0
+    assert not ex.hold.short_hold
+
+
+def test_exit_mid_minute_post_exit_dive_is_not_mae_or_stop():
+    bars = long_bars()
+    # the exit minute dives well under entry AFTER the exit fill (47 s of trading after it)
+    bars[5] = bar(6, 2.68, 2.70, 1.00, 1.20)
+    ex = measure(bars)
+    assert ex.hold.mae_r == 0.0 and ex.hold.mae_ts is None
+    assert not ex.hold.crossed_stop
+    # the old whole-bar behaviour would have counted it
+    legacy = measure(bars, fills=None)
+    assert legacy.hold.crossed_stop and legacy.hold.mae_r < -1.0
+
+
+def test_entry_mid_minute_pre_entry_spike_is_not_mfe():
+    bars = long_bars()
+    bars[0] = bar(1, 2.50, 4.00, 2.45, 2.55)  # spike before the entry fill
+    ex = measure(bars)
+    assert ex.hold.mfe_per_contract == pytest.approx(0.22)  # best interior high, not the pre-entry 4.00
+
+
+def test_edge_bars_are_bounded_by_their_fills():
+    bars, touched = bounded_hold_bars(
+        long_bars(), fills=LONG_FILLS, open_ts=LONG_OPEN, close_ts=LONG_CLOSE
+    )
+    assert touched == 6 and len(bars) == 6
+    assert (bars[0].low, bars[0].high) == (2.50, 2.50)  # entry minute = the entry fill
+    assert (bars[-1].low, bars[-1].high) == (2.68, 2.68)
+
+
+def test_sub_two_minute_hold_is_short_hold_from_fills_alone():
+    o, c = T0 + timedelta(minutes=1, seconds=20), T0 + timedelta(minutes=2, seconds=13)
+    bars = [bar(1, 2.50, 3.50, 1.20, 2.55), bar(2, 2.55, 2.70, 0.50, 0.80)]
+    ex = compute_excursions(
+        bars, avg_in=2.50, qty=1, risk=75.0, open_ts=o, close_ts=c,
+        fills=[(o, 2.50), (c, 2.68)],
+    )
+    h = ex.hold
+    assert h.short_hold and h.short_hold_bars == 2
+    assert h.mae_r == 0.0 and not h.crossed_stop
+    assert h.mfe_per_contract == pytest.approx(0.18)
+
+
+def test_open_position_is_never_short_hold():
+    o = T0 + timedelta(minutes=1, seconds=20)
+    ex = compute_excursions(
+        [bar(1, 2.50, 2.60, 2.40, 2.55)], avg_in=2.50, qty=1, risk=75.0, open_ts=o,
+        close_ts=None, fills=[(o, 2.50)],
+    )
+    assert not ex.hold.short_hold
+
+
+def test_longer_hold_still_uses_interior_bars():
+    bars = long_bars()
+    bars[2] = bar(3, 2.60, 2.66, 2.20, 2.40)  # a real interior dip (body too)
+    ex = measure(bars)
+    assert ex.wicks.quality == "ok"
+    assert ex.hold.mae_per_contract == pytest.approx(-0.30)
+    assert ex.hold.mae_ts == T0 + timedelta(minutes=3)
 
 
 def test_back_to_entry_after_a_loss():
@@ -125,24 +209,55 @@ def test_route_carries_quality_and_after_exit(client):
     assert ae["window_min"] == 30 and "dollar" not in str(ae).lower()
 
 
-def test_build_flags_and_clamps_a_wick(monkeypatch):
+def _build(monkeypatch, bars, open_ts, close_ts):
     from types import SimpleNamespace
 
     from app.ingest import trade_excursions as te
     rules = SimpleNamespace(timezone="America/Los_Angeles")
     monkeypatch.setattr(te, "_pt", lambda ts, r: "06:46 PT")
     fills = [
-        SimpleNamespace(side="B", qty=1, px=2.50, ts=OPEN),
-        SimpleNamespace(side="S", qty=1, px=2.68, ts=CLOSE),
+        SimpleNamespace(side="B", qty=1, px=2.50, ts=open_ts),
+        SimpleNamespace(side="S", qty=1, px=2.68, ts=close_ts),
     ]
-    a = SimpleNamespace(
-        fills=fills, closed=True, avg_in=2.50, qty_in=1, risk=75.0, r_basis="assumed",
-    )
+    a = SimpleNamespace(fills=fills, closed=True, avg_in=2.50, qty_in=1, risk=75.0, r_basis="assumed")
     lp = SimpleNamespace(trade_id=1, label="ZORP")
-    wick = [bar(1, 2.50, 2.60, 1.25, 2.52), bar(2, 2.55, 2.70, 2.52, 2.68)]
-    bars = SimpleNamespace(bars=wick, synthetic=False, method="provider")
-    out = te.build_trade_excursions(lp, a, rules, bars)
+    return te.build_trade_excursions(
+        lp, a, rules, SimpleNamespace(bars=bars, synthetic=False, method="provider")
+    )
+
+
+def test_build_flags_and_clamps_a_wick(monkeypatch):
+    out = _build(monkeypatch, long_bars(wick_low=1.25), LONG_OPEN, LONG_CLOSE)
     assert out.quality == "suspect_wicks" and out.clamped and out.suspect_wicks == 1
     assert out.quality_reason and "bodies" in out.quality_reason
     assert out.hold.mae_r == 0.0 and out.hold.raw_mae_r < -1.0
     assert out.hold.crossed_stop is False
+
+
+def test_build_short_hold_quality(monkeypatch):
+    o, c = T0 + timedelta(minutes=1, seconds=20), T0 + timedelta(minutes=2, seconds=13)
+    bars = [bar(1, 2.50, 2.60, 2.45, 2.55), bar(2, 2.55, 2.70, 0.50, 0.80)]
+    out = _build(monkeypatch, bars, o, c)
+    assert out.quality == "short_hold" and not out.clamped
+    assert out.quality_reason.startswith("held under 2 min; 1-min bars can't resolve the path")
+    assert out.hold.mae_r == 0.0 and out.hold.crossed_stop is False
+
+
+def test_rollup_fact_uses_the_same_bounded_hold(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.ingest import excursion_rollup as er
+
+    bars = long_bars()
+    bars[5] = bar(6, 2.68, 2.70, 1.00, 1.20)  # post-exit dive in the exit minute
+    fills = [
+        SimpleNamespace(side="B", qty=1, px=2.50, ts=LONG_OPEN, pnl=None),
+        SimpleNamespace(side="S", qty=1, px=2.68, ts=LONG_CLOSE, pnl=18.0),
+    ]
+    a = SimpleNamespace(fills=fills, closed=True, pnl=18.0, avg_in=2.50, qty_in=1, risk=75.0)
+    monkeypatch.setattr(
+        er, "fetch_bars",
+        lambda *a_, **k: (SimpleNamespace(bars=bars), SimpleNamespace(descriptor="ZORP"), None),
+    )
+    fact = er.fact_for_position(SimpleNamespace(trade_id=1), a)
+    assert fact is not None and fact.crossed_stop is False
