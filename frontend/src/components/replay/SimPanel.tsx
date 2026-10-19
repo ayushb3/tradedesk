@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { ResultCard } from "@/components/replay/ResultCard";
 import type { Candle } from "@/lib/api";
 import { formatPnl, formatR } from "@/lib/format";
 import {
@@ -13,6 +14,8 @@ import {
 interface Props {
   /** Premium bar at the playhead; null before data loads. */
   candle: Candle | null;
+  /** Premium bars, for the stop verdict of finished round trips. */
+  bars: Candle[];
   state: SimState;
   /** False when there are no contract bars to trade against. */
   enabled: boolean;
@@ -29,7 +32,7 @@ const px = (n: number) => `$${n.toFixed(2)}`;
  * Buy / Sell against the playhead. Every press is 1 contract at the playhead
  * bar's close on the premium pane; there is no size or price field.
  */
-export function SimPanel({ candle, state, enabled, onBuy, onSell, onCloseAll, logError }: Props) {
+export function SimPanel({ candle, bars, state, enabled, onBuy, onSell, onCloseAll, logError }: Props) {
   const { position: p, trips } = state;
   const mark = candle?.close ?? null;
   const open = p.qty > 0;
@@ -117,27 +120,30 @@ export function SimPanel({ candle, state, enabled, onBuy, onSell, onCloseAll, lo
               {formatPnl(sessionRealized(state))}
             </span>
           </div>
-          <ul className="space-y-2">
-            {trips.map((t, i) => (
-              <li key={i} className="rounded-md border border-border bg-card px-3 py-2">
-                <div className="num flex items-baseline justify-between text-value">
-                  <span className={tone(t.r)}>{formatR(t.r)}</span>
-                  <span className={tone(t.realized)}>{formatPnl(t.realized)}</span>
-                </div>
-                <div className="num text-label text-muted-foreground">
-                  #{i + 1} · up to {t.peakQty}x · {px(t.avgEntry)} to {px(t.avgExit)}
-                  {t.stopAssumed ? " · assumed stop" : ""}
-                  {t.addedLower > 0 ? ` · added lower x${t.addedLower}` : ""}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-2">
+            {/* Newest first; only the newest gets the hero size. */}
+            {trips
+              .map((t, i) => (
+                <ResultCard key={i} trip={t} index={i} bars={bars} hero={i === trips.length - 1} />
+              ))
+              .reverse()}
+          </div>
         </section>
       )}
       {logError && <p className="text-label text-loss">{logError}</p>}
       <p className="text-label text-muted-foreground">
+        <Kbd>Space</Kbd> play/pause &middot; <Kbd>&rarr;</Kbd> step &middot; <Kbd>B</Kbd> buy
+        &middot; <Kbd>S</Kbd> sell
+      </p>
+      <p className="text-label text-muted-foreground">
         1R = (avg - stop) x {MULTIPLIER} at your first buy.
       </p>
     </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="num rounded border border-border bg-muted px-1 text-label">{children}</kbd>
   );
 }

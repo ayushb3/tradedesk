@@ -171,6 +171,8 @@ export interface ReplayContract {
   candles: Candle[];
   /** Premium level at which the trade's risk is lost (same stop as the review). */
   stop_price: number | null;
+  /** True when no max loss was written: `stop_price` is the default (-30%) stop. */
+  stop_assumed?: boolean;
   synthetic: boolean;
   /** Bars are a model, not provider prints: show the "estimated" badge. */
   estimated: boolean;

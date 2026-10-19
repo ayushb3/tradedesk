@@ -71,6 +71,7 @@ def test_contract_mode_returns_premium_bars_and_matching_stop(client):
     assert datetime.fromisoformat(j["candles"][j["start_index"] - 1]["ts"]) < ENTRY - timedelta(minutes=15)
     # same stop and risk as the ledger: avg_in 1.50, qty 2
     assert j["stop_price"] == pytest.approx(stop_price(1.50, 2, pos["risk"]))
+    assert j["stop_assumed"] is True  # synthetic day has no written max loss: default-risk stop
     assert j["method"] in {"provider", "bs_interp"}
     assert "pnl" not in r.text.lower()
 

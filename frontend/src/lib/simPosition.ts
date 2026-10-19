@@ -42,6 +42,12 @@ export interface SimFill {
   addedLower?: boolean;
 }
 
+/** The stop line in force from the bar AFTER `ts` (the playhead bar it was set on). */
+export interface StopPoint {
+  ts: string;
+  stop: number;
+}
+
 export interface Position {
   /** Fills of the current round trip, in order. */
   fills: SimFill[];
@@ -57,6 +63,8 @@ export interface Position {
   risk: number | null;
   peakQty: number;
   stopMoves: number;
+  /** Stop history: the first buy's stop, then each dragged stop on release. */
+  stops: StopPoint[];
 }
 
 export interface RoundTrip {
@@ -74,6 +82,8 @@ export interface RoundTrip {
   /** Number of adds below the blended average. */
   addedLower: number;
   stopMoves: number;
+  /** Stop history, oldest first; the first entry is the stop at the first buy. */
+  stops: StopPoint[];
 }
 
 export interface SimState {
@@ -91,6 +101,7 @@ export const flat = (): Position => ({
   risk: null,
   peakQty: 0,
   stopMoves: 0,
+  stops: [],
 });
 
 export const initialState = (): SimState => ({ position: flat(), trips: [] });
@@ -130,6 +141,7 @@ export function buy(
       risk: (fill.price - stop) * MULTIPLIER * qty,
       peakQty: qty,
       stopMoves: 0,
+      stops: [{ ts: fill.ts, stop }],
     };
     return { ...state, position };
   }
@@ -172,9 +184,10 @@ export function closeAll(state: SimState, fill: { price: number; ts: string }): 
 
 /**
  * Move the stop line. Does not change 1R. During a drag pass `final = false`
- * for the in-between positions; the move is counted once, on release.
+ * for the in-between positions; the move is counted (and, when `ts` is given,
+ * added to the stop history) once, on release.
  */
-export function setStop(state: SimState, price: number, final = true): SimState {
+export function setStop(state: SimState, price: number, final = true, ts?: string): SimState {
   const p = state.position;
   if (p.qty === 0 || !(price > 0)) return state;
   return {
@@ -184,6 +197,7 @@ export function setStop(state: SimState, price: number, final = true): SimState 
       stop: price,
       stopAssumed: false,
       stopMoves: p.stopMoves + (final ? 1 : 0),
+      stops: final && ts ? [...p.stops, { ts, stop: price }] : p.stops,
     },
   };
 }
@@ -206,6 +220,7 @@ function finishTrip(p: Position, fills: SimFill[], realized: number): RoundTrip 
     stopAssumed: p.stopAssumed,
     addedLower: buys.filter((f) => f.addedLower).length,
     stopMoves: p.stopMoves,
+    stops: p.stops,
   };
 }
 

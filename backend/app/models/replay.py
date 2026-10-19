@@ -89,6 +89,7 @@ class ReplayContractResponse(BaseModel):
     playhead: UtcDatetime
     candles: list[Candle] = Field(default_factory=list)
     stop_price: float | None = None  # premium level at which the written/default risk is lost
+    stop_assumed: bool = False       # True when no max loss was written: stop_price is the default-risk stop
     synthetic: bool = False          # bars are a model, not provider prints
     estimated: bool = False          # same flag, named for the UI badge
     method: str | None = None        # "provider" | "bs_interp"
