@@ -84,6 +84,13 @@ export interface RealFill {
   ts: string;
 }
 
+/** The server's NET result for the real trade (fees in, the one R definition). */
+export interface RealNet {
+  net_pnl: number;
+  r: number | null;
+  r_basis: string | null;
+}
+
 export interface RealTradeSummary {
   avgIn: number;
   qtyIn: number;
@@ -95,9 +102,12 @@ export interface RealTradeSummary {
   exit: {
     avgOut: number;
     flatTs: string;
-    pnl: number;
-    /** pnl / 1R where 1R = (avgIn - stop) x 100 x qty. null if the stop is unusable. */
+    /** Net $ from the server; null if the server sent none. */
+    pnl: number | null;
+    /** R from the server's one definition; null when it has none. */
     r: number | null;
+    /** "assumed" when no max loss was written for the trade. */
+    rBasis: string | null;
   } | null;
 }
 
@@ -107,8 +117,10 @@ const wavg = (xs: RealFill[]) =>
 /**
  * Summarize the real trade from the fills revealed so far. Long premium only
  * (entries are buys); returns null with no entry yet or for a short entry.
- * The exit part is computed only when `includeExit` is true AND exit fills
- * exist, so the caller controls the reveal.
+ * The exit part is built only when `includeExit` is true AND exit fills
+ * exist, so the caller controls the reveal. Net $ and R are the server's
+ * (`real`, which it sends only once the playhead is at or past the exit); the
+ * client never derives them from gross prices.
  */
 export function summarizeRealTrade(
   fills: RealFill[],
@@ -116,6 +128,7 @@ export function summarizeRealTrade(
   includeExit: boolean,
   /** The API's flag: no max loss was written, so `writtenStop` is the default stop. */
   apiAssumed = false,
+  real: RealNet | null = null,
 ): RealTradeSummary | null {
   const ins = fills.filter((f) => f.role === "entry");
   if (ins.length === 0 || ins.some((f) => f.side !== "buy")) return null;
@@ -132,11 +145,14 @@ export function summarizeRealTrade(
   let exit: RealTradeSummary["exit"] = null;
   if (includeExit && outs.length > 0) {
     const avgOut = wavg(outs);
-    const qtyOut = outs.reduce((s, f) => s + f.qty, 0);
     const flatTs = outs.reduce((a, f) => (sec(f.ts) > sec(a) ? f.ts : a), outs[0].ts);
-    const risk = (avgIn - stop) * MULT * qtyIn;
-    const pnl = (avgOut - avgIn) * MULT * qtyOut;
-    exit = { avgOut, flatTs, pnl, r: risk > 0 ? pnl / risk : null };
+    exit = {
+      avgOut,
+      flatTs,
+      pnl: real ? real.net_pnl : null,
+      r: real ? real.r : null,
+      rBasis: real ? real.r_basis : null,
+    };
   }
   return { avgIn, qtyIn, openTs, stop, stopAssumed: !usable || apiAssumed, exit };
 }

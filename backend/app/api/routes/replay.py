@@ -18,6 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.deps import provider_dep, settings_dep
 from app.config import Settings
 from app.models.replay import (
+    DaySoFarResponse,
+    RealResult,
     ReplayFill,
     ReplayContractResponse,
     ReplayFillsResponse,
@@ -136,6 +138,14 @@ def _window_end(trade, head: datetime) -> datetime | None:
     return _as_utc(trade.close_ts) + timedelta(minutes=_AFTER_EXIT_MINUTES)
 
 
+def _real_result(trade, head: datetime) -> RealResult | None:
+    """The real trade's net P&L and R (the ledger's one definition), on the SAME
+    gate as ``window_end_ts``: None until the playhead is at or past the exit."""
+    if _window_end(trade, head) is None or trade.net_pnl is None:
+        return None
+    return RealResult(net_pnl=trade.net_pnl, r=trade.r_multiple, r_basis=trade.r_basis)
+
+
 def _load_trade_or_404(trade_id: int):
     from app.ingest.query import get_trade
 
@@ -200,6 +210,7 @@ def replay_trade(
         start_ts=start_ts,
         start_index=start_index,
         window_end_ts=_window_end(trade, head),
+        real_result=_real_result(trade, head),
         playhead=head,
         session=session,
         fills=revealed_fills(trade_id, head),
@@ -219,6 +230,7 @@ def replay_trade_fills(
         playhead=head,
         fills=revealed_fills(trade_id, head),
         window_end_ts=_window_end(trade, head),
+        real_result=_real_result(trade, head),
     )
 
 
@@ -245,6 +257,7 @@ def replay_trade_contract(
     base = dict(
         trade_id=trade_id, lead_minutes=lead_minutes, start_ts=start_ts, playhead=head,
         session_date=trade.session_date, window_end_ts=_window_end(trade, head),
+        real_result=_real_result(trade, head),
     )
 
     bars, contract, reason = fetch_bars(trade_id, provider)
@@ -285,4 +298,50 @@ def replay_trade_contract(
         method=bars.method,
         fills=revealed_fills(trade_id, head),
         **base,
+    )
+
+
+@router.get("/replay/trade/{trade_id}/day-so-far", response_model=DaySoFarResponse)
+def replay_day_so_far(trade_id: int) -> DaySoFarResponse:
+    """Rule-bar state for the replayed trade, filtered on the server so later
+    trades never reach the browser. Counts only positions whose last fill is
+    strictly before this trade's entry; this trade is never counted. Carries no
+    end-of-day flag and no final day net."""
+    from app.desk import days as desk_days
+    from app.desk.rules import load_rules, window_bounds
+
+    trade = _load_trade_or_404(trade_id)
+    base = dict(trade_id=trade_id, session_date=trade.session_date)
+    try:
+        rules = load_rules()
+    except ValueError:  # unreadable rules file: the bar shows dashes
+        return DaySoFarResponse(**base)
+
+    entry = _as_utc(trade.open_ts)
+    d = desk_days.get_day(trade.session_date, rules)
+    net = 0.0
+    prior = 0
+    own_source = None
+    plan_caller = None
+    if d is not None:
+        for lp, a in zip(d.loaded, d.result.positions):
+            if lp.trade_id == trade_id:
+                own_source = lp.call_source
+                plan_caller = lp.plan.caller if lp.plan is not None else None
+                continue
+            if not a.closed or a.pnl is None or not a.fills:
+                continue
+            if max(_as_utc(f.ts) for f in a.fills) < entry:
+                net += a.pnl
+                prior += 1
+    cutoff_end = window_bounds(rules, trade.session_date)[1]
+    return DaySoFarResponse(
+        **base,
+        net_so_far=round(net, 2),
+        prior_trades=prior,
+        daily_stop=rules.daily_stop,
+        daily_target=rules.daily_target,
+        cutoff=rules.window.end,
+        entry="before" if entry <= cutoff_end else "after",
+        call_source=own_source or plan_caller or None,
     )

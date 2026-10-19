@@ -36,6 +36,15 @@ class ReplaySessionResponse(BaseModel):
     meta: dict = Field(default_factory=dict)  # {"or_minutes": int, "tz": str, "timeframe": str}
 
 
+class RealResult(BaseModel):
+    """The real trade's NET result (fees in, the one R definition). Sent only once
+    the playhead is at or past the exit; null on every replay endpoint before it."""
+
+    net_pnl: float
+    r: float | None = None
+    r_basis: str | None = None  # "written" | "assumed"
+
+
 class ReplayFill(BaseModel):
     """A trade fill revealed to the replay. Never carries P&L."""
 
@@ -55,6 +64,7 @@ class ReplayFillsResponse(BaseModel):
     playhead: UtcDatetime
     fills: list[ReplayFill]
     window_end_ts: UtcDatetime | None = None  # set only once playhead >= exit
+    real_result: RealResult | None = None  # same gate as window_end_ts
 
 
 class ReplayTradeResponse(BaseModel):
@@ -67,6 +77,7 @@ class ReplayTradeResponse(BaseModel):
     start_ts: UtcDatetime  # entry time minus lead
     start_index: int       # first candle at or after start_ts
     window_end_ts: UtcDatetime | None = None  # exit + 30 min, only once playhead >= exit
+    real_result: RealResult | None = None  # same gate as window_end_ts
     playhead: UtcDatetime
     session: ReplaySessionResponse
     fills: list[ReplayFill]
@@ -86,6 +97,7 @@ class ReplayContractResponse(BaseModel):
     start_ts: UtcDatetime
     start_index: int = 0
     window_end_ts: UtcDatetime | None = None  # exit + 30 min, only once playhead >= exit
+    real_result: RealResult | None = None  # same gate as window_end_ts
     playhead: UtcDatetime
     candles: list[Candle] = Field(default_factory=list)
     stop_price: float | None = None  # premium level at which the written/default risk is lost
@@ -94,3 +106,20 @@ class ReplayContractResponse(BaseModel):
     estimated: bool = False          # same flag, named for the UI badge
     method: str | None = None        # "provider" | "bs_interp"
     fills: list[ReplayFill] = Field(default_factory=list)
+
+
+class DaySoFarResponse(BaseModel):
+    """The replayed day as it stood BEFORE this trade's entry, for the rule bar.
+
+    Aggregates only: positions fully closed strictly before the entry (never this
+    trade). No later trade, no end-of-day stop/target flag, no final day net."""
+
+    trade_id: int
+    session_date: date
+    net_so_far: float | None = None  # None when the rules file is unreadable
+    prior_trades: int = 0
+    daily_stop: float | None = None
+    daily_target: float | None = None
+    cutoff: str | None = None  # "HH:MM" PT
+    entry: str | None = None  # "before" | "after" the cutoff
+    call_source: str | None = None  # the trade's mentor/own field, else its plan's caller

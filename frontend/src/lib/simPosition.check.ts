@@ -147,24 +147,29 @@ v = stopVerdict({
 });
 eq("stop moved on bar 2 does not cover bar 2", v.minutesPast, 2);
 
-// 8) Real trade summary: exit hidden unless asked, R from the written stop.
+// 8) Real trade summary: exit hidden unless asked; net $ and R are the server's.
 const real = [
   { role: "entry" as const, side: "buy" as const, qty: 2, price: 2.0, ts: at(0) },
   { role: "exit" as const, side: "sell" as const, qty: 2, price: 2.5, ts: at(5) },
 ];
-let rt = summarizeRealTrade(real, 1.5, false);
-eq("exit not computed before reveal", rt?.exit === null, true);
+// Gross would be +100; the server's NET is lower (fees in) and is what shows.
+const net = { net_pnl: 97.9, r: 0.65, r_basis: "assumed" };
+let rt = summarizeRealTrade(real, 1.5, false, false, net);
+eq("exit not built before reveal", rt?.exit === null, true);
 eq("written stop not assumed", rt?.stopAssumed, false);
+rt = summarizeRealTrade(real, 1.5, true, false, net);
+eq("net pnl comes from the server, not gross prices", rt?.exit?.pnl ?? NaN, 97.9);
+eq("R comes from the server", rt?.exit?.r ?? NaN, 0.65);
+eq("R basis passes through", rt?.exit?.rBasis === "assumed", true);
 rt = summarizeRealTrade(real, 1.5, true);
-eq("real pnl", rt?.exit?.pnl ?? NaN, 100);
-eq("real R = 0.5/0.5", rt?.exit?.r ?? NaN, 1);
+eq("no server result -> pnl null", rt?.exit?.pnl, null);
+eq("no server result -> R null", rt?.exit?.r, null);
 rt = summarizeRealTrade(real, null, true);
 eq("assumed stop flagged", rt?.stopAssumed, true);
 rt = summarizeRealTrade(real, 1.5, true, true);
 eq("api-assumed flag wins over a usable stop", rt?.stopAssumed, true);
 rt = summarizeRealTrade(real, null, true);
 eq("assumed stop value", rt?.stop ?? NaN, 1.4);
-eq("assumed R = 0.5/0.6", rt?.exit?.r ?? NaN, 0.5 / 0.6);
 eq("no entry -> null", summarizeRealTrade([], 1, true) === null, true);
 
 if (failures > 0) {
