@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, MessageCircle, Send, ServerCrash, Sparkles } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { debriefStarted } from "@/lib/reviewChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -384,6 +385,11 @@ function ActiveInterview({
             form mode
           </Badge>
         )}
+        {debriefStarted(debrief.created_at) && (
+          <span className="num ml-auto text-label text-muted-foreground" data-testid="debrief-started">
+            {debriefStarted(debrief.created_at)}
+          </span>
+        )}
       </div>
 
       {/* Transcript scroll area */}
@@ -639,6 +645,7 @@ function PreviewScreen({ debrief, transcript, onSave }: PreviewScreenProps) {
       </div>
       <p className="text-xs text-muted-foreground">
         This will be written to trade #{debrief.trade_id} as enrichment.
+        {debriefStarted(debrief.created_at) ? ` ${debriefStarted(debrief.created_at)}.` : ""}
       </p>
 
       <Card>
