@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 
-import { fillSpan, linePoints, tradeBands } from "@/lib/dayPage";
+import { linePoints, stripWindow, tradeBands } from "@/lib/dayPage";
 import type { DeskPosition } from "@/lib/api";
 import { formatClock, DISPLAY_TZ_LABEL } from "@/lib/format";
 import { useReplaySession } from "@/lib/queries";
@@ -22,23 +22,14 @@ export function SessionStrip({ date, positions }: { date: string; positions: Des
   const navigate = useNavigate();
   const { data, isLoading } = useReplaySession({ symbol: "SPY", date });
 
-  const closes = (data?.candles ?? []).map((c) => ({ ms: Date.parse(c.ts), close: c.close }));
-  let startMs = closes.length ? closes[0].ms : NaN;
-  let endMs = closes.length ? closes[closes.length - 1].ms + 60_000 : NaN;
+  // Regular session (06:30-13:00 PT), widened only to take in trades outside it.
+  const { startMs, endMs } = stripWindow(date, positions);
+  const closes = (data?.candles ?? [])
+    .map((c) => ({ ms: Date.parse(c.ts), close: c.close }))
+    .filter((c) => c.ms >= startMs && c.ms < endMs);
   const haveBars = closes.length > 1;
-  if (!haveBars) {
-    // No SPY bars: span the trades themselves so the bands still read.
-    const spans = positions.map(fillSpan).filter((s) => s !== null);
-    if (spans.length) {
-      const lo = Math.min(...spans.map((s) => s.startMs));
-      const hi = Math.max(...spans.map((s) => s.endMs));
-      const pad = Math.max(5 * 60_000, (hi - lo) * 0.1);
-      startMs = lo - pad;
-      endMs = hi + pad;
-    }
-  }
 
-  const bands = Number.isFinite(startMs) ? tradeBands(positions, startMs, endMs) : [];
+  const bands = tradeBands(positions, startMs, endMs);
   const pts = haveBars ? linePoints(closes, W, H, startMs, endMs) : "";
   const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -78,7 +69,7 @@ export function SessionStrip({ date, positions }: { date: string; positions: Des
           />
         ))}
       </div>
-      {Number.isFinite(startMs) && (
+      {(
         <div className="num flex justify-between text-label text-muted-foreground">
           <span>
             {formatClock(iso(startMs))} {DISPLAY_TZ_LABEL}

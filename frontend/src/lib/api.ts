@@ -687,6 +687,20 @@ export interface DeskDayDetail {
   stop_result: DeskStopResult | null;
 }
 
+/** One row of GET /api/days: the day's net and rule state. */
+export interface DeskDaySummary {
+  date: string;
+  net: number;
+  positions: number;
+  rule_results: RuleResult[];
+  stop_result: DeskStopResult | null;
+}
+
+export interface DeskDaysResponse {
+  tz: string;
+  days: DeskDaySummary[];
+}
+
 /** GET /api/journal/days/{date}/trades — that session-day's trade cards. */
 export interface DayTradesResponse {
   date: string;
@@ -1165,6 +1179,10 @@ export const api = {
 
   replayDaySoFar(tradeId: number): Promise<ReplayDaySoFar> {
     return request<ReplayDaySoFar>(`/replay/trade/${tradeId}/day-so-far`);
+  },
+
+  deskDays(): Promise<DeskDaysResponse> {
+    return request<DeskDaysResponse>("/days");
   },
 
   deskDay(date: string): Promise<DeskDayDetail> {

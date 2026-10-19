@@ -105,20 +105,16 @@ function EvidenceSection({
           {/* Each evidence trade offers a Critique link (PRD-M9 R6) when the
               agent layer is available. */}
           <span className="inline-flex flex-wrap items-center gap-1.5 align-middle">
-            {tradeIds.map((id) =>
-              agentAvailable ? (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => onCritique(id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 font-medium text-foreground/90 transition-colors hover:bg-accent/50"
-                >
-                  <Sparkles className="h-3 w-3 text-primary" />#{id}
-                </button>
-              ) : (
-                <span key={id}>#{id}</span>
-              ),
-            )}
+            {tradeIds.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onCritique(id)}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 font-medium text-foreground/90 transition-colors hover:bg-accent/50"
+              >
+                {agentAvailable && <Sparkles className="h-3 w-3 text-primary" />}#{id}
+              </button>
+            ))}
           </span>
         </div>
       )}
@@ -149,7 +145,7 @@ const LEAK_DISPLAY_NAMES: Record<string, string> = {
   psychology_loss: "Psychology failures",
 };
 
-function LeakCard({ leak }: { leak: Leak }) {
+export function LeakCard({ leak }: { leak: Leak }) {
   const navigate = useNavigate();
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const agentStatus = useAgentStatus();
@@ -260,7 +256,7 @@ function LeakCard({ leak }: { leak: Leak }) {
 // Loading skeleton
 // --------------------------------------------------------------------------- //
 
-function LeaksSkeleton() {
+export function LeaksSkeleton() {
   return (
     <div className="space-y-4">
       {[1, 2].map((i) => (
@@ -289,7 +285,7 @@ function LeaksSkeleton() {
 // Error state
 // --------------------------------------------------------------------------- //
 
-function LeaksError({ error }: { error: unknown }) {
+export function LeaksError({ error }: { error: unknown }) {
   const status = error instanceof ApiError ? error.status : undefined;
   const isBackendDown = status === 0;
   const notImplemented = status === 501;

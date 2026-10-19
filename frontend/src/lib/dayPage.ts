@@ -96,6 +96,53 @@ export function fillSpan(p: DeskPosition): { startMs: number; endMs: number } | 
   return { startMs: Math.min(...ts), endMs: Math.max(...ts) };
 }
 
+/** Regular session in PT, the default span of the day strip. */
+export const SESSION_OPEN_PT = "06:30";
+export const SESSION_CLOSE_PT = "13:00";
+
+/** UTC ms of a PT wall-clock time ("HH:MM") on a calendar date. */
+export function ptWallToMs(date: string, hhmm: string): number {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = hhmm.split(":").map(Number);
+  const want = Date.UTC(y, mo - 1, d, h, mi);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  // PT is UTC-7 or UTC-8: pick the offset whose wall clock reads `want`.
+  for (const off of [7, 8]) {
+    const ms = want + off * 3_600_000;
+    const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+    if (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) === want) return ms;
+  }
+  return want + 8 * 3_600_000;
+}
+
+/**
+ * The span of the session strip: the regular session, widened only to include
+ * trades that fall outside it (with a small pad so an edge band stays visible).
+ */
+export function stripWindow(
+  date: string,
+  positions: DeskPosition[],
+  padMs = 5 * 60_000,
+): { startMs: number; endMs: number } {
+  let startMs = ptWallToMs(date, SESSION_OPEN_PT);
+  let endMs = ptWallToMs(date, SESSION_CLOSE_PT);
+  for (const p of positions) {
+    const s = fillSpan(p);
+    if (!s) continue;
+    if (s.startMs < startMs) startMs = s.startMs - padMs;
+    if (s.endMs > endMs) endMs = s.endMs + padMs;
+  }
+  return { startMs, endMs };
+}
+
 export interface TradeBand {
   tradeId: number;
   leftPct: number;

@@ -13,6 +13,7 @@ import {
   type ByDimension,
   type ByRow,
   type CalendarData,
+  type DeskDaysResponse,
   type Candle,
   type CandlesParams,
   type CreateSimTradeRequest,
@@ -129,6 +130,7 @@ const JOURNAL_ROOTS = [
   "analytics-summary",
   "analytics-calendar",
   "analytics-by",
+  "desk-days",
   "daily-review",
 ] as const;
 
@@ -271,6 +273,15 @@ export function useTradeExcursions(id: number | string | null, enabled = true) {
     queryKey: ["trade-excursions", id],
     queryFn: () => api.tradeExcursions(id as number | string),
     enabled: enabled && id !== null && id !== undefined,
+  });
+}
+
+/** Every desk day with its net, rule results and stop state (the Days home). */
+export function useDeskDays() {
+  return useQuery<DeskDaysResponse>({
+    queryKey: ["desk-days"],
+    queryFn: () => api.deskDays(),
+    retry: false,
   });
 }
 
