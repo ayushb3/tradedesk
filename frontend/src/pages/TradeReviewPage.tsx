@@ -12,7 +12,6 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +26,8 @@ import { FillTable } from "@/components/review/FillTable";
 import { ReviewChart, type RuleCheckMarker } from "@/components/review/ReviewChart";
 import { OptionPremiumSection } from "@/components/review/OptionPremiumSection";
 import { ExcursionReadout } from "@/components/review/ExcursionReadout";
-import { TradeExcursionsPanel } from "@/components/review/TradeExcursionsPanel";
+import { StoryStrip } from "@/components/review/StoryStrip";
+import { VerdictBand } from "@/components/review/VerdictBand";
 import { CritiquePanel } from "@/components/agents/CritiquePanel";
 import { DebriefPanel } from "@/components/review/DebriefPanel";
 import { TradeEnrichmentPanel } from "@/components/journal/TradeEnrichmentPanel";
@@ -41,26 +41,18 @@ import {
   type Timeframe,
   type Trade,
 } from "@/lib/api";
-import {
-  formatClock,
-  formatCurrency,
-  formatDayMonth,
-  formatHoldTime,
-  formatNumber,
-  formatPercent,
-  formatPnl,
-  pnlColorClass,
-  DISPLAY_TZ_LABEL,
-} from "@/lib/format";
+import { formatDayMonth } from "@/lib/format";
 import {
   useAgentStatus,
   useCandles,
   useDayTrades,
+  useReviewDay,
   useRunCritic,
+  useSetCallSource,
   useTradeExcursions,
   useTradeReview,
 } from "@/lib/queries";
-import { cn } from "@/lib/utils";
+import { dayTally } from "@/lib/tradeReview";
 
 /** Timeframes the review chart offers (subset of the underlying descriptor). */
 const REVIEW_TIMEFRAMES: readonly ("1m" | "5m")[] = ["1m", "5m"] as const;
@@ -188,6 +180,11 @@ function ReviewContent({
   // Option trades only: MAE/MFE, the stop line and the post-exit path (#51).
   const excursions = useTradeExcursions(trade.id, option != null);
 
+  // Verdict band: the day tally through this trade's close, and the one-tap call source.
+  const reviewDay = useReviewDay(trade.session_date);
+  const tally = dayTally(reviewDay.data, trade.id);
+  const setCallSource = useSetCallSource();
+
   return (
     <>
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -260,7 +257,20 @@ function ReviewContent({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex max-w-6xl flex-col gap-4">
-          <ReviewHeader trade={trade} label={label} />
+          <VerdictBand
+            trade={trade}
+            label={label}
+            tally={tally}
+            callSourcePending={setCallSource.isPending}
+            onSetCallSource={(callSource) => setCallSource.mutate({ id: trade.id, callSource })}
+          />
+          {option && (
+            <StoryStrip
+              data={excursions.data}
+              isLoading={excursions.isLoading}
+              isError={excursions.isError}
+            />
+          )}
 
           <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
             {/* Chart + fills column */}
@@ -273,18 +283,10 @@ function ReviewContent({
                   option={option}
                   premiumBars={premiumBars}
                   fills={fills}
-                  excursion={excursion}
                   stopPrice={excursions.data?.stop_price ?? null}
                   trade={trade}
                   hoveredFillId={hoveredFillId}
                   onHoverFill={setHoveredFillId}
-                />
-              )}
-              {option && (
-                <TradeExcursionsPanel
-                  data={excursions.data}
-                  isLoading={excursions.isLoading}
-                  isError={excursions.isError}
                 />
               )}
 
@@ -427,84 +429,6 @@ function ReviewContent({
         </div>
       </div>
     </>
-  );
-}
-
-function ReviewHeader({ trade, label }: { trade: Trade; label: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-background/40 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-lg font-semibold tracking-tight">{label}</span>
-        <span
-          className={cn(
-            "text-xs font-medium uppercase",
-            trade.direction === "long" ? "text-[#26a69a]" : "text-[#ef5350]",
-          )}
-        >
-          {trade.direction}
-        </span>
-        {trade.simulated && <Badge variant="muted">sim</Badge>}
-        <Badge variant="outline" className="capitalize">
-          {trade.status}
-        </Badge>
-        {trade.enrichment?.grade && (
-          <Badge variant="outline">Grade {trade.enrichment.grade}</Badge>
-        )}
-        <span className="tabular ml-auto text-xs text-muted-foreground">
-          {formatClock(trade.open_ts)}
-          {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} {DISPLAY_TZ_LABEL} ·{" "}
-          {formatHoldTime(trade.hold_time_s)}
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Qty">
-          <span className="tabular">{formatNumber(trade.qty, 0)}</span>
-        </Stat>
-        <Stat label="Entry → Exit">
-          <span className="tabular">
-            {formatNumber(trade.avg_entry)} → {formatNumber(trade.avg_exit)}
-          </span>
-        </Stat>
-        <Stat label="Net P&L">
-          <span className={cn("tabular font-medium", pnlColorClass(trade.net_pnl))}>
-            {formatPnl(trade.net_pnl)}
-          </span>
-        </Stat>
-        <Stat label="P&L %">
-          <span className={cn("tabular", pnlColorClass(trade.pnl_pct))}>
-            {formatPercent(trade.pnl_pct, { fromRatio: false, digits: 2 })}
-          </span>
-        </Stat>
-        <Stat label="R multiple">
-          <span className={cn("tabular", pnlColorClass(trade.r_multiple))}>
-            {formatNumber(trade.r_multiple)}
-          </span>
-        </Stat>
-        <Stat label="Fees">
-          <span className="tabular text-muted-foreground">
-            {formatCurrency(trade.fees)}
-          </span>
-        </Stat>
-      </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col">
-      <span className="text-label uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span className="text-sm">{children}</span>
-    </div>
   );
 }
 
