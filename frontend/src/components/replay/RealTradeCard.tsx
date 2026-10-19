@@ -1,4 +1,4 @@
-import type { Candle, ReplayFill } from "@/lib/api";
+import type { Candle, ReplayFill, ReplayRealResult } from "@/lib/api";
 import { formatPnl, formatR } from "@/lib/format";
 import { stopVerdict, summarizeRealTrade } from "@/lib/tradeResult";
 import { StopVerdictLine } from "@/components/replay/ResultCard";
@@ -12,15 +12,17 @@ const lastTimePt = (fills: ReplayFill[]) =>
 /**
  * "Your real trade". Nothing renders until the server has revealed the entry
  * fill (it only returns fills at or before the playhead). The exit, real R and
- * stop verdict are computed ONLY when `exitReached` (the server's window_end_ts,
- * which exists only once the playhead is at or past the exit) is true, so there
- * is nothing about the exit in the DOM or in memory before then.
+ * stop verdict are shown ONLY when `exitReached` (the server's window_end_ts,
+ * which exists only once the playhead is at or past the exit) is true. Net $ and
+ * R come from the server (`realResult`, same gate); the client does not compute
+ * them from gross prices. The stop verdict stays client-side.
  */
 export function RealTradeCard({
   fills,
   writtenStop,
   stopAssumed,
   exitReached,
+  realResult,
   bars,
   sourceLabel,
 }: {
@@ -30,12 +32,14 @@ export function RealTradeCard({
   /** The API says no max loss was written, so the stop is the default one. */
   stopAssumed: boolean;
   exitReached: boolean;
+  /** The server's NET $ and R; it sends them only once the playhead is at or past the exit. */
+  realResult: ReplayRealResult | null;
   /** Premium bars; only used once the exit is reached. */
   bars: Candle[] | null;
   sourceLabel?: string;
 }) {
   const entries = fills.filter((f) => f.role === "entry");
-  const summary = summarizeRealTrade(fills, writtenStop, exitReached, stopAssumed);
+  const summary = summarizeRealTrade(fills, writtenStop, exitReached, stopAssumed, realResult);
 
   if (!summary) {
     return (
@@ -90,18 +94,27 @@ export function RealTradeCard({
 
       {summary.exit ? (
         <div className="space-y-1">
+          <div className="flex items-baseline gap-2">
+            <div
+              className={`num text-hero leading-none ${
+                summary.exit.r === null ? "text-muted-foreground" : tone(summary.exit.r)
+              }`}
+            >
+              {summary.exit.r === null ? "R n/a" : formatR(summary.exit.r)}
+            </div>
+            {summary.exit.rBasis === "assumed" && (
+              <span className="label-caps text-label text-muted-foreground">assumed</span>
+            )}
+          </div>
           <div
-            className={`num text-key leading-none ${
-              summary.exit.r === null ? "text-muted-foreground" : tone(summary.exit.r)
+            className={`num text-key ${
+              summary.exit.pnl === null ? "text-muted-foreground" : tone(summary.exit.pnl)
             }`}
           >
-            {summary.exit.r === null ? "R n/a" : formatR(summary.exit.r)}
-          </div>
-          <div className={`num text-value ${tone(summary.exit.pnl)}`}>
-            {formatPnl(summary.exit.pnl)}
+            {summary.exit.pnl === null ? "net n/a" : `${formatPnl(summary.exit.pnl)} net`}
           </div>
           {verdict && <StopVerdictLine verdict={verdict} />}
-          {summary.stopAssumed && (
+          {summary.exit.rBasis === "assumed" && (
             <p className="text-label text-muted-foreground">
               R uses an assumed -30% stop: no max loss was written for this trade.
             </p>

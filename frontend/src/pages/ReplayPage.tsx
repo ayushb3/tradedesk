@@ -21,8 +21,7 @@ import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import {
-  useDeskDay,
-  useDeskRules,
+  useReplayDaySoFar,
   useReplayContract,
   useReplaySession,
   useReplayTrade,
@@ -90,8 +89,7 @@ export function ReplayPage() {
   });
   const tradeReplay = useReplayTrade(tradeId, lead);
   const tradeRow = useTrade(tradeId);
-  const deskRules = useDeskRules();
-  const deskDay = useDeskDay(tradeRow.data?.session_date ?? null);
+  const daySoFar = useReplayDaySoFar(tradeId);
 
   // Trade mode: contract premium (top) stacked over SPY (bottom). The old
   // Underlying|Contract toggle and its `view` param are gone; a stale `view`
@@ -317,16 +315,7 @@ export function ReplayPage() {
   const tradeContract =
     tradeRow.data?.contract_label ?? contractData?.symbol ?? tradeReplay.data?.session.symbol ?? "…";
   const tradeDate = tradeRow.data?.session_date ?? tradeReplay.data?.session.session_date ?? "";
-  const bar = useMemo(
-    () =>
-      ruleBarState({
-        rules: deskRules.data,
-        day: deskDay.data,
-        tradeId: tradeId ?? 0,
-        entryTs: tradeRow.data?.open_ts ?? null,
-      }),
-    [deskRules.data, deskDay.data, tradeId, tradeRow.data?.open_ts],
-  );
+  const bar = useMemo(() => ruleBarState(daySoFar.data), [daySoFar.data]);
   const setLead = (l: number) => setParams({ trade: String(tradeId), lead: String(l) });
 
   if (picking) {
@@ -351,7 +340,7 @@ export function ReplayPage() {
             disabled={!ready}
             onExit={() => setParams({})}
           />
-          <RuleBar state={bar} loading={deskRules.isLoading || deskDay.isLoading || tradeRow.isLoading} />
+          <RuleBar state={bar} loading={daySoFar.isLoading} />
         </>
       ) : (
         <ReplayToolbar
@@ -454,6 +443,7 @@ export function ReplayPage() {
               writtenStop={contractData?.stop_price ?? null}
               stopAssumed={contractData?.stop_assumed ?? false}
               exitReached={windowEndTs !== null}
+              realResult={fillsQuery.data?.real_result ?? null}
               bars={windowed?.contractCandles ?? null}
               sourceLabel={
                 windowed?.contractCandles

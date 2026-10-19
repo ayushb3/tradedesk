@@ -19,8 +19,6 @@ import {
   type CreateTagRequest,
   type CriticResponse,
   type DailyReview,
-  type DeskDay,
-  type DeskRules,
   type DayTradesResponse,
   type Health,
   type ImportResult,
@@ -34,6 +32,7 @@ import {
   type KnowledgeProgressResponse,
   type PatchTradeRequest,
   type ReplayContract,
+  type ReplayDaySoFar,
   type ReplayFills,
   type ReplaySession,
   type ReplayTrade,
@@ -433,22 +432,15 @@ export function useAgentSession(id: number | null) {
   });
 }
 
-/** Desk rules (window end, daily stop, target). Read by the Replay rule bar. */
-export function useDeskRules() {
-  return useQuery<DeskRules>({
-    queryKey: ["desk-rules"],
-    queryFn: () => api.deskRules(),
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
-}
-
-/** One day from the desk ledger (404 when the day has no trades). */
-export function useDeskDay(date: string | null) {
-  return useQuery<DeskDay>({
-    queryKey: ["desk-day", date],
-    queryFn: () => api.deskDay(date as string),
-    enabled: Boolean(date),
+/**
+ * The replayed day before this trade's entry (net so far, stop, target, cutoff,
+ * call source), filtered on the server so later trades never reach the browser.
+ */
+export function useReplayDaySoFar(tradeId: number | null) {
+  return useQuery<ReplayDaySoFar>({
+    queryKey: ["replay-day-so-far", tradeId],
+    queryFn: () => api.replayDaySoFar(tradeId as number),
+    enabled: tradeId !== null,
     retry: false,
   });
 }
