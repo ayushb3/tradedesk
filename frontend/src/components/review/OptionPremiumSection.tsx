@@ -3,29 +3,18 @@ import { AlertCircle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
-import { ExcursionReadout } from "@/components/review/ExcursionReadout";
 import { ReviewChart, type PriceBand } from "@/components/review/ReviewChart";
 import { Button } from "@/components/ui/button";
 import { isoToUtcSeconds } from "@/lib/chart";
 import { premiumWindow } from "@/lib/premiumWindow";
-import type {
-  Candle,
-  Excursion,
-  ReviewFill,
-  ReviewOption,
-  Trade,
-} from "@/lib/api";
+import type { Candle, ReviewFill, ReviewOption, Trade } from "@/lib/api";
 
-// MFE/MAE band colors mirror the up/down candle theme (favorable = teal).
-const MFE_COLOR = "#26a69a";
-const MAE_COLOR = "#ef5350";
 const STOP_COLOR = "#d9a441";
 
 interface OptionPremiumSectionProps {
   option: ReviewOption;
   premiumBars: Candle[] | null;
   fills: ReviewFill[];
-  excursion: Excursion | null;
   /** Premium where the position has lost its risk (#51); drawn as a "Stop" line. */
   stopPrice?: number | null;
   trade: Trade;
@@ -34,32 +23,11 @@ interface OptionPremiumSectionProps {
 }
 
 /**
- * Compute MFE/MAE horizontal bands in premium-price space. The excursion gives
- * magnitudes relative to the entry premium; the extreme levels depend on
- * direction (a long profits as premium rises, a short as it falls).
- */
-function excursionBands(
-  excursion: Excursion | null,
-  trade: Trade,
-): PriceBand[] {
-  if (!excursion || excursion.basis !== "premium") return [];
-  const entry = trade.avg_entry;
-  if (entry == null || !Number.isFinite(entry)) return [];
-  const isLong = trade.direction === "long";
-  const favorable = isLong ? entry + excursion.mfe : entry - excursion.mfe;
-  const adverse = isLong ? entry - excursion.mae : entry + excursion.mae;
-  return [
-    { price: favorable, color: MFE_COLOR, title: "MFE" },
-    { price: adverse, color: MAE_COLOR, title: "MAE" },
-  ];
-}
-
-/**
  * Option premium chart (PRD-M7 R4/R5/R9): the contract's own price series over
  * the hold, with the same entry/exit fill markers as the underlying chart —
  * placed at the fill premium prices (the fills' `price` IS the premium for
  * option trades). Shows an "estimated premium" badge when the series is the
- * Black-Scholes fallback, MFE/MAE readouts, and MFE/MAE bands on the chart.
+ * Black-Scholes fallback, and the stop line. MAE/MFE are in the story strip.
  *
  * Premium bars are 1m (the review payload's series); the timeframe selector
  * governs the underlying chart only.
@@ -68,14 +36,14 @@ export function OptionPremiumSection({
   option,
   premiumBars,
   fills,
-  excursion,
   stopPrice,
   trade,
   hoveredFillId,
   onHoverFill,
 }: OptionPremiumSectionProps) {
   const estimated = option.synthetic || option.method === "bs_interp";
-  const bands = excursionBands(excursion, trade);
+  // The only chart band is the stop line; MAE/MFE live in the story strip, once.
+  const bands: PriceBand[] = [];
   if (stopPrice != null && Number.isFinite(stopPrice)) {
     bands.push({ price: stopPrice, color: STOP_COLOR, title: "Stop" });
   }
@@ -112,11 +80,6 @@ export function OptionPremiumSection({
           >
             {wholeSession ? "Fit to trade" : "Whole session"}
           </Button>
-        )}
-        {excursion && (
-          <div className="ml-auto">
-            <ExcursionReadout excursion={excursion} />
-          </div>
         )}
       </div>
 

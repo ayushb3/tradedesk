@@ -19,7 +19,9 @@ from datetime import date
 
 from sqlalchemy.engine import Engine
 
-from app.analytics.excursions import compute_excursions
+from app.analytics.excursions import (
+    back_to_entry, check_hold_wicks, compute_excursions,
+)
 from app.desk import days as desk_days
 from app.desk.ledger import PositionAnalysis
 from app.desk.rules import Rules
@@ -30,6 +32,7 @@ from app.ingest.option_bars import (
 )
 from app.ingest.query import get_trade, get_trade_option_contract
 from app.models.review import (
+    AfterExitOut,
     ExcursionFill,
     HoldExcursionOut,
     PostExitWindowOut,
@@ -81,13 +84,23 @@ def build_trade_excursions(
 
     sells = [f for f in a.fills if f.side == "S"]
     close_ts = sells[-1].ts if a.closed and sells else None
-    ex = compute_excursions(
-        bars.bars, avg_in=a.avg_in, qty=a.qty_in, risk=a.risk,
-        open_ts=a.fills[0].ts, close_ts=close_ts,
+    open_ts = a.fills[0].ts
+    # Data-quality check: trim stray wicks that sit far beyond the fills, then measure on
+    # the trimmed bars. The raw values stay on the response so nothing is hidden.
+    check = check_hold_wicks(
+        bars.bars, fill_prices=[f.px for f in a.fills], avg_in=a.avg_in,
+        open_ts=open_ts, close_ts=close_ts,
     )
+    kw = dict(avg_in=a.avg_in, qty=a.qty_in, risk=a.risk, open_ts=open_ts, close_ts=close_ts)
+    ex = compute_excursions(check.bars, **kw)
+    raw = compute_excursions(bars.bars, **kw).hold if check.suspect else None
     hold = None
     if ex.hold is not None:
         h = ex.hold
+        crossed_min = (
+            max(0, round((h.crossed_stop_at - open_ts).total_seconds() / 60))
+            if h.crossed_stop_at else None
+        )
         hold = HoldExcursionOut(
             mae_usd=h.mae_usd, mfe_usd=h.mfe_usd, mae_r=h.mae_r, mfe_r=h.mfe_r,
             mae_per_contract=h.mae_per_contract, mfe_per_contract=h.mfe_per_contract,
@@ -97,6 +110,32 @@ def build_trade_excursions(
             drawdown_minutes=h.drawdown_minutes, crossed_stop=h.crossed_stop,
             crossed_stop_at=h.crossed_stop_at,
             crossed_stop_at_pt=_pt(h.crossed_stop_at, rules) if h.crossed_stop_at else None,
+            crossed_stop_minutes=crossed_min,
+            raw_mae_r=raw.mae_r if raw else None, raw_mfe_r=raw.mfe_r if raw else None,
+        )
+    after_exit = None
+    if close_ts is not None and sells:
+        b = back_to_entry(bars.bars, avg_in=a.avg_in, exit_px=sells[-1].px, exit_ts=close_ts)
+        after_exit = AfterExitOut(
+            window_min=b.window_min, bars=b.bars, complete=b.complete,
+            returned_at=b.returned_at,
+            returned_at_pt=_pt(b.returned_at, rules) if b.returned_at else None,
+            minutes_after_exit=(
+                max(0, round((b.returned_at - close_ts).total_seconds() / 60))
+                if b.returned_at else None
+            ),
+        )
+    quality = {}
+    if check.suspect:
+        n = len(check.suspect)
+        quality = dict(
+            quality="suspect_wicks", clamped=True, suspect_wicks=n,
+            quality_reason=(
+                f"{n} bar{'s' if n != 1 else ''} during the hold had a wick more than "
+                f"{check.tolerance:.2f} beyond the fill prices while the bar bodies stayed "
+                "near the fills (thin contract). MAE, MFE and the stop crossing use the "
+                "bar bodies instead of the wicks."
+            ),
         )
     if hold is None:
         return TradeExcursionsResponse(
@@ -105,6 +144,7 @@ def build_trade_excursions(
     return TradeExcursionsResponse(
         available=True, estimated=bars.synthetic, method=bars.method,
         stop_price=ex.stop_price, hold=hold,
+        after_exit=after_exit, **quality,
         post_exit=[
             PostExitWindowOut(
                 minutes=w.minutes, best_r=w.best_r, worst_r=w.worst_r,

@@ -199,6 +199,128 @@ def post_exit_path(
     return out
 
 
+# ----------------------------------------------------------------------------
+# Data quality: suspect wicks on thin contracts.
+#
+# 1-min bars on a thin 0DTE contract can print a single stray tick that is far
+# from anything the trader actually traded. MAE/MFE read from bar lows/highs, so
+# one such wick can make a 2-minute hold look like it went through half its
+# premium. The check compares bar extremes during the hold with the hold's own
+# fill prices.
+#
+# RULE (documented, one place). Let ``lo``/``hi`` be the lowest/highest fill price
+# of the position and ``tol = max(WICK_MIN_ABS, WICK_REL * avg_in)``. A hold bar is a
+# suspect LOW wick when
+#     bar.low < lo - tol                      (strictly beyond the fills by more than tol)
+#     and min(bar.open, bar.close) >= lo - tol / 2     (the body stayed near the fills)
+# and a suspect HIGH wick when
+#     bar.high > hi + tol
+#     and max(bar.open, bar.close) <= hi + tol / 2.
+# A bar whose body also left the fills is a real move, not a wick, and is kept.
+# Landing exactly on ``lo - tol`` / ``hi + tol`` is not suspect (the boundary is
+# "more than"). When any bar is suspect the review trims those bars to their body
+# extreme (low -> min(open, close), high -> max(open, close)) before computing
+# MAE/MFE and the stop crossing, and says so (``clamped``).
+
+WICK_REL = 0.20  # of the average cost
+WICK_MIN_ABS = 0.05  # price points, floor for very cheap contracts
+_WICK_EPS = 1e-9
+
+
+@dataclass(frozen=True)
+class SuspectWick:
+    ts: datetime  # bar open time
+    side: str  # "low" | "high"
+    raw: float  # the wick extreme as printed
+    trimmed: float  # the body extreme used instead
+
+
+@dataclass(frozen=True)
+class WickCheck:
+    suspect: list[SuspectWick]
+    tolerance: float
+    bars: list[Candle]  # the input bars with suspect wicks trimmed (same order)
+
+    @property
+    def quality(self) -> str:
+        return "suspect_wicks" if self.suspect else "ok"
+
+
+def check_hold_wicks(
+    bars: list[Candle],
+    *,
+    fill_prices: list[float],
+    avg_in: float,
+    open_ts: datetime,
+    close_ts: datetime | None,
+) -> WickCheck:
+    """Flag (and trim) wicks during the hold that sit far beyond the fills. See RULE above.
+
+    Only bars overlapping ``[open_ts, close_ts]`` are checked (``close_ts`` None = to the
+    end); bars outside are returned untouched.
+    """
+    tol = max(WICK_MIN_ABS, WICK_REL * avg_in)
+    if not bars or not fill_prices:
+        return WickCheck([], tol, list(bars))
+    lo, hi = min(fill_prices), max(fill_prices)
+    tf = timedelta(minutes=_tf_minutes(bars))
+    o = _utc(open_ts)
+    c = _utc(close_ts) if close_ts is not None else None
+    suspect: list[SuspectWick] = []
+    out: list[Candle] = []
+    for b in bars:
+        t = _utc(b.ts)
+        if not (t + tf > o and (c is None or t <= c)):
+            out.append(b)
+            continue
+        body_lo, body_hi = min(b.open, b.close), max(b.open, b.close)
+        new_low, new_high = b.low, b.high
+        if b.low < lo - tol - _WICK_EPS and body_lo >= lo - tol / 2 - _WICK_EPS:
+            suspect.append(SuspectWick(t, "low", b.low, body_lo))
+            new_low = body_lo
+        if b.high > hi + tol + _WICK_EPS and body_hi <= hi + tol / 2 + _WICK_EPS:
+            suspect.append(SuspectWick(t, "high", b.high, body_hi))
+            new_high = body_hi
+        out.append(b if (new_low, new_high) == (b.low, b.high) else b.model_copy(update={"low": new_low, "high": new_high}))
+    return WickCheck(suspect, tol, out)
+
+
+@dataclass(frozen=True)
+class BackToEntry:
+    window_min: int
+    bars: int  # bars found in the window
+    complete: bool  # bars cover the whole window
+    returned_at: datetime | None  # first bar after the exit that touched the entry price
+
+
+def back_to_entry(
+    bars: list[Candle],
+    *,
+    avg_in: float,
+    exit_px: float,
+    exit_ts: datetime,
+    window_min: int = 30,
+) -> BackToEntry:
+    """Did the premium get back to the average entry price within ``window_min`` of the exit?
+
+    Exited under cost: first bar whose high reaches ``avg_in``. Exited at or over cost: first
+    bar whose low falls to ``avg_in``. Direction only, no dollars (no "left on the table").
+    """
+    e = _utc(exit_ts)
+    end = e + timedelta(minutes=window_min)
+    inside = sorted((b for b in bars if e <= _utc(b.ts) < end), key=lambda b: _utc(b.ts))
+    if not inside:
+        return BackToEntry(window_min, 0, False, None)
+    tf = timedelta(minutes=_tf_minutes(bars))
+    if exit_px < avg_in:
+        hit = next((b for b in inside if b.high >= avg_in), None)
+    else:
+        hit = next((b for b in inside if b.low <= avg_in), None)
+    return BackToEntry(
+        window_min, len(inside), _utc(inside[-1].ts) + tf >= end, _utc(hit.ts) if hit else None
+    )
+
+
 def compute_excursions(
     bars: list[Candle],
     *,

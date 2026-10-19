@@ -179,6 +179,30 @@ export function usePatchTrade() {
   });
 }
 
+/**
+ * One-tap call source (mentor | own) on a trade. After the PUT the review payload, the
+ * trade, the excursions and the desk day are refetched so the rule chips and the day
+ * tally follow the change.
+ */
+export function useSetCallSource() {
+  const qc = useQueryClient();
+  return useMutation<
+    Trade,
+    unknown,
+    { id: number | string; callSource: "mentor" | "own" | null }
+  >({
+    mutationFn: ({ id, callSource }) => api.setCallSource(id, callSource),
+    onSuccess: (trade) => {
+      void qc.invalidateQueries({ queryKey: ["trade-review"] });
+      void qc.invalidateQueries({ queryKey: ["trade", trade.id] });
+      void qc.invalidateQueries({ queryKey: ["desk-day"] });
+      for (const root of JOURNAL_ROOTS) {
+        void qc.invalidateQueries({ queryKey: [root] });
+      }
+    },
+  });
+}
+
 /** All tags for the multi-select. */
 export function useTags() {
   return useQuery<Tag[]>({
