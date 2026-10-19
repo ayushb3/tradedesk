@@ -67,6 +67,29 @@ class PlanRef(BaseModel):
     late: bool
 
 
+class RuleResultOut(BaseModel):
+    """One rule's verdict: kept True / broken False / unknown None (never a guess)."""
+
+    code: str  # before_cutoff | daily_stop | max_loss_written | call_source | size_within_plan
+    kept: bool | None = None
+    detail: str = ""
+
+
+class StopResultOut(BaseModel):
+    """The day's stop state, on net (closed positions, fees in)."""
+
+    limit: float  # the daily stop (negative)
+    hit: bool
+    net: float
+    hit_at: UtcDatetime | None = None
+    hit_at_pt: str | None = None  # e.g. "07:12:30 PT"
+    trades_after: int = 0  # trades opened after the stop was hit
+    trade_ids_after: list[int] = Field(default_factory=list)
+    crossed_by: int | None = None  # trade whose sell reached the limit
+    crossed_net: float | None = None  # day net after that trade's last sell
+    blown_past: bool = False  # that trade left the day strictly past the limit (rule broken)
+
+
 class PositionOut(BaseModel):
     trade_id: int
     trade_key: str | None = None
@@ -102,6 +125,9 @@ class PositionOut(BaseModel):
     written_max_loss: float | None = None
     fees: float = 0.0
     realized_before_fees: float | None = None  # closed only: pnl + fees
+    r_basis: str = "assumed"  # "written" | "assumed": the risk r was measured on
+    call_source: str | None = None  # "mentor" | "own" | None (not recorded)
+    rule_results: list[RuleResultOut] = Field(default_factory=list)
 
 
 class DayStatsOut(BaseModel):
@@ -159,6 +185,8 @@ class DaySummary(BaseModel):
     stats: DayStatsOut | None = None
     callers: list[str] = Field(default_factory=list)
     size_written_first: bool | None = None
+    rule_results: list[RuleResultOut] = Field(default_factory=list)
+    stop_result: StopResultOut | None = None
 
 
 class DaysResponse(BaseModel):
@@ -227,6 +255,8 @@ class DayDetail(BaseModel):
     off_plan_count: int = 0
     size_written_first: bool | None = None  # derived: every trade has a non-late plan
     blown_max_loss: bool = False
+    rule_results: list[RuleResultOut] = Field(default_factory=list)  # day level
+    stop_result: StopResultOut | None = None
     lessons: list[LessonLinkOut] = Field(default_factory=list)
     excursion_rollup: ExcursionRollupOut = Field(default_factory=ExcursionRollupOut)
 

@@ -206,6 +206,7 @@ def day_trades(
                 net_pnl=t.net_pnl,
                 pnl_pct=t.pnl_pct,
                 r_multiple=t.r_multiple,
+                r_basis=t.r_basis,
                 hold_time_s=t.hold_time_s,
                 grade=t.enrichment.grade if t.enrichment else None,
                 open_ts=t.open_ts,

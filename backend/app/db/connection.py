@@ -155,6 +155,13 @@ def _apply_column_migrations(conn) -> None:
     # trade ids are NOT changed, so every FK already pointing at them stays valid.
     if "trade_key" not in trade_cols:
         conn.execute(text("ALTER TABLE trades ADD COLUMN trade_key TEXT"))
+    # trade_enrichment.call_source (redesign slice 6): mentor | own | NULL. Additive.
+    enrich_cols = {
+        r[1] for r in conn.execute(text("PRAGMA table_info(trade_enrichment)")).fetchall()
+    }
+    if enrich_cols and "call_source" not in enrich_cols:
+        conn.execute(text("ALTER TABLE trade_enrichment ADD COLUMN call_source TEXT"))
+
     _backfill_trade_keys(conn)
     conn.execute(
         text("CREATE UNIQUE INDEX IF NOT EXISTS uq_trades_trade_key ON trades (trade_key)")

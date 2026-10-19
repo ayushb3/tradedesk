@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.ingest.imports import import_fills
 from app.ingest.query import get_trade, list_trades, update_trade
 from app.models.trades import Fill, Grade, Side, TradeUpdate
@@ -76,7 +78,8 @@ def test_full_reimport_preserves_all_enrichment(temp_engine):
     import_fills(FakeProvider(fills), engine=temp_engine)
 
     trade = _only_trade(temp_engine, "AAA")
-    # Stop below entry -> risk 2/share, pnl 2/share -> r_multiple = +1.0.
+    # R is the one desk definition (no written max loss -> 30% of cost, "assumed"), not
+    # derived from the stop: cost 1000, pnl 200 -> 200 / 300.
     _enrich(
         temp_engine,
         trade.id,
@@ -89,7 +92,7 @@ def test_full_reimport_preserves_all_enrichment(temp_engine):
 
     before = get_trade(trade.id, engine=temp_engine)
     assert before.stop_price == 8.0
-    assert before.r_multiple == 1.0
+    assert before.r_multiple == pytest.approx(200 / 300) and before.r_basis == "assumed"
 
     # Full re-import: wipes fills, re-inserts the SAME provider_fill_ids, rebuilds.
     res = import_fills(FakeProvider(fills), engine=temp_engine, full=True)
@@ -97,7 +100,7 @@ def test_full_reimport_preserves_all_enrichment(temp_engine):
 
     after = _only_trade(temp_engine, "AAA")
     assert after.stop_price == 8.0
-    assert after.r_multiple == 1.0  # recomputed from the restored stop
+    assert after.r_multiple == pytest.approx(200 / 300)  # derived on read
     assert after.enrichment.notes == "held to target, clean"
     assert after.enrichment.grade == Grade.A
     assert after.enrichment.checklist == [{"item": "at a level", "checked": True}]
@@ -192,10 +195,10 @@ def test_stop_equals_exit_is_preserved_as_minus_one_r(temp_engine):
 
     before = get_trade(trade.id, engine=temp_engine)
     assert before.stop_price == 8.0
-    assert before.r_multiple == -1.0  # not rejected — preserved as-is
+    assert before.r_multiple == pytest.approx(-200 / 300)  # R ignores the stop; stop kept as-is
 
     import_fills(FakeProvider(fills), engine=temp_engine, full=True)
 
     after = _only_trade(temp_engine, "AAA")
     assert after.stop_price == 8.0
-    assert after.r_multiple == -1.0
+    assert after.r_multiple == before.r_multiple

@@ -194,6 +194,9 @@ trade_enrichment = Table(
     Column("grade", String),  # A | B | C | null
     Column("checklist_json", JSON),  # [{"item": str, "checked": bool}]
     Column("screenshots_json", JSON),  # [path]
+    # One-tap "whose idea": mentor | own | NULL (not recorded). Added by an idempotent
+    # ALTER TABLE in connection.py for existing DBs.
+    Column("call_source", String),
 )
 
 

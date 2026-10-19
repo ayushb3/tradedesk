@@ -224,25 +224,32 @@ def _tag_ids(ctx: Ctx, names: list[str]) -> list[int]:
 
 def annotate_trade(
     ctx: Ctx, trade_id: int, caller: str | None = None, notes: str | None = None,
-    grade: str | None = None, tags: list[str] | None = None, **unknown,
+    grade: str | None = None, tags: list[str] | None = None,
+    call_source: str | None = None, **unknown,
 ) -> dict:
-    """Write caller / notes / grade / tags on one trade. Nothing else is writable.
+    """Write caller / notes / grade / tags / call_source on one trade. Nothing else is writable.
+
+    ``call_source`` is the one-tap "whose idea": "mentor" or "own" ("clear" removes it).
+    It feeds the call_source rule result.
 
     ``caller`` is stored as the tag ``caller:<name>`` (the trade tables have no caller
     column); it replaces any earlier caller tag. ``tags`` are added to existing tags."""
     args = {"trade_id": trade_id, "caller": caller, "notes": notes, "grade": grade,
-            "tags": tags, **unknown}
+            "tags": tags, "call_source": call_source, **unknown}
 
     def run() -> dict:
         if unknown:
             raise ValueError(
                 f"field(s) not writable: {', '.join(sorted(unknown))}. "
-                "Allowed: caller, notes, grade, tags"
+                "Allowed: caller, notes, grade, tags, call_source"
             )
         if isinstance(trade_id, bool) or not isinstance(trade_id, int):
             raise ValueError("trade_id must be an integer")
-        if caller is None and notes is None and grade is None and tags is None:
-            raise ValueError("nothing to write: pass caller, notes, grade or tags")
+        if (caller is None and notes is None and grade is None and tags is None
+                and call_source is None):
+            raise ValueError("nothing to write: pass caller, notes, grade, tags or call_source")
+        if call_source is not None and call_source not in ("mentor", "own", "clear"):
+            raise ValueError("call_source must be mentor, own or clear")
         if notes is not None and not isinstance(notes, str):
             raise ValueError("notes must be a string")
         g = None
@@ -283,15 +290,21 @@ def annotate_trade(
             tag_ids = list(dict.fromkeys(keep + new))
 
         patch = TradeUpdate(notes=notes, grade=g, tag_ids=tag_ids)
+        if call_source is not None:  # set explicitly so a "clear" (null) is honoured
+            patch = patch.model_copy(update={
+                "call_source": None if call_source == "clear" else call_source})
+            patch.model_fields_set.add("call_source")
         updated = ingest_query.update_trade(trade_id, patch, engine=ctx.engine)
         if updated is None:
             raise ValueError(f"no trade with id {trade_id}")
         written = [n for n, v in (("caller", caller), ("notes", notes), ("grade", grade),
-                                  ("tags", tags)) if v is not None]
+                                  ("tags", tags),
+                                  ("call_source", call_source)) if v is not None]
         return {
             **_meta(ctx), "trade_id": trade_id, "written": written,
             "grade": updated.enrichment.grade.value if updated.enrichment.grade else None,
             "tags": sorted(t.name for t in updated.tags),
+            "call_source": updated.enrichment.call_source,
         }
 
     return _audited(ctx, "annotate_trade", args, run)

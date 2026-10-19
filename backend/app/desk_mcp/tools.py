@@ -140,7 +140,7 @@ def get_trade(ctx: Ctx, id: int) -> dict:
     full_plan = next((p for p in d.plans if lp.plan and p.id == lp.plan.id), None)
     return {
         **_meta(ctx), "date": day.isoformat(),
-        "trade": _json(serialize.position_out(lp, a, ctx.rules)),
+        "trade": _json(serialize.position_out(lp, a, ctx.rules, None, d.rule_results.trades.get(id))),
         "plan": _json(full_plan) if full_plan else None,
         "excursions": _excursions(ctx, id, lp, a),
     }

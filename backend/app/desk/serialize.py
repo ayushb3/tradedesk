@@ -18,7 +18,7 @@ from app.desk import lessons as desk_lessons
 from app.desk.rules import Rules, window_bounds
 from app.models.desk import (
     BiggestRisk, DayDetail, ExcursionRollupOut, ExitedEarlyOut, HeldPastStopOut, DaysResponse, DayStatsOut, DaySummary, FillOut, LineResponse,
-    LessonLinkOut, LineToday, PatternsResponse, PlanRef, PositionOut, RecurringLesson, StopUsageOut, TagOut, WindowOut,
+    LessonLinkOut, LineToday, RuleResultOut, StopResultOut, PatternsResponse, PlanRef, PositionOut, RecurringLesson, StopUsageOut, TagOut, WindowOut,
 )
 
 
@@ -49,7 +49,20 @@ def stats_out(s, rules: Rules) -> DayStatsOut:
     )
 
 
-def position_out(lp, a, rules: Rules, fact=None) -> PositionOut:
+def rule_result_out(r) -> RuleResultOut:
+    return RuleResultOut(code=r.code, kept=r.kept, detail=r.detail)
+
+
+def stop_result_out(s) -> StopResultOut:
+    return StopResultOut(
+        limit=s.limit, hit=s.hit, net=s.net, hit_at=s.hit_at, hit_at_pt=s.hit_at_pt,
+        trades_after=s.trades_after, trade_ids_after=list(s.trade_ids_after),
+        crossed_by=s.crossed_by, crossed_net=s.crossed_net, blown_past=s.blown_past,
+    )
+
+
+def position_out(lp, a, rules: Rules, fact=None, rr=None) -> PositionOut:
+    """``rr``: this trade's ``TradeRules`` from the day's rule results."""
     p = lp.position
     extra = [
         TagOut(code=c, kind=excursion_tag_spec(fact, c)[0], text=excursion_tag_spec(fact, c)[1])
@@ -60,7 +73,10 @@ def position_out(lp, a, rules: Rules, fact=None) -> PositionOut:
         ticker=p.ticker, type=p.type, strike=p.strike, expiry=p.expiry,
         status=p.status, swing=p.swing, qty_in=a.qty_in, qty_out=a.qty_out,
         cost=a.cost, proceeds=a.proceeds, avg_in=a.avg_in, avg_out=a.avg_out,
-        pnl=a.pnl, fees=a.fees, realized_before_fees=a.realized_before_fees, risk=a.risk, r=a.r, stop_multiple=a.risk_x,
+        pnl=a.pnl, fees=a.fees, realized_before_fees=a.realized_before_fees, risk=a.risk, r=a.r, r_basis=a.r_basis,
+        call_source=lp.call_source,
+        rule_results=[rule_result_out(r) for r in (rr.results if rr else [])],
+        stop_multiple=a.risk_x,
         add_lower=a.add_lower, add_higher=a.add_higher, add_same=a.add_same,
         runner_paid=a.runner_paid, gave_back=a.gave_back, held_loser=a.held_loser,
         best_gap=a.best_gap,
@@ -100,6 +116,8 @@ def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
             off_plan_count=d.off_plan_count, blown_max_loss=d.blown_max_loss,
             stats=stats_out(d.result.stats, rules), callers=day_callers(d),
             size_written_first=d.size_written_first,
+            rule_results=[rule_result_out(r) for r in d.rule_results.results],
+            stop_result=stop_result_out(d.rule_results.stop),
         )
         for d in reversed(days)
     ]
@@ -158,12 +176,14 @@ def day_detail(
         daily_stop=rules.daily_stop, daily_target=rules.daily_target,
         stats=stats_out(d.result.stats, rules),
         positions=[
-            position_out(lp, a, rules, d.excursions.get(lp.trade_id))
+            position_out(lp, a, rules, d.excursions.get(lp.trade_id), d.rule_results.trades.get(lp.trade_id))
             for lp, a in zip(d.loaded, d.result.positions)
         ],
         fields=d.fields, plans=d.plans, plans_not_taken=d.plans_not_taken,
         off_plan_count=d.off_plan_count, size_written_first=d.size_written_first,
         blown_max_loss=d.blown_max_loss,
+        rule_results=[rule_result_out(r) for r in d.rule_results.results],
+        stop_result=stop_result_out(d.rule_results.stop),
         excursion_rollup=rollup,
         lessons=[
             LessonLinkOut(**x)

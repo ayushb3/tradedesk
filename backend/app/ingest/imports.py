@@ -487,6 +487,7 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
                 enrich_t.c.grade,
                 enrich_t.c.checklist_json,
                 enrich_t.c.screenshots_json,
+                enrich_t.c.call_source,
             ).where(enrich_t.c.trade_id == trade_id)
         ).first()
 
@@ -514,6 +515,7 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
                     "grade": enrich_row[1],
                     "checklist_json": enrich_row[2],
                     "screenshots_json": enrich_row[3],
+                    "call_source": enrich_row[4],
                 }
                 if has_enrichment
                 else None
@@ -583,11 +585,10 @@ def _restore_enrichment(conn, trade_id: int, row: dict, snap: dict) -> None:
     """
     stop_price = snap.get("stop_price")
     if stop_price is not None:
-        r_multiple = _recompute_r_multiple(row, stop_price)
+        # Real trades carry no stored R: it is derived on read from the one R definition
+        # (app.desk.ledger.resolve_r), so only the stop itself is restored.
         conn.execute(
-            trades_t.update()
-            .where(trades_t.c.id == trade_id)
-            .values(stop_price=stop_price, r_multiple=r_multiple)
+            trades_t.update().where(trades_t.c.id == trade_id).values(stop_price=stop_price)
         )
 
     enrichment = snap.get("enrichment")

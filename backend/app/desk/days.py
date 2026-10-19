@@ -27,10 +27,11 @@ from sqlalchemy.engine import Engine
 
 from app.db.connection import get_engine, init_db
 from app.db.schema import fills as fills_t
+from app.db.schema import trade_enrichment as enrich_t
 from app.db.schema import trade_fills as trade_fills_t
 from app.db.schema import trades as trades_t
 from app.analytics.excursions import ExcursionFact
-from app.desk import ledger
+from app.desk import ledger, rule_results
 from app.desk.day_fields import get_day_fields
 from app.desk.matching import effective_status
 from app.desk.plans import list_plans
@@ -82,6 +83,7 @@ class LoadedPosition:
     position: Position
     plan: Plan | None = None
     off_plan: bool = True
+    call_source: str | None = None  # "mentor" | "own" | None
 
 
 def _fill_cash(side: str, qty: float, px: float, mult: float, fees: float) -> float:
@@ -95,7 +97,13 @@ def _load_positions(conn, rules: Rules, rows) -> dict[date, list[LoadedPosition]
     by_day: dict[date, list[LoadedPosition]] = {}
     ids = [r._mapping["id"] for r in rows]
     members: dict[int, list] = {i: [] for i in ids}
+    sources: dict[int, str] = {}
     if ids:
+        for tid, src in conn.execute(
+            select(enrich_t.c.trade_id, enrich_t.c.call_source).where(enrich_t.c.trade_id.in_(ids))
+        ):
+            if src in rule_results.CALL_SOURCES:
+                sources[tid] = src
         q = (
             select(trade_fills_t.c.trade_id, trade_fills_t.c.seq, fills_t)
             .select_from(trade_fills_t.join(fills_t, trade_fills_t.c.fill_id == fills_t.c.id))
@@ -133,7 +141,10 @@ def _load_positions(conn, rules: Rules, rows) -> dict[date, list[LoadedPosition]
             expiry=(first["expiry"] or "") if first else "",
         )
         by_day.setdefault(t["session_date"], []).append(
-            LoadedPosition(t["id"], t["trade_key"], t["contract_label"], pos)
+            LoadedPosition(
+                t["id"], t["trade_key"], t["contract_label"], pos,
+                call_source=sources.get(t["id"]),
+            )
         )
     for lst in by_day.values():
         for i, lp in enumerate(lst):
@@ -173,6 +184,7 @@ class DayData:
     # Empty until ``app.ingest.excursion_rollup.attach_excursions`` runs (needs bars).
     excursions: dict[int, ExcursionFact] = field(default_factory=dict)
     excursions_attached: bool = False
+    rule_results: rule_results.DayRules | None = None
 
 
 def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
@@ -185,12 +197,21 @@ def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
         lp.plan = plan
         lp.off_plan = plan is None
         lp.position.plan_max_loss = plan.max_loss_usd if plan else None
+        lp.position.plan_late = bool(plan and plan.late)
     di = DayInput(
         date=day, positions=[lp.position for lp in loaded],
         stops=_stops_for(conn, [lp.trade_id for lp in loaded]),
         max_loss=fields.max_loss_declared if fields else None,
     )
     res = ledger.analyze_day(di, rules, account_size(rules))
+    rr = rule_results.evaluate_day(
+        day,
+        [
+            rule_results.TradeInput(lp.trade_id, a, lp.plan, lp.call_source)
+            for lp, a in zip(loaded, res.positions)
+        ],
+        rules,
+    )
     shown = [p.model_copy(update={"status": effective_status(p, rules)}) for p in plans]
     return DayData(
         res, loaded, rules, fields, plans=shown,
@@ -205,7 +226,7 @@ def _analyze(conn, engine, rules, by_day, day: date) -> DayData:
                   else (False if loaded else None))
         ),
         blown_max_loss=any(a.blown_max_loss for a in res.positions),
-        engine=engine,
+        engine=engine, rule_results=rr,
     )
 
 
@@ -249,6 +270,29 @@ def get_day(
     if not data.loaded and data.fields is None and not data.plans:
         return None
     return data
+
+
+@dataclass
+class TradeAnalysis:
+    r: float | None
+    risk: float | None
+    r_basis: str
+    rule_results: list
+
+
+def analysis_by_trade(
+    d_from: date | None = None, d_to: date | None = None,
+    rules: Rules | None = None, engine: Engine | None = None,
+) -> dict[int, TradeAnalysis]:
+    """R (the one definition) and per-trade rule results for every real trade in range."""
+    from app.desk.serialize import rule_result_out
+
+    _, days = _load_days(d_from, d_to, rules, engine)
+    out: dict[int, TradeAnalysis] = {}
+    for d in days:
+        for tid, tr in d.rule_results.trades.items():
+            out[tid] = TradeAnalysis(tr.r, tr.risk, tr.r_basis, [rule_result_out(r) for r in tr.results])
+    return out
 
 
 def patterns(

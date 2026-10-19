@@ -185,6 +185,7 @@ def _load_enrichment(conn, trade_id: int) -> TradeEnrichment:
         grade=Grade(m["grade"]) if m["grade"] else None,
         checklist=m["checklist_json"] or [],
         screenshots=m["screenshots_json"] or [],
+        call_source=m["call_source"] if m["call_source"] in ("mentor", "own") else None,
     )
 
 
@@ -220,6 +221,30 @@ def _hydrate(conn, row) -> Trade:
 # --------------------------------------------------------------------------- #
 # Reads
 # --------------------------------------------------------------------------- #
+def apply_rule_results(trades: list[Trade], engine: Engine) -> list[Trade]:
+    """Fill ``r_multiple`` / ``r_basis`` / ``rule_results`` on real trades from the desk
+    ledger, so every trade read uses the one R definition. Sim trades are left alone.
+    If the rules file cannot be read the stored values are returned unchanged."""
+    real = [t for t in trades if not t.simulated and t.id is not None]
+    if not real:
+        return trades
+    try:
+        from app.desk import days as desk_days
+
+        found = desk_days.analysis_by_trade(
+            min(t.session_date for t in real), max(t.session_date for t in real), engine=engine
+        )
+    except ValueError:
+        return trades
+    out = []
+    for t in trades:
+        f = found.get(t.id) if not t.simulated else None
+        out.append(t if f is None else t.model_copy(update={
+            "r_multiple": f.r, "r_basis": f.r_basis, "rule_results": f.rule_results,
+        }))
+    return out
+
+
 def list_trades(
     from_: date | None = None,
     to: date | None = None,
@@ -265,7 +290,8 @@ def list_trades(
 
     with engine.connect() as conn:
         rows = conn.execute(stmt).fetchall()
-        return [_hydrate(conn, r) for r in rows]
+        trades = [_hydrate(conn, r) for r in rows]
+    return apply_rule_results(trades, engine)
 
 
 def get_trade(trade_id: int, engine: Engine | None = None) -> Trade | None:
@@ -278,7 +304,8 @@ def get_trade(trade_id: int, engine: Engine | None = None) -> Trade | None:
         ).first()
         if row is None:
             return None
-        return _hydrate(conn, row)
+        trade = _hydrate(conn, row)
+    return apply_rule_results([trade], engine)[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +335,8 @@ def _upsert_enrichment(conn, trade_id: int, patch: TradeUpdate) -> None:
         values["checklist_json"] = patch.checklist
     if patch.screenshots is not None:
         values["screenshots_json"] = patch.screenshots
+    if "call_source" in patch.model_fields_set:  # explicit null clears
+        values["call_source"] = patch.call_source
     if not values:
         return
 
@@ -349,11 +378,9 @@ def update_trade(
                 )
 
         if patch.stop_price is not None:
-            r_multiple = _recompute_r_multiple(m, patch.stop_price)
-            conn.execute(
-                trades_t.update()
-                .where(trades_t.c.id == trade_id)
-                .values(stop_price=patch.stop_price, r_multiple=r_multiple)
-            )
+            values = {"stop_price": patch.stop_price}
+            if m["simulated"]:  # only sim trades store a stop-based R; real R is derived
+                values["r_multiple"] = _recompute_r_multiple(m, patch.stop_price)
+            conn.execute(trades_t.update().where(trades_t.c.id == trade_id).values(**values))
 
     return get_trade(trade_id, engine=engine)

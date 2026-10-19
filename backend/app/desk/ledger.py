@@ -27,6 +27,8 @@ from app.desk.rules import Rules, window_bounds
 
 CONTRACT_MULT = 100
 EPS = 1e-9
+R_WRITTEN = "written"
+R_ASSUMED = "assumed"
 
 
 # ----------------------------------------------------------------- inputs
@@ -52,6 +54,7 @@ class Position:
     expiry: str = ""
     seq: int = 0
     plan_max_loss: float | None = None  # matched plan's written max loss (dollars), if any
+    plan_late: bool = False  # the matched plan was written after the opening fill
 
 
 @dataclass
@@ -114,7 +117,7 @@ class PositionAnalysis:
     held_loser: bool
     best_gap: float
     risk_x: float  # cost as a multiple of the daily stop
-    risk: float | None  # dollars risked for R
+    risk: float | None  # dollars risked for R (see ``resolve_r``)
     r: float | None
     tags: list[Tag]
     n_buys: int
@@ -122,6 +125,7 @@ class PositionAnalysis:
     blown_max_loss: bool = False  # closed at a loss bigger than the written max loss
     fees: float = 0.0  # every fill of the position (an open one shows fees paid so far)
     realized_before_fees: float | None = None  # closed only: pnl + fees
+    r_basis: str = R_ASSUMED  # "written" | "assumed": which risk ``r`` was measured on
 
 
 @dataclass
@@ -207,6 +211,25 @@ def rr(avg_win: float | None, avg_loss: float | None) -> float | None:
 def break_even_win_pct(ratio: float | None) -> float | None:
     """Win rate (percent) a reward:risk ratio needs to break even."""
     return None if ratio is None else 100 / (1 + ratio)
+
+
+def resolve_r(
+    pnl: float | None, cost: float, written_max_loss: float | None, default_risk_pct: float
+) -> tuple[float | None, float | None, str]:
+    """THE definition of R. Returns ``(r, risk, r_basis)``.
+
+    ``R = pnl / risk``. ``risk`` is the written max loss (dollars) when one was written
+    before entry; otherwise it is ``default_risk_pct`` of the entry cost and ``r_basis``
+    is ``"assumed"`` (the "max loss written" rule is then broken). Every R in the app
+    (ledger, API, journal stats, excursions, replay stop) comes from here. ``r`` is None
+    while the position is open (no pnl) or when the risk is not positive.
+    """
+    if written_max_loss is not None and written_max_loss > 0:
+        risk, basis = float(written_max_loss), R_WRITTEN
+    else:
+        risk, basis = cost * default_risk_pct / 100, R_ASSUMED
+    r = pnl / risk if pnl is not None and risk > 0 else None
+    return r, (risk if risk > 0 else None), basis
 
 
 def _stop_magnitude(rules: Rules) -> float:
@@ -301,9 +324,11 @@ def analyze_position(
     risk_x = cost / _stop_magnitude(rules)
 
     # R source: the matched plan's written max loss, else the day's, else default risk.
+    # A plan written after the opening fill does not count as written (it is still the
+    # figure ``blown_max_loss`` is checked against).
     written = p.plan_max_loss if p.plan_max_loss is not None else max_loss
-    risk = written if written is not None else cost * rules.default_risk_pct / 100
-    r = pnl / risk if pnl is not None and risk else None
+    counts = written is not None and not (p.plan_max_loss is not None and p.plan_late)
+    r, risk, r_basis = resolve_r(pnl, cost, written if counts else None, rules.default_risk_pct)
     blown = bool(written is not None and pnl is not None and -pnl > written + EPS)
 
     a = PositionAnalysis(
@@ -313,7 +338,7 @@ def analyze_position(
         runner_paid=runner_paid, gave_back=gave_back, held_loser=held_loser,
         best_gap=best_gap, risk_x=risk_x, risk=risk, r=r, tags=[], n_buys=len(buys),
         written_max_loss=written, blown_max_loss=blown,
-        fees=fees, realized_before_fees=gross_realized,
+        fees=fees, realized_before_fees=gross_realized, r_basis=r_basis,
     )
     a.tags = tags_for(a)
     return a

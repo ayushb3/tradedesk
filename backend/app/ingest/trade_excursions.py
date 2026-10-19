@@ -70,7 +70,8 @@ def build_trade_excursions(
     base = dict(
         trade_id=lp.trade_id, status="closed" if a.closed else "open",
         avg_in=a.avg_in, qty=a.qty_in, risk=a.risk,
-        risk_source="written_max_loss" if a.written_max_loss is not None else "default_risk_pct",
+        risk_source="written_max_loss" if a.r_basis == "written" else "default_risk_pct",
+        r_basis=a.r_basis,
         contract=contract_label or lp.label, fills=fills,
     )
     if bars is None or not bars.bars or a.avg_in is None or not a.fills:

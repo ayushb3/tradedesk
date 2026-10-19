@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
+from app.models.desk import RuleResultOut
 from app.models.utc import UtcDatetime
 
 
@@ -63,6 +65,7 @@ class TradeEnrichment(BaseModel):
     grade: Grade | None = None
     checklist: list[dict] = Field(default_factory=list)  # [{"item": str, "checked": bool}]
     screenshots: list[str] = Field(default_factory=list)  # file paths under data/screenshots/
+    call_source: Literal["mentor", "own"] | None = None  # one-tap: whose idea; None = not recorded
 
 
 class Trade(BaseModel):
@@ -88,10 +91,14 @@ class Trade(BaseModel):
     net_pnl: float | None = None
     pnl_pct: float | None = None
     stop_price: float | None = None
+    # R on the one definition (app.desk.ledger.resolve_r) for real trades; sim trades keep
+    # their own stop-based R. r_basis is "written" | "assumed" (None when R is not computed).
     r_multiple: float | None = None
+    r_basis: str | None = None
     hold_time_s: int | None = None
     status: TradeStatus = TradeStatus.closed
     simulated: bool = False
+    rule_results: list[RuleResultOut] = Field(default_factory=list)  # real trades only
     tags: list[Tag] = Field(default_factory=list)
     enrichment: TradeEnrichment = Field(default_factory=TradeEnrichment)
 
@@ -105,6 +112,8 @@ class TradeUpdate(BaseModel):
     tag_ids: list[int] | None = None
     checklist: list[dict] | None = None  # [{"item": str, "checked": bool}]
     screenshots: list[str] | None = None
+    # mentor | own; send null to clear (an explicit null is honoured, an omitted field is not).
+    call_source: Literal["mentor", "own"] | None = None
 
 
 class TagCreate(BaseModel):
