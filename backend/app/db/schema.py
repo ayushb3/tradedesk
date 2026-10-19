@@ -70,6 +70,10 @@ candles_cache = Table(
 # SYMBOL_YYMMDD_C|P_STRIKE grouping key. `synthetic`/`method` record provenance:
 # provider-supplied bars are (synthetic=False, method='provider'); the server-
 # side Black-Scholes fallback is (synthetic=True, method='bs_interp').
+# `source` is the provider that produced the row ("mock", "alpaca", "webull"):
+# reads MUST filter on it so one provider's rows are never served to another.
+# NULL = a row written before the column existed (unknown origin) and is never
+# served. The PK has no source, so a later write for the same bar overwrites it.
 option_bars_cache = Table(
     "option_bars_cache",
     metadata,
@@ -83,6 +87,7 @@ option_bars_cache = Table(
     Column("volume", Float, nullable=False),
     Column("synthetic", Boolean, nullable=False, default=False),
     Column("method", String, nullable=False),
+    Column("source", String),
 )
 
 

@@ -7,6 +7,7 @@ import {
   MessageCircle,
   ServerCrash,
   Sparkles,
+  Play,
 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -198,6 +199,16 @@ function ReviewContent({
         >
           <ArrowLeft className="h-4 w-4" />
           {formatDayMonth(trade.session_date)}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate(`/replay?trade=${trade.id}&lead=15`)}
+          className="gap-1.5"
+        >
+          <Play className="h-4 w-4" />
+          Replay this trade
         </Button>
 
         {/* Critique (PRD-M9 R6) — only when the agent layer is available. */}

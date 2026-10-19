@@ -244,6 +244,7 @@ class AlpacaProvider:
                 .where(
                     t.c.contract_key == key, t.c.timeframe == timeframe,
                     t.c.method == "provider", t.c.synthetic.is_(False),
+                    t.c.source == PROVIDER_NAME,
                 )
                 .order_by(t.c.ts_utc)
             ).fetchall()
@@ -263,7 +264,7 @@ class AlpacaProvider:
                     contract_key=key, timeframe=timeframe,
                     ts_utc=b.ts.astimezone(UTC).replace(tzinfo=None),
                     open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume,
-                    synthetic=False, method="provider",
+                    synthetic=False, method="provider", source=PROVIDER_NAME,
                 )
                 stmt = sqlite_insert(option_bars_cache).values(**vals)
                 conn.execute(

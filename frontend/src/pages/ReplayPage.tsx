@@ -82,19 +82,27 @@ export function ReplayPage() {
     setTrades([]);
   }
 
+  // Trade mode: the header shows the trade's symbol and session date, not the
+  // free-replay defaults.
+  const inTrade = tradeId !== null;
+  const shownSymbol = inTrade ? (tradeReplay.data?.session.symbol ?? "…") : symbol;
+  const shownDate = inTrade ? (tradeReplay.data?.session.session_date ?? date) : date;
+  const proxyLabel = inTrade ? tradeReplay.data?.session.meta.source_label : undefined;
+
   return (
     <div className="flex h-full flex-col">
       <ReplayToolbar
-        symbol={symbol}
-        onSymbolChange={setSymbol}
-        date={date}
-        onDateChange={setDate}
+        symbol={shownSymbol}
+        onSymbolChange={inTrade ? () => {} : setSymbol}
+        date={shownDate}
+        onDateChange={inTrade ? () => {} : setDate}
         controls={
           <TradeReplayPicker
             tradeId={tradeId}
             lead={lead}
             onStart={(id, l) => setParams({ trade: String(id), lead: String(l) })}
             onClear={() => setParams({})}
+            sourceLabel={proxyLabel}
           />
         }
       />
@@ -156,7 +164,9 @@ function TradeReplayPicker({
   lead,
   onStart,
   onClear,
+  sourceLabel,
 }: {
+  sourceLabel?: string;
   tradeId: number | null;
   lead: number;
   onStart: (id: number, lead: number) => void;
@@ -168,6 +178,7 @@ function TradeReplayPicker({
   const valid = Number.isInteger(id) && id > 0;
   return (
     <div className="flex items-center gap-2 text-xs">
+      {sourceLabel && <span className="text-muted-foreground">{sourceLabel}</span>}
       <label htmlFor="replay-trade-id">Replay my trade</label>
       <input
         id="replay-trade-id"

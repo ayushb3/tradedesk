@@ -58,15 +58,27 @@ def _as_utc(dt: datetime) -> datetime:
     return (dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)).astimezone(UTC)
 
 
+def cache_source(provider) -> str:
+    """Stable cache key for a provider: ``cache_source`` attr, else the class name
+    minus "Provider" (MockProvider -> "mock", AlpacaProvider -> "alpaca")."""
+    explicit = getattr(provider, "cache_source", None)
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    return type(provider).__name__.removesuffix("Provider").lower() or "unknown"
+
+
 def _read_cache(
-    conn, contract_key: str, timeframe: str, session_day: date
+    conn, contract_key: str, timeframe: str, session_day: date, source: str
 ) -> OptionBars | None:
+    """Cached bars for one source only. Rows from another provider (or NULL =
+    unknown source) are never returned; provider bars beat synthetic ones."""
     rows = conn.execute(
         select(cache_t)
         .where(
             and_(
                 cache_t.c.contract_key == contract_key,
                 cache_t.c.timeframe == timeframe,
+                cache_t.c.source == source,
             )
         )
         .order_by(cache_t.c.ts_utc)
@@ -75,6 +87,11 @@ def _read_cache(
     day_rows = [r for r in rows if _as_utc(r._mapping["ts_utc"]).date() == session_day]
     if not day_rows:
         return None
+    real_rows = [r for r in day_rows if not r._mapping["synthetic"]]
+    if real_rows:
+        day_rows = real_rows
+    else:
+        day_rows = [r for r in day_rows if r._mapping["method"] == day_rows[0]._mapping["method"]]
     bars = [
         Candle(
             symbol=contract_key,
@@ -93,7 +110,8 @@ def _read_cache(
 
 
 def _write_cache(
-    conn, contract_key: str, timeframe: str, bars: list[Candle], synthetic: bool, method: str
+    conn, contract_key: str, timeframe: str, bars: list[Candle], synthetic: bool, method: str,
+    source: str,
 ) -> None:
     for b in bars:
         stmt = sqlite_insert(cache_t).values(
@@ -107,6 +125,7 @@ def _write_cache(
             volume=b.volume,
             synthetic=synthetic,
             method=method,
+            source=source,
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=["contract_key", "timeframe", "ts_utc"],
@@ -118,6 +137,7 @@ def _write_cache(
                 "volume": b.volume,
                 "synthetic": synthetic,
                 "method": method,
+                "source": source,
             },
         )
         conn.execute(stmt)
@@ -199,9 +219,10 @@ def get_option_bars_for_trade(
         return None
 
     session_day = trade.session_date
+    source = cache_source(provider)
     with engine.begin() as conn:
         if use_cache:
-            cached = _read_cache(conn, contract.contract_key, timeframe, session_day)
+            cached = _read_cache(conn, contract.contract_key, timeframe, session_day, source)
             if cached is not None:
                 return cached
 
@@ -236,14 +257,22 @@ def get_option_bars_for_trade(
                 result.bars,
                 result.synthetic,
                 result.method,
+                source,
             )
     return result
 
 
 def get_cached_option_bars_for_trade(
-    trade_id: int, timeframe: str = "1m", engine: Engine | None = None
+    trade_id: int,
+    timeframe: str = "1m",
+    engine: Engine | None = None,
+    provider=None,
+    source: str | None = None,
 ) -> OptionBars | None:
     """Cache-only read: premium bars already stored for a trade's contract.
+
+    Only rows from the active provider's source are returned: pass ``provider`` (or
+    an explicit ``source``); with neither, the configured provider is used.
 
     Never calls a provider and never writes. ``None`` when the trade is unknown,
     is not an option trade, or nothing is cached for its session day.
@@ -256,5 +285,11 @@ def get_cached_option_bars_for_trade(
     contract = get_trade_option_contract(trade_id, engine=engine)
     if contract is None:
         return None
+    if source is None:
+        if provider is None:
+            from app.providers.base import get_provider
+
+            provider = get_provider()
+        source = cache_source(provider)
     with engine.connect() as conn:
-        return _read_cache(conn, contract.contract_key, timeframe, trade.session_date)
+        return _read_cache(conn, contract.contract_key, timeframe, trade.session_date, source)
