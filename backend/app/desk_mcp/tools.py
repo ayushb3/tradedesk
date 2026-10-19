@@ -141,7 +141,41 @@ def get_trade(ctx: Ctx, id: int) -> dict:
         **_meta(ctx), "date": day.isoformat(),
         "trade": _json(serialize.position_out(lp, a, ctx.rules)),
         "plan": _json(full_plan) if full_plan else None,
+        "excursions": _excursions(ctx, id, lp, a),
     }
+
+
+def _excursions(ctx: Ctx, trade_id: int, lp, a) -> dict:
+    """MAE/MFE, stop line and post-exit path for one position.
+
+    No network from here. Mock mode computes from the deterministic mock provider
+    (nothing cached or written); real mode only reads option bars already cached
+    by the app, and says "option bars unavailable" when there are none.
+    """
+    from app.ingest.option_bars import OptionBars, get_cached_option_bars_for_trade
+    from app.ingest.query import get_trade_option_contract
+    from app.ingest.trade_excursions import UNAVAILABLE, build_trade_excursions
+
+    contract = get_trade_option_contract(trade_id, engine=ctx.engine)
+    bars: OptionBars | None = None
+    reason = UNAVAILABLE
+    if contract is None:
+        reason = "not an option trade"
+    elif ctx.mode == "mock":
+        from app.ingest.option_bars import get_option_bars_for_trade
+        from app.providers.mock import MockProvider
+
+        bars = get_option_bars_for_trade(
+            trade_id, MockProvider(get_settings()), "1m", ctx.engine, use_cache=False
+        )
+    else:
+        bars = get_cached_option_bars_for_trade(trade_id, "1m", ctx.engine)
+        reason = f"{UNAVAILABLE} (not cached; open the trade review in the app to load them)"
+    res = build_trade_excursions(
+        lp, a, ctx.rules, bars,
+        contract_label=contract.descriptor if contract else None, reason=reason,
+    )
+    return _json(res)
 
 
 def patterns(ctx: Ctx, date_from: str | None = None, date_to: str | None = None) -> dict:

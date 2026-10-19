@@ -38,6 +38,7 @@ import {
   type SimTrade,
   type Tag,
   type Trade,
+  type TradeExcursions,
   type TradeReviewResponse,
   type TradesParams,
 } from "@/lib/api";
@@ -223,6 +224,15 @@ export function useTradeReview(id: number | string | null) {
     queryKey: ["trade-review", id],
     queryFn: () => api.tradeReview(id as number | string),
     enabled: id !== null && id !== undefined,
+  });
+}
+
+/** MAE/MFE, stop line and post-exit path for one option trade (#51). */
+export function useTradeExcursions(id: number | string | null, enabled = true) {
+  return useQuery<TradeExcursions>({
+    queryKey: ["trade-excursions", id],
+    queryFn: () => api.tradeExcursions(id as number | string),
+    enabled: enabled && id !== null && id !== undefined,
   });
 }
 

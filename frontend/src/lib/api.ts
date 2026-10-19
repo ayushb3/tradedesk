@@ -461,6 +461,54 @@ export interface TradeReviewResponse {
   excursion: Excursion | null;
 }
 
+/** GET /api/trades/{id}/excursions — MAE/MFE, stop line and post-exit path (#51). */
+export interface ExcursionFill {
+  side: "B" | "S";
+  qty: number;
+  px: number;
+  ts: string;
+  ts_pt: string;
+}
+
+export interface HoldExcursion {
+  /** Signed: MAE <= 0, MFE >= 0. Dollars and R on the position's average cost. */
+  mae_usd: number;
+  mfe_usd: number;
+  mae_r: number | null;
+  mfe_r: number | null;
+  mae_ts_pt: string | null;
+  mfe_ts_pt: string | null;
+  drawdown_minutes: number;
+  crossed_stop: boolean;
+  crossed_stop_at_pt: string | null;
+}
+
+export interface PostExitWindow {
+  minutes: number;
+  best_r: number | null;
+  worst_r: number | null;
+  bars: number;
+  complete: boolean;
+}
+
+export interface TradeExcursions {
+  trade_id: number;
+  tz_label: string;
+  available: boolean;
+  reason: string | null;
+  contract: string | null;
+  estimated: boolean;
+  status: "open" | "closed";
+  avg_in: number | null;
+  qty: number;
+  risk: number | null;
+  risk_source: "written_max_loss" | "default_risk_pct";
+  stop_price: number | null;
+  fills: ExcursionFill[];
+  hold: HoldExcursion | null;
+  post_exit: PostExitWindow[];
+}
+
 /** GET /api/trades/{id}/option-bars — standalone premium OHLCV series. */
 export interface OptionBarsResponse {
   bars: Candle[];
@@ -948,6 +996,10 @@ export const api = {
 
   tradeReview(id: number | string): Promise<TradeReviewResponse> {
     return request<TradeReviewResponse>(`/trades/${id}/review`);
+  },
+
+  tradeExcursions(id: number | string): Promise<TradeExcursions> {
+    return request<TradeExcursions>(`/trades/${id}/excursions`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

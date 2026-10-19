@@ -176,8 +176,12 @@ def get_option_bars_for_trade(
     provider,
     timeframe: str = "1m",
     engine: Engine | None = None,
+    use_cache: bool = True,
 ) -> OptionBars | None:
     """Premium bars for a trade's option contract, cached.
+
+    ``use_cache=False`` skips both the cache read and write (used by read-only
+    callers such as the MCP tools, which must not mutate the database).
 
     Returns ``None`` when the trade doesn't exist OR isn't an option trade (the
     route maps both to 404). Otherwise returns the bars plus provenance
@@ -196,9 +200,10 @@ def get_option_bars_for_trade(
 
     session_day = trade.session_date
     with engine.begin() as conn:
-        cached = _read_cache(conn, contract.contract_key, timeframe, session_day)
-        if cached is not None:
-            return cached
+        if use_cache:
+            cached = _read_cache(conn, contract.contract_key, timeframe, session_day)
+            if cached is not None:
+                return cached
 
         bars = provider.get_option_bars(contract, session_day, timeframe)
         if bars is not None:
@@ -223,7 +228,7 @@ def get_option_bars_for_trade(
                 provider, contract, trade_id, session_day, timeframe, engine
             )
 
-        if result is not None and result.bars:
+        if use_cache and result is not None and result.bars:
             _write_cache(
                 conn,
                 contract.contract_key,
@@ -233,3 +238,23 @@ def get_option_bars_for_trade(
                 result.method,
             )
     return result
+
+
+def get_cached_option_bars_for_trade(
+    trade_id: int, timeframe: str = "1m", engine: Engine | None = None
+) -> OptionBars | None:
+    """Cache-only read: premium bars already stored for a trade's contract.
+
+    Never calls a provider and never writes. ``None`` when the trade is unknown,
+    is not an option trade, or nothing is cached for its session day.
+    """
+    engine = engine or get_engine()
+    init_db(engine)
+    trade = get_trade(trade_id, engine=engine)
+    if trade is None:
+        return None
+    contract = get_trade_option_contract(trade_id, engine=engine)
+    if contract is None:
+        return None
+    with engine.connect() as conn:
+        return _read_cache(conn, contract.contract_key, timeframe, trade.session_date)

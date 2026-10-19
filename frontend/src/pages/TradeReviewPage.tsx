@@ -26,6 +26,7 @@ import { FillTable } from "@/components/review/FillTable";
 import { ReviewChart, type RuleCheckMarker } from "@/components/review/ReviewChart";
 import { OptionPremiumSection } from "@/components/review/OptionPremiumSection";
 import { ExcursionReadout } from "@/components/review/ExcursionReadout";
+import { TradeExcursionsPanel } from "@/components/review/TradeExcursionsPanel";
 import { CritiquePanel } from "@/components/agents/CritiquePanel";
 import { DebriefPanel } from "@/components/review/DebriefPanel";
 import { TradeEnrichmentPanel } from "@/components/journal/TradeEnrichmentPanel";
@@ -55,6 +56,7 @@ import {
   useCandles,
   useDayTrades,
   useRunCritic,
+  useTradeExcursions,
   useTradeReview,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -182,6 +184,9 @@ function ReviewContent({
 
   const label = trade.contract_label ?? trade.symbol;
 
+  // Option trades only: MAE/MFE, the stop line and the post-exit path (#51).
+  const excursions = useTradeExcursions(trade.id, option != null);
+
   return (
     <>
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -258,9 +263,17 @@ function ReviewContent({
                   premiumBars={premiumBars}
                   fills={fills}
                   excursion={excursion}
+                  stopPrice={excursions.data?.stop_price ?? null}
                   trade={trade}
                   hoveredFillId={hoveredFillId}
                   onHoverFill={setHoveredFillId}
+                />
+              )}
+              {option && (
+                <TradeExcursionsPanel
+                  data={excursions.data}
+                  isLoading={excursions.isLoading}
+                  isError={excursions.isError}
                 />
               )}
 
