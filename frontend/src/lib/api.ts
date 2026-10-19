@@ -154,6 +154,27 @@ export interface ReplayTrade {
   fills: ReplayFill[];
 }
 
+/** GET /api/replay/trade/{id}/contract - Contract mode: the trade's own premium bars. */
+export interface ReplayContract {
+  trade_id: number;
+  available: boolean;
+  reason: string | null;
+  symbol: string | null;
+  session_date: string | null;
+  lead_minutes: number;
+  start_ts: string;
+  start_index: number;
+  playhead: string;
+  candles: Candle[];
+  /** Premium level at which the trade's risk is lost (same stop as the review). */
+  stop_price: number | null;
+  synthetic: boolean;
+  /** Bars are a model, not provider prints: show the "estimated" badge. */
+  estimated: boolean;
+  method: string | null;
+  fills: ReplayFill[];
+}
+
 export interface ReplayFills {
   trade_id: number;
   playhead: string;
@@ -1031,6 +1052,16 @@ export const api = {
   replayTrade(tradeId: number, leadMinutes = 15): Promise<ReplayTrade> {
     const qs = new URLSearchParams({ lead_minutes: String(leadMinutes) });
     return request<ReplayTrade>(`/replay/trade/${tradeId}?${qs.toString()}`);
+  },
+
+  replayTradeContract(
+    tradeId: number,
+    leadMinutes = 15,
+    playhead?: string,
+  ): Promise<ReplayContract> {
+    const qs = new URLSearchParams({ lead_minutes: String(leadMinutes) });
+    if (playhead) qs.set("playhead", playhead);
+    return request<ReplayContract>(`/replay/trade/${tradeId}/contract?${qs.toString()}`);
   },
 
   replayTradeFills(tradeId: number, playhead: string): Promise<ReplayFills> {

@@ -68,3 +68,25 @@ class ReplayTradeResponse(BaseModel):
     playhead: UtcDatetime
     session: ReplaySessionResponse
     fills: list[ReplayFill]
+
+
+class ReplayContractResponse(BaseModel):
+    """'Replay my trade', Contract mode: the trade's own option premium 1-min
+    bars on the same playhead, started `lead_minutes` before entry. Fills are
+    gated by the playhead exactly as in the underlying mode. No P&L."""
+
+    trade_id: int
+    available: bool
+    reason: str | None = None
+    symbol: str | None = None        # contract descriptor, when known
+    session_date: date | None = None
+    lead_minutes: int
+    start_ts: UtcDatetime
+    start_index: int = 0
+    playhead: UtcDatetime
+    candles: list[Candle] = Field(default_factory=list)
+    stop_price: float | None = None  # premium level at which the written/default risk is lost
+    synthetic: bool = False          # bars are a model, not provider prints
+    estimated: bool = False          # same flag, named for the UI badge
+    method: str | None = None        # "provider" | "bs_interp"
+    fills: list[ReplayFill] = Field(default_factory=list)
