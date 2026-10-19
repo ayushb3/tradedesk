@@ -87,11 +87,11 @@ def test_patch_sets_grade_tags_and_recomputes_r(client):
     assert updated["stop_price"] == stop
     assert updated["r_multiple"] is not None
 
-    # r_multiple = pnl_per_share / risk_per_share ; risk was set to 1.0/share.
-    avg_entry = updated["avg_entry"]
-    avg_exit = updated["avg_exit"]
-    pnl_ps = (avg_exit - avg_entry) if is_long else (avg_entry - avg_exit)
-    assert updated["r_multiple"] == pytest.approx(round(pnl_ps / 1.0, 4), abs=1e-3)
+    # R is the one desk definition (pnl / written max loss, else 30% of cost "assumed"),
+    # unchanged by the stop price.
+    assert updated["r_basis"] == "assumed"
+    assert updated["r_multiple"] == pytest.approx(updated["net_pnl"] / (0.30 * updated["qty"] * updated["avg_entry"]), rel=0.2)
+    assert updated["r_multiple"] == trade["r_multiple"]
 
     # Enrichment + stop persist on a fresh GET.
     again = client.get(f"/api/trades/{tid}").json()

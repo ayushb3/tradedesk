@@ -298,6 +298,20 @@ export interface TradeEnrichment {
   grade: TradeGrade | null;
   checklist: ChecklistItem[];
   screenshots: string[];
+  /** One-tap whose idea; null = not recorded. Optional so older payloads still type. */
+  call_source?: "mentor" | "own" | null;
+}
+
+/** One rule's verdict: kept true / broken false / unknown null. */
+export interface RuleResult {
+  code:
+    | "before_cutoff"
+    | "daily_stop"
+    | "max_loss_written"
+    | "call_source"
+    | "size_within_plan";
+  kept: boolean | null;
+  detail: string;
 }
 
 /**
@@ -322,6 +336,9 @@ export interface Trade {
   pnl_pct: number;
   stop_price: number | null;
   r_multiple: number | null;
+  /** "written" = measured on the written max loss; "assumed" = 30% of cost. */
+  r_basis?: "written" | "assumed" | null;
+  rule_results?: RuleResult[];
   hold_time_s: number | null;
   status: TradeStatus;
   simulated: boolean;

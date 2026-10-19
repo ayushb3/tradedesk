@@ -86,9 +86,10 @@ def create_server(ctx: tools.Ctx | None = None) -> FastMCP:
     def annotate_trade(
         trade_id: int, caller: str | None = None, notes: str | None = None,
         grade: str | None = None, tags: list[str] | None = None,
+        call_source: str | None = None,
     ) -> dict:
-        """Set caller (stored as tag caller:<name>), notes, grade (A/B/C) or add tags on one trade."""
-        return writes.annotate_trade(get(), trade_id, caller, notes, grade, tags)
+        """Set caller (stored as tag caller:<name>), notes, grade (A/B/C), add tags, or set call_source (mentor | own | clear) on one trade."""
+        return writes.annotate_trade(get(), trade_id, caller, notes, grade, tags, call_source)
 
     @mcp.tool(annotations=WRITE)
     def day_fields(date: str, fields: dict) -> dict:

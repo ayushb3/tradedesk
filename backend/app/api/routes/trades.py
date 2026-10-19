@@ -9,10 +9,13 @@ Contract seam (data-engineer owns the implementation in app/ingest/):
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import provider_dep
+from pydantic import BaseModel
+
 from app.models.trades import Trade, TradeUpdate
 from app.providers.base import DataProvider
 
@@ -93,6 +96,23 @@ def update_trade(trade_id: int, patch: TradeUpdate) -> Trade:
         from app.ingest.query import update_trade as _update
     except ImportError:
         raise HTTPException(status_code=501, detail="trade update not implemented")
+    t = _update(trade_id, patch)
+    if t is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return t
+
+
+class CallSourceBody(BaseModel):
+    call_source: Literal["mentor", "own"] | None = None  # null clears
+
+
+@router.put("/trades/{trade_id}/call-source", response_model=Trade)
+def set_call_source(trade_id: int, body: CallSourceBody) -> Trade:
+    """One-tap mentor | own on a trade (null clears). Same store as annotate_trade."""
+    from app.ingest.query import update_trade as _update
+
+    patch = TradeUpdate(call_source=body.call_source)
+    patch.model_fields_set.add("call_source")
     t = _update(trade_id, patch)
     if t is None:
         raise HTTPException(status_code=404, detail="trade not found")

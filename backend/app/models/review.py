@@ -105,6 +105,7 @@ class DayTradeCard(BaseModel):
     net_pnl: float | None = None
     pnl_pct: float | None = None
     r_multiple: float | None = None
+    r_basis: str | None = None  # "written" | "assumed"
     hold_time_s: int | None = None
     grade: Grade | None = None
     open_ts: UtcDatetime
@@ -176,6 +177,7 @@ class TradeExcursionsResponse(BaseModel):
     qty: int = 0
     risk: float | None = None  # same dollars-at-risk the ledger uses for R
     risk_source: str  # "written_max_loss" | "default_risk_pct"
+    r_basis: str = "assumed"  # "written" | "assumed" (same fact as risk_source)
     stop_price: float | None = None  # premium where the position has lost `risk`
     fills: list[ExcursionFill] = Field(default_factory=list)
     hold: HoldExcursionOut | None = None
