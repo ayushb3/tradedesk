@@ -120,7 +120,7 @@ export function KnowledgeConceptPage() {
               <AlertDescription>
                 {concept.error instanceof ApiError
                   ? concept.error.detail ?? concept.error.message
-                  : "Unexpected error. Is the backend running on :9000?"}
+                  : "Unexpected error. Is the data service running?"}
               </AlertDescription>
             </Alert>
           ) : data ? (

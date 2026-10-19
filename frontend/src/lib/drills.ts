@@ -39,7 +39,7 @@ async function trainingRequest<T>(path: string, init?: RequestInit): Promise<T> 
     });
   } catch (cause) {
     throw new ApiError(
-      "Could not reach the TradeDesk backend. Is it running on :9000?",
+      "Could not reach the TradeDesk backend. Is it running?",
       0,
       cause instanceof Error ? cause.message : String(cause),
     );

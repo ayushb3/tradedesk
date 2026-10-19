@@ -3,7 +3,15 @@
  * Run: npm run check:sim
  */
 import type { DeskDaySummary, RuleResult, Trade } from "./api";
-import { calendarFromDays, calendarMarks, groupByDay, ruleBreaks, ruleScoreboard, visibleColumns } from "./daysHome";
+import {
+  calendarFromDays,
+  calendarMarks,
+  groupByDay,
+  lastTradingDay,
+  ruleBreaks,
+  ruleScoreboard,
+  visibleColumns,
+} from "./daysHome";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -100,6 +108,11 @@ eq(
 const rb = ruleBreaks(trades);
 eq("breaks ordered by count", rb.map((b) => [b.code, b.trades.length, b.days]), [["before_cutoff", 2, 1], ["call_source", 1, 1]]);
 eq("break trades newest first", rb[0].trades.map((t) => t.id), [3, 2]);
+
+// lastTradingDay: latest date that has positions (the zero-position day is skipped)
+eq("lastTradingDay skips empty days", lastTradingDay(days), "2026-10-04");
+eq("lastTradingDay ignores order", lastTradingDay([days[1], days[0], days[2]]), "2026-10-02");
+eq("lastTradingDay none", lastTradingDay([]), null);
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

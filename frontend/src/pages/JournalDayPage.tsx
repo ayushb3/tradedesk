@@ -17,7 +17,7 @@ import { useDailyReview, useDeskDay } from "@/lib/queries";
 /**
  * A session day: the verdict band (net, sum of R, rule chips), the SPY session
  * strip with each trade as a band, and the trades as time-ordered rows. Rows and
- * bands open the trade review. Reached from the Journal calendar.
+ * bands open the trade review. Reached from the Days calendar.
  */
 export function JournalDayPage() {
   const { date = "" } = useParams<{ date: string }>();
@@ -39,7 +39,7 @@ export function JournalDayPage() {
           className="gap-1.5"
         >
           <ArrowLeft className="h-4 w-4" />
-          Journal
+          Days
         </Button>
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-muted-foreground" />
@@ -63,7 +63,7 @@ export function JournalDayPage() {
           ) : noDay || (day && positions.length === 0) ? (
             <EmptyState
               title="No trades this day"
-              description="Nothing was logged for this session. Pick another day from the Journal calendar to review your process."
+              description="Nothing was logged for this session. Pick another day from the Days calendar to review your process."
             />
           ) : isError || !day ? (
             <ApiErrorState error={error} />

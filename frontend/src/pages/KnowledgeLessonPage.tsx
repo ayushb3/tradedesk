@@ -241,7 +241,7 @@ export function KnowledgeLessonPage() {
               <AlertDescription>
                 {lesson.error instanceof ApiError
                   ? lesson.error.detail ?? lesson.error.message
-                  : "Unexpected error. Is the backend running on :9000?"}
+                  : "Unexpected error. Is the data service running?"}
               </AlertDescription>
             </Alert>
           ) : data ? (

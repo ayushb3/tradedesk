@@ -11,6 +11,7 @@
  * instead of an error — the app is fully usable with ingestion never run.
  */
 
+import { LearnTabs } from "@/components/knowledge/LearnTabs";
 import { useState } from "react";
 import { BookMarked, Search, ServerCrash, ExternalLink } from "lucide-react";
 
@@ -84,11 +85,12 @@ export function KnowledgeSearchPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
-        <h1 className="font-semibold tracking-tight">Knowledge · Search</h1>
+        <h1 className="font-semibold tracking-tight">Learn</h1>
+        <LearnTabs />
         {status.data ? (
           <span className="ml-auto text-xs text-muted-foreground">
             {status.data.ingested
-              ? `${status.data.lesson_count} lessons · ${status.data.embedder}`
+              ? `${status.data.lesson_count} lessons`
               : "not ingested"}
           </span>
         ) : null}
@@ -145,7 +147,7 @@ export function KnowledgeSearchPage() {
               <AlertDescription>
                 {search.error instanceof ApiError
                   ? search.error.detail ?? search.error.message
-                  : "Unexpected error. Is the backend running on :9000?"}
+                  : "Unexpected error. Is the data service running?"}
               </AlertDescription>
             </Alert>
           ) : notIngested ? (
@@ -154,7 +156,7 @@ export function KnowledgeSearchPage() {
               <AlertTitle>Knowledge base not ingested</AlertTitle>
               <AlertDescription>
                 {data?.detail ??
-                  "Run `make knowledge-ingest` to build the search index from the lesson transcripts."}
+                  "The lessons have not been loaded yet, so there is nothing to search."}
               </AlertDescription>
             </Alert>
           ) : data && data.results.length === 0 ? (

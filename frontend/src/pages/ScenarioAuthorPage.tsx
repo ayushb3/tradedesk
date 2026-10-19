@@ -752,11 +752,7 @@ function ChartError({ error }: { error: unknown }) {
         <AlertDescription>
           {isBackendDown ? (
             <>
-              Start it with{" "}
-              <code className="tabular rounded bg-muted px-1 py-0.5">
-                make backend
-              </code>
-              .
+              The data service isn't reachable. Start it, then reload.
             </>
           ) : notImplemented ? (
             <>

@@ -15,6 +15,7 @@
  * Alert rather than an error — mirrors the M8a Search page.
  */
 
+import { LearnTabs } from "@/components/knowledge/LearnTabs";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -107,7 +108,8 @@ export function KnowledgeModulesPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
-        <h1 className="font-semibold tracking-tight">Knowledge · Modules</h1>
+        <h1 className="font-semibold tracking-tight">Learn</h1>
+        <LearnTabs />
         {data && data.available ? (
           <span className="ml-auto text-xs text-muted-foreground">
             {data.lesson_count} lessons · {data.module_count} modules
@@ -128,7 +130,7 @@ export function KnowledgeModulesPage() {
               <AlertDescription>
                 {modules.error instanceof ApiError
                   ? modules.error.detail ?? modules.error.message
-                  : "Unexpected error. Is the backend running on :9000?"}
+                  : "Unexpected error. Is the data service running?"}
               </AlertDescription>
             </Alert>
           ) : notIngested ? (
@@ -137,7 +139,7 @@ export function KnowledgeModulesPage() {
               <AlertTitle>Knowledge base not ingested</AlertTitle>
               <AlertDescription>
                 {data?.detail ??
-                  "Run `make knowledge-ingest` to build the curriculum from the lesson transcripts."}
+                  "The lessons have not been loaded yet."}
               </AlertDescription>
             </Alert>
           ) : data && data.modules.length === 0 ? (

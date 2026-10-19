@@ -340,7 +340,7 @@ function ErrorBody({ error }: { error: unknown }) {
           className="gap-1.5"
         >
           <ArrowLeft className="h-4 w-4" />
-          Journal
+          Days
         </Button>
       </div>
       <div className="flex flex-1 items-center justify-center p-6">
@@ -363,11 +363,7 @@ function ErrorBody({ error }: { error: unknown }) {
           <AlertDescription>
             {backendDown ? (
               <>
-                Start it with{" "}
-                <code className="tabular rounded bg-muted px-1 py-0.5">
-                  make backend
-                </code>
-                .
+                The data service isn't reachable. Start it, then reload.
               </>
             ) : notFound ? (
               "This trade doesn't exist. It may have been rebuilt on a fresh import."

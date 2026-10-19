@@ -195,3 +195,12 @@ export function tradeRange(trades: Trade[]): { from: string; to: string } | null
   const ds = trades.map((t) => t.session_date).sort();
   return { from: ds[0], to: ds[ds.length - 1] };
 }
+
+/** Latest session date that has at least one trade, or null when there are none. */
+export function lastTradingDay(days: DeskDaySummary[]): string | null {
+  let last: string | null = null;
+  for (const d of days) {
+    if (d.positions > 0 && (last === null || d.date > last)) last = d.date;
+  }
+  return last;
+}
