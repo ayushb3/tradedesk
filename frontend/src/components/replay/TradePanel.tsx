@@ -246,7 +246,7 @@ function FillRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <Label>{label}</Label>
-        <span className="tabular text-[11px] text-muted-foreground">
+        <span className="tabular text-label text-muted-foreground">
           {fill ? `${formatEt(fill.ts, tz)} ${DISPLAY_TZ_LABEL}` : "not set"}
         </span>
       </div>

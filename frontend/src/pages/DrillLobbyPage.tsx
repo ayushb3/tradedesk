@@ -158,7 +158,7 @@ function ScenarioCard({
           <CardTitle className="text-sm leading-snug">{scenario.title}</CardTitle>
           {scenario.blind_default && (
             <span
-              className="flex items-center gap-1 text-[11px] text-muted-foreground"
+              className="flex items-center gap-1 text-label text-muted-foreground"
               title="Ticker and date are hidden in this drill"
             >
               <EyeOff className="h-3 w-3" />

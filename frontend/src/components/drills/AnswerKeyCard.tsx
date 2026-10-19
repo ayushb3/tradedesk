@@ -87,7 +87,7 @@ export function AnswerKeyCard({
                     )}
                   >
                     {actionLabel(a.action)}
-                    <span className="ml-1.5 text-[10px] opacity-70">
+                    <span className="ml-1.5 text-label opacity-70">
                       bar {a.bar}
                     </span>
                   </span>

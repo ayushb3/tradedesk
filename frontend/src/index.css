@@ -3,6 +3,32 @@
 @tailwind utilities;
 
 /*
+ * DESIGN TOKENS (redesign slice 1)
+ *
+ * Type scale, 5 steps, nothing below 12px. Tailwind classes:
+ *   text-hero   40px  bold mono, one per screen (the result)
+ *   text-key    26px  live price, clock, day P&L
+ *   text-value  16px  every other number
+ *   text-body   14px  sentences
+ *   text-label  12px  captions; pair with `label-caps` for caps + tracking
+ * Spacing steps: 4 / 8 / 12 / 16 / 24 (Tailwind 1 / 2 / 3 / 4 / 6).
+ *
+ * Color carries meaning only (CSS vars are HSL triplets, set for light and .dark):
+ *   gain  = gain, rule kept, Buy
+ *   loss  = loss, rule broken, Sell
+ *   stop  = the stop and anything about it (amber)
+ *   play  = playhead, crosshair, primary action (blue)
+ *   grey  = after exit, hidden future, context
+ * Indicators (EMA, VWAP, levels) must not use these hues.
+ * Usage: text-gain, bg-loss/10, border-stop, text-play, text-grey.
+ * (`muted` is the existing shadcn surface/foreground pair; text-grey is the
+ * meaning color for context.)
+ *
+ * Numbers: use `num` (tabular monospace) on every number so digits do not jitter.
+ * Number rules: R first, $ second; always sign and unit (-$40, +0.8R, 06:45 PT).
+ */
+
+/*
  * Dark, TradingView-ish theme. `.dark` is applied on <html> by default
  * (see index.html) so the app renders dark on first paint with no flash.
  * :root holds a light fallback for completeness; we ship dark-first.
@@ -29,6 +55,13 @@
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
+
+    /* Meaning colors (light). */
+    --gain: 142 64% 30%;
+    --loss: 0 72% 46%;
+    --stop: 32 95% 40%;
+    --play: 217 91% 50%;
+    --grey: 240 4% 46%;
   }
 
   .dark {
@@ -51,6 +84,13 @@
     --border: 240 5% 16%;
     --input: 240 5% 16%;
     --ring: 240 5% 65%;
+
+    /* Meaning colors (dark). */
+    --gain: 142 60% 50%;
+    --loss: 0 78% 62%;
+    --stop: 38 95% 55%;
+    --play: 217 91% 64%;
+    --grey: 240 5% 55%;
   }
 }
 
@@ -71,5 +111,18 @@
   .tabular {
     font-variant-numeric: tabular-nums;
     @apply font-mono;
+  }
+}
+
+@layer utilities {
+  /* Tabular monospace for every number. */
+  .num {
+    font-family: theme("fontFamily.mono");
+    font-variant-numeric: tabular-nums;
+  }
+  /* Label step: caps, tracked. Combine with text-label. */
+  .label-caps {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 }

@@ -519,16 +519,16 @@ function PlayerHeader({
     <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-4 py-2">
       <div className="flex items-center gap-3">
         <span className="font-semibold text-sm">{label}</span>
-        <Badge variant="outline" className="text-[11px]">
+        <Badge variant="outline" className="text-label">
           {phaseLabel[phase]}
         </Badge>
         {session.drill_type && (
-          <Badge variant="muted" className="text-[11px] hidden sm:inline-flex">
+          <Badge variant="muted" className="text-label hidden sm:inline-flex">
             {session.drill_type}
           </Badge>
         )}
         {playlistRemaining !== null && (
-          <Badge variant="muted" className="text-[11px] hidden sm:inline-flex gap-1">
+          <Badge variant="muted" className="text-label hidden sm:inline-flex gap-1">
             <List className="h-3 w-3" />
             {playlistRemaining > 0
               ? `Playlist · ${playlistRemaining} remaining`
@@ -683,7 +683,7 @@ function FinishedScreen({
               {result.outcome_pnl >= 0 ? "+" : ""}
               {result.outcome_pnl.toFixed(2)}
             </span>
-            <span className="ml-2 text-[11px] text-muted-foreground">
+            <span className="ml-2 text-label text-muted-foreground">
               (recorded · not scored)
             </span>
           </div>

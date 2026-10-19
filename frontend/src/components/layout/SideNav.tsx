@@ -76,7 +76,7 @@ export function SideNav() {
         {/* Training section — M6 */}
         <div className="mt-3 flex items-center gap-1.5 px-3 pb-1">
           <GraduationCap className="h-3.5 w-3.5 text-muted-foreground/60" />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <span className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
             Training
           </span>
         </div>
@@ -87,7 +87,7 @@ export function SideNav() {
         {/* Knowledge section — M8 */}
         <div className="mt-3 flex items-center gap-1.5 px-3 pb-1">
           <Library className="h-3.5 w-3.5 text-muted-foreground/60" />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <span className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
             Knowledge
           </span>
         </div>
@@ -95,7 +95,7 @@ export function SideNav() {
           <NavItem key={to} to={to} label={label} icon={icon} />
         ))}
       </nav>
-      <div className="mt-auto p-3 text-[11px] text-muted-foreground">
+      <div className="mt-auto p-3 text-label text-muted-foreground">
         <span className="tabular">local · single-user</span>
       </div>
     </aside>

@@ -376,11 +376,11 @@ function ActiveInterview({
       {/* Step badge row */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border pb-2">
         <MessageCircle className="h-4 w-4 text-muted-foreground" />
-        <Badge variant="outline" className="text-[11px]">
+        <Badge variant="outline" className="text-label">
           {STEP_LABELS[currentTurn.step] ?? currentTurn.step}
         </Badge>
         {isStepperMode && (
-          <Badge variant="muted" className="text-[11px]">
+          <Badge variant="muted" className="text-label">
             form mode
           </Badge>
         )}
@@ -489,7 +489,7 @@ function ChatBubble({ entry }: { entry: TranscriptEntry }) {
         )}
       >
         {isAgent && entry.step && (
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest opacity-60">
+          <p className="mb-1 text-label font-semibold uppercase tracking-widest opacity-60">
             {STEP_LABELS[entry.step] ?? entry.step}
           </p>
         )}
@@ -531,7 +531,7 @@ function StepperView({ transcript }: { transcript: TranscriptEntry[] }) {
         <Card key={i} className="bg-card/60">
           <CardHeader className="pb-2 pt-3">
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-label">
                 {STEP_LABELS[pair.step] ?? pair.step}
               </Badge>
             </div>
@@ -570,7 +570,7 @@ function StepCard({
     <Card className="border-primary/30 bg-card">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <Badge className="text-[10px]">{STEP_LABELS[step] ?? step}</Badge>
+          <Badge className="text-label">{STEP_LABELS[step] ?? step}</Badge>
           <CardTitle className="text-sm font-medium">{question}</CardTitle>
         </div>
       </CardHeader>
@@ -647,7 +647,7 @@ function PreviewScreen({ debrief, transcript, onSave }: PreviewScreenProps) {
           <PreviewRow label="Feelings" value={feelingsText} />
           <PreviewRow label="Plan notes" value={planText} />
           <div className="pt-1">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="text-label uppercase tracking-widest text-muted-foreground">
               Backend
             </span>
             <p className="text-sm">{debrief.llm_backend}</p>
@@ -674,7 +674,7 @@ function PreviewScreen({ debrief, transcript, onSave }: PreviewScreenProps) {
 function PreviewRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+      <span className="text-label uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
       <p className="text-sm">{value ?? "—"}</p>
@@ -713,13 +713,13 @@ function SavedScreen({
       <Card>
         <CardContent className="space-y-3 pt-4">
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="text-label uppercase tracking-widest text-muted-foreground">
               Trade
             </span>
             <p className="text-sm">#{tradeId}</p>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="text-label uppercase tracking-widest text-muted-foreground">
               Enrichment
             </span>
             <p className="text-sm">
@@ -727,14 +727,14 @@ function SavedScreen({
             </p>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="text-label uppercase tracking-widest text-muted-foreground">
               Verdict
             </span>
             <p className="text-sm">{verdictLabel(artifacts.verdict)}</p>
           </div>
           {artifacts.scenario_id !== null && (
             <div>
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              <span className="text-label uppercase tracking-widest text-muted-foreground">
                 Emitted drill
               </span>
               <p className="text-sm">

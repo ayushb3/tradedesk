@@ -70,7 +70,7 @@ export function PnlCalendar({
             {monthLabel(month)}
           </h3>
           {!loading && (
-            <p className="tabular text-[11px] text-muted-foreground">
+            <p className="tabular text-label text-muted-foreground">
               Month net {formatPnl(monthTotal)}
             </p>
           )}
@@ -106,7 +106,7 @@ export function PnlCalendar({
               {WEEKDAYS.map((w) => (
                 <div
                   key={w}
-                  className="py-1 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  className="py-1 text-center text-label font-medium uppercase tracking-wide text-muted-foreground"
                 >
                   {w}
                 </div>
@@ -200,7 +200,7 @@ function DayCell({
     >
       <span
         className={cn(
-          "text-[10px] tabular",
+          "text-label tabular",
           hasTrades ? "text-foreground/90" : "text-muted-foreground",
         )}
       >
@@ -208,10 +208,10 @@ function DayCell({
       </span>
       {hasTrades && (
         <span className="w-full">
-          <span className="tabular block truncate text-[10px] font-medium leading-tight">
+          <span className="tabular block truncate text-label font-medium leading-tight">
             {compactPnl(pnl)}
           </span>
-          <span className="tabular block text-[9px] leading-tight text-foreground/70">
+          <span className="tabular block text-label leading-tight text-foreground/70">
             {wlLabel}
           </span>
         </span>

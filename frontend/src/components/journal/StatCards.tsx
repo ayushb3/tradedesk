@@ -70,7 +70,7 @@ export function StatCards({ summary, loading }: StatCardsProps) {
           key={stat.label}
           className="rounded-lg border border-border bg-card p-3"
         >
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-label font-medium uppercase tracking-wide text-muted-foreground">
             {stat.label}
           </p>
           <p
@@ -85,7 +85,7 @@ export function StatCards({ summary, loading }: StatCardsProps) {
         </div>
       ))}
       {s && s.trade_count > 0 && (
-        <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground sm:col-span-3 lg:col-span-6">
+        <p className="col-span-2 -mt-1 text-label text-muted-foreground sm:col-span-3 lg:col-span-6">
           Avg win {formatPnl(s.avg_win)} · avg loss {formatPnl(s.avg_loss)} ·
           avg hold {formatHoldTime(s.avg_hold_time_s)}
         </p>

@@ -144,7 +144,7 @@ function PhaseVerdicts({
             key={key}
             className="rounded-lg border border-border bg-background/40 p-3"
           >
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <p className="mb-1.5 text-label font-semibold uppercase tracking-widest text-muted-foreground">
               {label}
             </p>
             <Markdown md={verdicts[key] ?? ""} />
@@ -246,7 +246,7 @@ function RuleCheckRow({ check }: { check: CriticRuleCheck }) {
 
       <div className="mt-2">
         {unverified ? (
-          <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-muted-foreground/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-muted-foreground/40 px-2 py-0.5 text-label font-medium text-muted-foreground">
             <ShieldAlert className="h-3 w-3" />
             unverified — no curriculum citation
           </span>
@@ -262,7 +262,7 @@ function Citation({ hit }: { hit: KnowledgeSearchHit }) {
   return (
     <a
       href={citationHref(hit)}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/90 transition-colors hover:bg-accent/50"
+      className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-label font-medium text-foreground/90 transition-colors hover:bg-accent/50"
     >
       <BookMarked className="h-3 w-3 shrink-0 text-muted-foreground" />
       <span className="truncate">{hit.citation}</span>
@@ -287,7 +287,7 @@ function Prescription({ prescription }: { prescription: CriticPrescription }) {
 
       {hasReadings ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-label font-semibold uppercase tracking-widest text-muted-foreground">
             Readings
           </p>
           <ul className="flex flex-col gap-1">
@@ -302,7 +302,7 @@ function Prescription({ prescription }: { prescription: CriticPrescription }) {
 
       {hasDrill ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-label font-semibold uppercase tracking-widest text-muted-foreground">
             Drill
           </p>
           <DrillPrescription drillId={drill_id} drillSpec={drill_spec} />

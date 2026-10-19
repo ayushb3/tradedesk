@@ -30,7 +30,7 @@ export function ScoreBadge({ score, className }: ScoreBadgeProps) {
         {pct}
       </span>
       <span className="text-xs text-muted-foreground">/ 100</span>
-      <span className="mt-1 text-[11px] text-muted-foreground">
+      <span className="mt-1 text-label text-muted-foreground">
         process score
       </span>
     </div>

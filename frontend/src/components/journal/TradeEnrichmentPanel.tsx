@@ -188,7 +188,7 @@ export const TradeEnrichmentPanel = forwardRef<
                   type="button"
                   onClick={() => toggleTag(t.id)}
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    "rounded-full border px-2 py-0.5 text-label font-medium transition-colors",
                     active
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-border text-muted-foreground hover:text-foreground",

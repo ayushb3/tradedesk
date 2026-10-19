@@ -62,7 +62,7 @@ export function TradeMiniChart({ tradeId }: TradeMiniChartProps) {
       {loading ? (
         <Skeleton className="h-full w-full rounded-md" />
       ) : failed || windowed.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-label text-muted-foreground">
           No candles for this window
         </div>
       ) : (

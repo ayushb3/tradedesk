@@ -25,7 +25,7 @@ export function ComingSoon({
             <Icon className="h-6 w-6 text-muted-foreground" />
           </div>
           <p className="text-sm text-muted-foreground">{description}</p>
-          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-full border border-border px-2 py-0.5 text-label uppercase tracking-wide text-muted-foreground">
             {milestone}
           </span>
         </div>
