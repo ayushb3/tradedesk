@@ -2,6 +2,7 @@
  * Self-check for simPosition.ts (synthetic numbers only).
  * Run: npm run check:sim   (esbuild bundle -> node; there is no test runner)
  */
+import { stopVerdict, summarizeRealTrade } from "./tradeResult";
 import {
   buy,
   closeAll,
@@ -93,6 +94,78 @@ s = closeAll(s, { price: 2.5, ts: at(6) });
 eq("two trips", s.trips.length, 2);
 eq("trip 2 R", s.trips[1].r, -0.5);
 eq("trip 2 stop moves", s.trips[1].stopMoves, 1);
+
+// 6) Stop history is recorded: first buy, then each released drag (not mid-drag).
+s = buy(initialState(), { price: 2.0, ts: at(0) }, 1.5);
+s = setStop(s, 1.7, false, at(1));
+eq("mid-drag not in history", s.position.stops.length, 1);
+s = setStop(s, 1.8, true, at(2));
+eq("released drag in history", s.position.stops.length, 2);
+eq("history stop value", s.position.stops[1].stop, 1.8);
+s = closeAll(s, { price: 2.2, ts: at(3) });
+eq("trip keeps stop history", s.trips[s.trips.length - 1].stops.length, 2);
+
+// 7) Stop verdict. Bars carry only lows here. Position opens at minute 0.
+const bar = (i: number, low: number) => ({ ts: at(i), low });
+let v = stopVerdict({
+  bars: [bar(0, 0.1), bar(1, 1.6), bar(2, 1.55), bar(3, 1.7)],
+  openTs: at(0),
+  flatTs: at(3),
+  stops: [{ ts: at(0), stop: 1.5 }],
+});
+eq("respected when lows stay above", v.respected, true);
+eq("respected has 0 min", v.minutesPast, 0);
+eq("entry bar low is ignored", v.firstBreachTs === null, true);
+
+// low exactly at the stop counts; held bars 2,3,4 = 3 min; later bars ignored.
+v = stopVerdict({
+  bars: [bar(1, 1.6), bar(2, 1.5), bar(3, 1.4), bar(4, 1.45), bar(5, 0.2)],
+  openTs: at(0),
+  flatTs: at(4),
+  stops: [{ ts: at(0), stop: 1.5 }],
+});
+eq("low at stop is past stop", v.respected, false);
+eq("held 3 min (bars 2,3,4)", v.minutesPast, 3);
+eq("first breach bar", v.firstBreachTs === new Date(at(2)).toISOString(), true);
+
+v = stopVerdict({ bars: [bar(1, 1.6), bar(2, 1.4)], openTs: at(0), flatTs: at(2), stops: [{ ts: at(0), stop: 1.5 }] });
+eq("breach on exit bar = 1 min", v.minutesPast, 1);
+
+// A dragged stop applies from the bar AFTER it was set.
+v = stopVerdict({
+  bars: [bar(1, 1.6), bar(2, 1.45), bar(3, 1.6)],
+  openTs: at(0),
+  flatTs: at(3),
+  stops: [{ ts: at(0), stop: 1.5 }, { ts: at(1), stop: 1.4 }],
+});
+eq("lowered stop in force at bar 2 -> respected", v.respected, true);
+v = stopVerdict({
+  bars: [bar(1, 1.6), bar(2, 1.45), bar(3, 1.6)],
+  openTs: at(0),
+  flatTs: at(3),
+  stops: [{ ts: at(0), stop: 1.5 }, { ts: at(2), stop: 1.4 }],
+});
+eq("stop moved on bar 2 does not cover bar 2", v.minutesPast, 2);
+
+// 8) Real trade summary: exit hidden unless asked, R from the written stop.
+const real = [
+  { role: "entry" as const, side: "buy" as const, qty: 2, price: 2.0, ts: at(0) },
+  { role: "exit" as const, side: "sell" as const, qty: 2, price: 2.5, ts: at(5) },
+];
+let rt = summarizeRealTrade(real, 1.5, false);
+eq("exit not computed before reveal", rt?.exit === null, true);
+eq("written stop not assumed", rt?.stopAssumed, false);
+rt = summarizeRealTrade(real, 1.5, true);
+eq("real pnl", rt?.exit?.pnl ?? NaN, 100);
+eq("real R = 0.5/0.5", rt?.exit?.r ?? NaN, 1);
+rt = summarizeRealTrade(real, null, true);
+eq("assumed stop flagged", rt?.stopAssumed, true);
+rt = summarizeRealTrade(real, 1.5, true, true);
+eq("api-assumed flag wins over a usable stop", rt?.stopAssumed, true);
+rt = summarizeRealTrade(real, null, true);
+eq("assumed stop value", rt?.stop ?? NaN, 1.4);
+eq("assumed R = 0.5/0.6", rt?.exit?.r ?? NaN, 0.5 / 0.6);
+eq("no entry -> null", summarizeRealTrade([], 1, true) === null, true);
 
 if (failures > 0) {
   console.error(`${failures} check(s) failed`);

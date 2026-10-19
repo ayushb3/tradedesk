@@ -105,10 +105,17 @@ export function useSimSession({ resetKey, symbol, sessionDate, writtenStop }: Op
     },
     [finish],
   );
+  // The move is stamped with the playhead bar it was made on, so the stop
+  // verdict knows which stop was in force at each later bar.
+  const playTsRef = useRef<string | undefined>(undefined);
+  const setPlayTs = useCallback((ts: string | null) => {
+    playTsRef.current = ts ?? undefined;
+  }, []);
   const onSetStop = useCallback(
-    (price: number, final = true) => apply(setStop(stateRef.current, price, final)),
+    (price: number, final = true) =>
+      apply(setStop(stateRef.current, price, final, playTsRef.current)),
     [apply],
   );
 
-  return { state, onBuy, onSell, onCloseAll, onSetStop, logError, logged };
+  return { state, onBuy, onSell, onCloseAll, onSetStop, setPlayTs, logError, logged };
 }

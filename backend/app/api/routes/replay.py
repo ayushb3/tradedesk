@@ -257,6 +257,7 @@ def replay_trade_contract(
         )
 
     stop = None
+    stop_assumed = False
     try:
         found = locate_position(trade_id, load_rules())
     except ValueError:  # unreadable rules file: replay still works, without a stop line
@@ -265,6 +266,7 @@ def replay_trade_contract(
         _, _, a = found
         if a.avg_in is not None:
             stop = stop_price(a.avg_in, a.qty_in, a.risk)
+            stop_assumed = a.written_max_loss is None
 
     candles = bars.bars
     start_index = next(
@@ -277,6 +279,7 @@ def replay_trade_contract(
         start_index=start_index,
         candles=candles,
         stop_price=stop,
+        stop_assumed=stop_assumed,
         synthetic=bars.synthetic,
         estimated=bars.synthetic,
         method=bars.method,

@@ -73,7 +73,7 @@ function minutesOfDay(fmt: Intl.DateTimeFormat, iso: string): number | null {
 
 const SUPPRESS_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
-function isInputFocused(target: EventTarget | null): boolean {
+export function isInputFocused(target: EventTarget | null): boolean {
   if (!target || !(target instanceof Element)) return false;
   if (SUPPRESS_TAGS.has(target.tagName)) return true;
   if (target.hasAttribute("contenteditable")) return true;

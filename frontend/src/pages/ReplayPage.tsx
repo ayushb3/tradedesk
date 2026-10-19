@@ -13,6 +13,7 @@ import {
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { StackedReplayChart } from "@/components/replay/StackedReplayChart";
+import { RealTradeCard } from "@/components/replay/RealTradeCard";
 import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
@@ -22,7 +23,7 @@ import {
   useReplayTrade,
   useReplayTradeFills,
 } from "@/lib/queries";
-import { useReplay } from "@/lib/useReplay";
+import { isInputFocused, useReplay } from "@/lib/useReplay";
 import { useSimSession } from "@/lib/useSimSession";
 import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
 import {
@@ -37,7 +38,7 @@ import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { ApiError, type ReplayFill, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
+import { ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
 
 const DEFAULT_SYMBOL = "AAPL";
 const DEFAULT_DATE = "2026-07-01";
@@ -202,6 +203,32 @@ export function ReplayPage() {
     writtenStop: contractData?.stop_price ?? null,
   });
   const simPos = sim.state.position;
+  // Stop moves are stamped with the playhead bar they were made on.
+  const { setPlayTs } = sim;
+  useEffect(() => setPlayTs(playCandle?.ts ?? null), [setPlayTs, playCandle?.ts]);
+
+  // B = buy 1, S = sell 1 (Space / arrows live in useReplay). Ignored while focus
+  // is in an input, with a modifier held, or when there is no premium to trade.
+  const canTrade = inTrade && windowed?.contractCandles != null;
+  const keyActs = useRef({ buy: () => {}, sell: () => {} });
+  keyActs.current = { buy: () => sim.onBuy(playCandle), sell: () => sim.onSell(playCandle) };
+  useEffect(() => {
+    if (!canTrade) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || isInputFocused(e.target)) return;
+      const k = e.key.toLowerCase();
+      if (k === "b") {
+        e.preventDefault();
+        keyActs.current.buy();
+      } else if (k === "s") {
+        e.preventDefault();
+        keyActs.current.sell();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canTrade]);
+
   const simFills = useMemo(
     () => sim.state.trips.flatMap((t) => t.fills).concat(simPos.fills),
     [sim.state.trips, simPos.fills],
@@ -311,10 +338,14 @@ export function ReplayPage() {
           />
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l border-border md:block">
+        <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border md:block">
           {tradeId !== null && (
-            <FillsPanel
+            <RealTradeCard
               fills={revealedFills}
+              writtenStop={contractData?.stop_price ?? null}
+              stopAssumed={contractData?.stop_assumed ?? false}
+              exitReached={windowEndTs !== null}
+              bars={windowed?.contractCandles ?? null}
               sourceLabel={
                 windowed?.contractCandles
                   ? contractData?.estimated
@@ -327,6 +358,7 @@ export function ReplayPage() {
           {inTrade ? (
             <SimPanel
               candle={playCandle}
+              bars={windowed?.contractCandles ?? []}
               state={sim.state}
               enabled={windowed?.contractCandles != null}
               onBuy={() => sim.onBuy(playCandle)}
@@ -396,40 +428,6 @@ function TradeReplayPicker({
         <button type="button" className="h-8 px-2 text-muted-foreground" onClick={onClear}>
           Exit
         </button>
-      )}
-    </div>
-  );
-}
-
-function FillsPanel({
-  fills,
-  sourceLabel,
-}: {
-  fills: ReplayFill[];
-  sourceLabel?: string;
-}) {
-  return (
-    <div className="border-b border-border p-3 text-xs">
-      <div className="mb-1 font-semibold">Your fills</div>
-      <div className="mb-2 text-muted-foreground">
-        Hidden until the playhead reaches them. Decide first, then compare.
-        {sourceLabel ? ` Bars: ${sourceLabel}.` : ""}
-      </div>
-      {fills.length === 0 ? (
-        <div className="text-muted-foreground">No fills yet.</div>
-      ) : (
-        <ul className="space-y-1">
-          {fills.map((f) => (
-            <li key={f.seq} className="tabular flex justify-between">
-              <span>
-                {f.time_pt} {f.role}
-              </span>
-              <span>
-                {f.side} {f.qty} @ {f.price.toFixed(2)}
-              </span>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );
