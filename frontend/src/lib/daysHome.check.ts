@@ -3,7 +3,7 @@
  * Run: npm run check:sim
  */
 import type { DeskDaySummary, RuleResult, Trade } from "./api";
-import { calendarMarks, groupByDay, ruleBreaks, ruleScoreboard, visibleColumns } from "./daysHome";
+import { calendarFromDays, calendarMarks, groupByDay, ruleBreaks, ruleScoreboard, visibleColumns } from "./daysHome";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -58,6 +58,12 @@ eq(
   calendarMarks([day("2026-10-05", -150, 1, [], { blown_past: true })])["2026-10-05"].stopBreach,
   true,
 );
+
+// A position held across two days is booked on its session day, never the exit day.
+const cal = calendarFromDays([day("2026-10-01", 40, 1, []), day("2026-10-02", 0, 0, [])]);
+eq("held trade counts on its session_date", Object.keys(cal), ["2026-10-01"]);
+eq("calendar month net equals scoreboard net", Object.values(cal).reduce((a, c) => a + c.pnl, 0), ruleScoreboard([day("2026-10-01", 40, 1, []), day("2026-10-02", 0, 0, [])]).net);
+eq("all-unknown rule has known 0", ruleScoreboard(days).rows.find((r) => r.code === "max_loss_written")!.known, 0);
 
 const trade = (id: number, date: string, openIso: string, over: Partial<Trade> = {}): Trade =>
   ({

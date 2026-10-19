@@ -4,7 +4,7 @@
  * Patterns section. No React, no fetching. P&L is carried beside rule state,
  * never folded into it.
  */
-import type { DeskDaySummary, RuleResult, Trade } from "./api";
+import type { CalendarData, DeskDaySummary, RuleResult, Trade } from "./api";
 
 export type RuleCode = RuleResult["code"];
 
@@ -44,6 +44,8 @@ export interface ScoreRow {
   unknown: number;
   /** Days traded in the range. */
   traded: number;
+  /** Days with a recorded result (kept + broken). 0 means "not recorded". */
+  known: number;
 }
 
 export interface Scoreboard {
@@ -73,7 +75,7 @@ export function ruleScoreboard(days: DeskDaySummary[]): Scoreboard {
       else if (k === false) broken++;
       else unknown++;
     }
-    return { code, name: ruleName(code), kept, broken, unknown, traded: traded.length };
+    return { code, name: ruleName(code), kept, broken, unknown, traded: traded.length, known: kept + broken };
   });
   return {
     rows,
@@ -81,6 +83,18 @@ export function ruleScoreboard(days: DeskDaySummary[]): Scoreboard {
     brokenTotal: rows.reduce((a, r) => a + r.broken, 0),
     net: traded.reduce((a, d) => a + d.net, 0),
   };
+}
+
+/**
+ * Calendar data booked by session day, the same as /api/days (a position held
+ * across days counts on its session_date), so month totals match the scoreboard.
+ */
+export function calendarFromDays(days: DeskDaySummary[]): CalendarData {
+  const out: CalendarData = {};
+  for (const d of days) {
+    if (d.positions > 0) out[d.date] = { pnl: d.net, trades: d.positions };
+  }
+  return out;
 }
 
 export interface DayMark {
@@ -173,4 +187,11 @@ export function ruleBreaks(trades: Trade[]): RuleBreak[] {
     });
   }
   return out.sort((a, b) => b.trades.length - a.trades.length);
+}
+
+/** "Sep 29 – Oct 16" style range of the trades' session days, or null when empty. */
+export function tradeRange(trades: Trade[]): { from: string; to: string } | null {
+  if (!trades.length) return null;
+  const ds = trades.map((t) => t.session_date).sort();
+  return { from: ds[0], to: ds[ds.length - 1] };
 }

@@ -21,18 +21,17 @@ import { Breakdown } from "@/components/journal/Breakdowns";
 import { GroupedTradesTable } from "@/components/journal/GroupedTradesTable";
 import { RuleScoreboard } from "@/components/days/RuleScoreboard";
 import { PatternsSection } from "@/components/days/PatternsSection";
-import { calendarMarks, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
+import { calendarFromDays, calendarMarks, tradeRange, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
 import { ApiError, type TradesParams } from "@/lib/api";
 import {
   useAnalyticsBy,
-  useAnalyticsCalendar,
   useAnalyticsSummary,
   useDeskDays,
   useHealth,
   useImportFills,
   useTrades,
 } from "@/lib/queries";
-import { DISPLAY_TZ_LABEL } from "@/lib/format";
+import { DISPLAY_TZ_LABEL, formatDayMonth } from "@/lib/format";
 
 const ALL = "all";
 
@@ -72,7 +71,6 @@ export function JournalPage() {
   const importFills = useImportFills();
   const trades = useTrades(params);
   const summary = useAnalyticsSummary(params);
-  const calendar = useAnalyticsCalendar(month);
   const deskDays = useDeskDays();
   const byTicker = useAnalyticsBy("ticker");
   const byTod = useAnalyticsBy("tod");
@@ -119,6 +117,7 @@ export function JournalPage() {
   const tradeList = trades.data ?? [];
   const monthTrades = tradeList.filter((t) => inMonth(t.session_date, month));
   const breaks = ruleBreaks(monthTrades);
+  const range = tradeRange(tradeList);
   const hasTrades = tradeList.length > 0;
 
   return (
@@ -173,13 +172,18 @@ export function JournalPage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-4">
           <RuleScoreboard board={board} label={monthName} />
 
+          <p className="label-caps -mb-2 text-label text-muted-foreground">
+            {range
+              ? `All trades · ${formatDayMonth(range.from)} – ${formatDayMonth(range.to)}`
+              : "All trades"}
+          </p>
           <StatCards summary={summary.data} loading={summary.isLoading} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <PnlCalendar
               month={month}
-              data={calendar.data}
-              loading={calendar.isLoading}
+              data={calendarFromDays(monthDays)}
+              loading={deskDays.isLoading}
               onMonthChange={setMonth}
               onSelectDay={(date) => navigate(`/journal/${date}`)}
               marks={marks}

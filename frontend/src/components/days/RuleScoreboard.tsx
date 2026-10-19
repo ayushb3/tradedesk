@@ -41,13 +41,18 @@ export function RuleScoreboard({ board, label }: { board: Scoreboard; label: str
           {rows.map((r) => (
             <li key={r.code} className="flex items-center gap-3 px-4 py-2">
               <span className="min-w-0 flex-1 truncate text-body">{r.name}</span>
-              {r.unknown > 0 && (
-                <span className="text-label text-muted-foreground">{r.unknown} unknown</span>
+              {r.unknown > 0 && r.known > 0 && (
+                <span className="text-label text-muted-foreground">{r.unknown} not recorded</span>
               )}
-              <span className="num w-16 shrink-0 text-right text-value">
-                <span className={r.broken > 0 ? "text-foreground" : "text-gain"}>{r.kept}</span>
-                <span className="text-muted-foreground"> / {r.traded}</span>
-              </span>
+              {r.known === 0 ? (
+                <span className="w-16 shrink-0 text-right text-label text-muted-foreground">Not recorded</span>
+              ) : (
+                <span className="num w-16 shrink-0 text-right text-value">
+                  <span className={r.broken > 0 ? "text-foreground" : "text-gain"}>{r.kept}</span>
+                  <span className="text-muted-foreground"> / {r.known}</span>
+                </span>
+              )}
+              {r.known > 0 ? (
               <span
                 className={cn(
                   "num w-24 shrink-0 rounded-full border px-2 py-0.5 text-center text-label font-medium",
@@ -59,6 +64,9 @@ export function RuleScoreboard({ board, label }: { board: Scoreboard; label: str
               >
                 {r.broken} broken
               </span>
+              ) : (
+                <span className="w-24 shrink-0" />
+              )}
             </li>
           ))}
         </ul>
