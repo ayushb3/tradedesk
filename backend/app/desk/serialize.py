@@ -9,11 +9,15 @@ from datetime import date as date_type, datetime
 
 from collections import Counter
 
+from app.analytics.excursions import (
+    EXCURSION_PATTERN_CODES, EXITED_EARLY_THRESHOLD_R, EXITED_EARLY_WINDOW_MIN, ExcursionRollup,
+    excursion_codes, excursion_tag_spec, rollup_excursions,
+)
 from app.desk import days as desk_days
 from app.desk import lessons as desk_lessons
 from app.desk.rules import Rules, window_bounds
 from app.models.desk import (
-    BiggestRisk, DayDetail, DaysResponse, DayStatsOut, DaySummary, FillOut, LineResponse,
+    BiggestRisk, DayDetail, ExcursionRollupOut, ExitedEarlyOut, HeldPastStopOut, DaysResponse, DayStatsOut, DaySummary, FillOut, LineResponse,
     LessonLinkOut, LineToday, PatternsResponse, PlanRef, PositionOut, RecurringLesson, StopUsageOut, TagOut, WindowOut,
 )
 
@@ -45,8 +49,12 @@ def stats_out(s, rules: Rules) -> DayStatsOut:
     )
 
 
-def position_out(lp, a, rules: Rules) -> PositionOut:
+def position_out(lp, a, rules: Rules, fact=None) -> PositionOut:
     p = lp.position
+    extra = [
+        TagOut(code=c, kind=excursion_tag_spec(fact, c)[0], text=excursion_tag_spec(fact, c)[1])
+        for c in excursion_codes(fact)
+    ]
     return PositionOut(
         trade_id=lp.trade_id, trade_key=lp.trade_key, label=lp.label,
         ticker=p.ticker, type=p.type, strike=p.strike, expiry=p.expiry,
@@ -60,7 +68,7 @@ def position_out(lp, a, rules: Rules) -> PositionOut:
                       late=lp.plan.late) if lp.plan else None),
         off_plan=lp.off_plan, blown_max_loss=a.blown_max_loss,
         written_max_loss=a.written_max_loss,
-        tags=[TagOut(code=t.code, kind=t.kind, text=t.text) for t in a.tags],
+        tags=[TagOut(code=t.code, kind=t.kind, text=t.text) for t in a.tags] + extra,
         fills=[
             FillOut(
                 side=f.side, qty=f.qty, px=f.px, cash=f.cash, ts=f.ts,
@@ -104,6 +112,8 @@ def pattern_counts(d) -> Counter:
     for lp, a in zip(d.loaded, d.result.positions):
         for t in a.tags:
             c[t.code] += 1
+        for code in excursion_codes(getattr(d, "excursions", {}).get(lp.trade_id)):
+            c[code] += 1
         if lp.off_plan:
             c["off_plan"] += 1
     if d.result.stats.late_fills:
@@ -111,17 +121,50 @@ def pattern_counts(d) -> Counter:
     return c
 
 
-def day_detail(day: date_type, d, rules: Rules, as_of: datetime | None) -> DayDetail:
+def rollup_out(r: ExcursionRollup, *, measured: bool, bars_mode: str | None = None) -> ExcursionRollupOut:
+    return ExcursionRollupOut(
+        measured=measured, n_trades=r.n_trades, n_measured=r.n_measured, n_skipped=r.n_skipped,
+        summary=f"{r.n_measured} measured / {r.n_trades} trades",
+        held_past_stop=HeldPastStopOut(
+            count=r.held_past_stop, recovered=r.recovered, not_recovered=r.not_recovered,
+            not_recovered_cost_usd=r.not_recovered_cost_usd,
+            not_recovered_cost_r=r.not_recovered_cost_r,
+        ),
+        exited_early=ExitedEarlyOut(
+            count=r.exited_early, winners_checked=r.winners_checked,
+            window_minutes=EXITED_EARLY_WINDOW_MIN, threshold_r=EXITED_EARLY_THRESHOLD_R,
+        ),
+        median_drawdown_minutes=r.median_drawdown_minutes, bars_mode=bars_mode,
+    )
+
+
+def excursion_rollup_out(days, bars_mode: str | None = None) -> ExcursionRollupOut:
+    """Rollup over days whose excursions were attached (else an unmeasured placeholder)."""
+    if not days or not all(getattr(d, "excursions_attached", False) for d in days):
+        return ExcursionRollupOut()
+    facts = [f for d in days for f in d.excursions.values()]
+    n_closed = sum(1 for d in days for a in d.result.positions if a.closed)
+    return rollup_out(rollup_excursions(facts, n_closed), measured=True, bars_mode=bars_mode)
+
+
+def day_detail(
+    day: date_type, d, rules: Rules, as_of: datetime | None, bars_mode: str | None = None
+) -> DayDetail:
     start, end = window_bounds(rules, day)
+    rollup = excursion_rollup_out([d], bars_mode)
     return DayDetail(
         tz=rules.timezone, as_of=as_of, date=day,
         window=window_out(start, end, rules),
         daily_stop=rules.daily_stop, daily_target=rules.daily_target,
         stats=stats_out(d.result.stats, rules),
-        positions=[position_out(lp, a, rules) for lp, a in zip(d.loaded, d.result.positions)],
+        positions=[
+            position_out(lp, a, rules, d.excursions.get(lp.trade_id))
+            for lp, a in zip(d.loaded, d.result.positions)
+        ],
         fields=d.fields, plans=d.plans, plans_not_taken=d.plans_not_taken,
         off_plan_count=d.off_plan_count, size_written_first=d.size_written_first,
         blown_max_loss=d.blown_max_loss,
+        excursion_rollup=rollup,
         lessons=[
             LessonLinkOut(**x)
             for x in desk_lessons.lessons_for(pattern_counts(d), rules, d.engine)
@@ -129,7 +172,9 @@ def day_detail(day: date_type, d, rules: Rules, as_of: datetime | None) -> DayDe
     )
 
 
-def patterns_response(rules: Rules, a, days, d_from, d_to, as_of) -> PatternsResponse:
+def patterns_response(
+    rules: Rules, a, days, d_from, d_to, as_of, bars_mode: str | None = None
+) -> PatternsResponse:
     biggest = None
     if days:
         top = max(days, key=lambda d: d.result.stats.max_risk)
@@ -148,14 +193,21 @@ def patterns_response(rules: Rules, a, days, d_from, d_to, as_of) -> PatternsRes
         RecurringLesson(**x, days=day_count[x["pattern"]], positions=positions[x["pattern"]])
         for x in desk_lessons.lessons_for(recurring, rules, engine)
     ]
+    rollup = excursion_rollup_out(days, bars_mode)
+    tag_counts = dict(a.tag_counts)
+    if rollup.measured:
+        for code in EXCURSION_PATTERN_CODES:
+            if positions[code]:
+                tag_counts[code] = positions[code]
     return PatternsResponse(
+        excursion_rollup=rollup,
         lessons=lessons,
         tz=rules.timezone, as_of=as_of, date_from=d_from, date_to=d_to,
         days=a.days, net=a.net, realized_before_fees=a.realized_before_fees, fees=a.fees,
         green_days=a.green_days, green_sum=a.green_sum,
         red_days=a.red_days, red_sum=a.red_sum, n_closed=a.n_closed, n_wins=a.n_wins,
         n_losses=a.n_losses, win_pct=a.win_pct, avg_win=a.avg_win, avg_loss=a.avg_loss,
-        rr=a.rr, break_even_win_pct=a.break_even_win_pct, tag_counts=a.tag_counts,
+        rr=a.rr, break_even_win_pct=a.break_even_win_pct, tag_counts=tag_counts,
         late_days=a.late_days, late_fills=a.late_fills, stops=stops_out(a.stops),
         biggest_risk=biggest,
     )

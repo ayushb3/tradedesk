@@ -25,9 +25,13 @@ rules:
   - {number: 9, text: "Rule 9: example rule text"}
 # Pattern -> lessons that address it. Keys are ledger tag codes (added_lower,
 # held_loser, gave_back, runner_paid, stop_risk, late_fill, overnight, off_plan,
-# blown_max_loss, ...). The ids below are made up; put real lesson ids in data/rules.yaml.
+# blown_max_loss, held_past_stop, exited_early, ...). The ids below are made up; put real lesson ids in data/rules.yaml.
 lessons:
   added_lower:
     - {lesson_id: "ex-1", reason: "Example reason: why this lesson fits the pattern"}
   gave_back:
     - {lesson_id: "ex-2", reason: "Example reason: another one-line note"}
+  held_past_stop:
+    - {lesson_id: "ex-3", reason: "Example reason: a note on holding through the stop line"}
+  exited_early:
+    - {lesson_id: "ex-4", reason: "Example reason: a note on exits that left room"}

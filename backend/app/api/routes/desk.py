@@ -7,10 +7,26 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.desk import days as desk_days
 from app.desk import serialize
+from app.config import get_settings
+from app.ingest.excursion_rollup import attach_excursions
 from app.desk.rules import TZ_NAME, Rules, load_rules
 from app.models.desk import DayDetail, DaysResponse, LineResponse, PatternsResponse
 
 router = APIRouter(tags=["desk"])
+
+
+def _excursions(days, rules: Rules) -> str:
+    """Attach excursion facts (#52); returns the bars mode. Mock settings use the
+    deterministic mock provider (nothing cached); otherwise cached bars only, so these
+    read routes never call a provider."""
+    settings = get_settings()
+    if settings.mode == "mock":
+        from app.providers.mock import MockProvider
+
+        attach_excursions(days, rules, MockProvider(settings), None, "mock")
+        return "mock"
+    attach_excursions(days, rules, None, None, "cache")
+    return "cache"
 
 
 def _rules() -> Rules:
@@ -38,7 +54,8 @@ def get_day(day: date_type) -> DayDetail:
     d = desk_days.get_day(day, rules)
     if d is None:
         raise HTTPException(status_code=404, detail=f"no trades or day fields for {day}")
-    return serialize.day_detail(day, d, rules, desk_days.as_of())
+    mode = _excursions([d], rules)
+    return serialize.day_detail(day, d, rules, desk_days.as_of(), mode)
 
 
 @router.get("/patterns", response_model=PatternsResponse)
@@ -47,7 +64,8 @@ def get_patterns(
     to: date_type | None = Query(None),
 ) -> PatternsResponse:
     rules, a, days = desk_days.patterns(from_, to, _rules())
-    return serialize.patterns_response(rules, a, days, from_, to, desk_days.as_of())
+    mode = _excursions(days, rules)
+    return serialize.patterns_response(rules, a, days, from_, to, desk_days.as_of(), mode)
 
 
 @router.get("/line", response_model=LineResponse)
