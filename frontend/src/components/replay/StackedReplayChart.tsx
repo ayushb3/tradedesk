@@ -23,7 +23,9 @@ import {
   type Domain,
   floorMinute,
   revealedFillTime,
+  spreadLabels,
 } from "@/lib/stackedReplay";
+import { EMA_GREYS } from "@/lib/stackIndicators";
 
 // Keep in sync with the tokens in index.css (lightweight-charts needs literal colors).
 const THEME = {
@@ -45,6 +47,10 @@ export interface PaneSpec {
   candles: Candle[];
   /** Optional causal VWAP keyed by minute (epoch seconds). */
   vwap?: Map<number, number>;
+  /** Causal level values at the playhead, drawn as thin lines with in-pane labels. */
+  levels?: { label: string; price: number }[];
+  /** Optional EMAs (grey), each keyed by minute. */
+  emas?: { label: string; values: Map<number, number> }[];
   badge?: React.ReactNode;
 }
 
@@ -77,9 +83,23 @@ interface Layout {
   entryX: number | null;
   exitX: number | null;
   stopY: number | null;
+  height: number;
+  levelYs: { label: string; price: number; y: number }[];
 }
 
-const EMPTY_LAYOUT: Layout = { width: 0, playX: null, entryX: null, exitX: null, stopY: null };
+const EMPTY_LAYOUT: Layout = {
+  width: 0,
+  playX: null,
+  entryX: null,
+  exitX: null,
+  stopY: null,
+  height: 0,
+  levelYs: [],
+};
+
+/** Level lines are neutral slate; indicators never use the meaning hues. */
+const LEVEL_COLOR = "#64748b";
+const LEVEL_LABEL_GAP = 16;
 
 const hm = new Intl.DateTimeFormat("en-US", {
   timeZone: DISPLAY_TZ,
@@ -93,6 +113,8 @@ interface PaneRuntime {
   chart: IChartApi;
   series: ISeriesApi<"Candlestick">;
   vwap: ISeriesApi<"Line">;
+  emas: ISeriesApi<"Line">[];
+  levelLines: IPriceLine[];
 }
 
 /**
@@ -209,7 +231,17 @@ export function StackedReplayChart({
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null, // never part of the fixed domain
       });
-      return { chart, series, vwap };
+      const emas = EMA_GREYS.map((color) =>
+        chart.addLineSeries({
+          color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          autoscaleInfoProvider: () => null,
+        }),
+      );
+      return { chart, series, vwap, emas, levelLines: [] };
     };
 
     const topPane = topEl.current ? make(topEl.current, "top", false) : null;
@@ -276,6 +308,28 @@ export function StackedReplayChart({
             .map((t) => ({ time: t, value: spec.vwap!.get(t) as number }))
         : [];
       rt.vwap.setData(line);
+      rt.emas.forEach((s, i) => {
+        const e = spec.emas?.[i];
+        s.setData(
+          e
+            ? timeline
+                .filter((t) => t <= playheadSec && e.values.has(t))
+                .map((t) => ({ time: t, value: e.values.get(t) as number }))
+            : [],
+        );
+      });
+      // Level lines: thin dashed, no axis tag (labels are drawn inside the pane).
+      for (const l of rt.levelLines) rt.series.removePriceLine(l);
+      rt.levelLines = (spec.levels ?? []).map((lv) =>
+        rt.series.createPriceLine({
+          price: lv.price,
+          color: LEVEL_COLOR,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: "",
+        }),
+      );
     };
     if (p.top && top) feed(p.top, top);
     feed(p.bottom, bottom);
@@ -360,13 +414,18 @@ export function StackedReplayChart({
   useEffect(() => {
     const p = panes.current;
     if (!p) return;
-    const measure = (rt: PaneRuntime | null): Layout => {
+    const measure = (rt: PaneRuntime | null, spec: PaneSpec | null): Layout => {
       if (!rt) return EMPTY_LAYOUT;
       const ts = rt.chart.timeScale();
       const x = (sec: number | null) =>
         sec === null ? null : (ts.timeToCoordinate(sec as UTCTimestamp) as number | null);
       return {
         width: ts.width(),
+        height: (rt === p.top ? topEl.current : bottomEl.current)?.clientHeight ?? 0,
+        levelYs: (spec?.levels ?? []).flatMap((lv) => {
+          const y = rt.series.priceToCoordinate(lv.price) as number | null;
+          return y === null ? [] : [{ label: lv.label, price: lv.price, y }];
+        }),
         playX: x(playheadSec),
         entryX: x(entrySec),
         exitX: x(exitSec),
@@ -376,8 +435,8 @@ export function StackedReplayChart({
             : null,
       };
     };
-    setLayouts({ top: measure(p.top), bottom: measure(p.bottom) });
-  }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, hasTop]);
+    setLayouts({ top: measure(p.top, top), bottom: measure(p.bottom, bottom) });
+  }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, hasTop, top, bottom]);
 
   // ---- dragging the stop ---------------------------------------------------------
   const priceAtPointer = (e: React.PointerEvent): number | null => {
@@ -507,6 +566,20 @@ function Pane({
           </div>
         )}
         {playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
+        {spreadLabels(layout.levelYs, LEVEL_LABEL_GAP, layout.height).map((lv) => (
+          <span
+            key={lv.label}
+            className="num absolute right-1 -translate-y-1/2 rounded bg-card/80 px-1 text-label text-grey"
+            style={{ top: lv.labelY }}
+          >
+            {lv.label} {lv.price.toFixed(2)}
+          </span>
+        ))}
+        {spec.emas && spec.emas.length > 0 && (
+          <span className="num absolute bottom-1 right-1 rounded bg-card/80 px-1 text-label text-grey">
+            {spec.emas.map((e) => e.label).join(" ")}
+          </span>
+        )}
         {overlay}
       </div>
       {/* Header + OHLC readout for the hovered (or playhead) minute. */}

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
  * no-lookahead guarantee across the whole UI.
  */
 
-export type Speed = 0.5 | 1 | 2 | 5 | 10 | "max";
+export type Speed = 0.5 | 1 | 2 | 4 | 5 | 10 | "max";
 
 export const SPEEDS: readonly Speed[] = [0.5, 1, 2, 5, 10, "max"] as const;
 

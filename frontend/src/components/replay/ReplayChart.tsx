@@ -30,8 +30,8 @@ const CHART_THEME = {
   down: "#ef5350",
 };
 
-/** Colors cycled through for EMA overlays, in order of increasing period. */
-const EMA_COLORS = ["#f5a623", "#4f9dff", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
+/** Greys for EMA overlays (opt-in), in order of increasing period. */
+const EMA_COLORS = ["#d4d4d8", "#a1a1aa", "#8b8b93", "#71717a", "#5f5f68", "#4b4b52"];
 
 export interface OverlaySpec {
   key: string; // matches a key in session.indicators, e.g. "ema9"

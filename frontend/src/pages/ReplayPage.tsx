@@ -5,6 +5,9 @@ import { AlertCircle, ServerCrash } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
+import { RuleBar } from "@/components/replay/RuleBar";
+import { TradePicker } from "@/components/replay/TradePicker";
+import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import {
   ReplayChart,
   overlaySpecs,
@@ -18,14 +21,25 @@ import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import {
+  useDeskDay,
+  useDeskRules,
   useReplayContract,
   useReplaySession,
   useReplayTrade,
   useReplayTradeFills,
+  useTrade,
 } from "@/lib/queries";
+import { ruleBarState } from "@/lib/ruleBar";
+import {
+  DEFAULT_STACK_INDICATORS,
+  EMA_GREYS,
+  LADDERS,
+  type StackIndicators,
+} from "@/lib/stackIndicators";
 import { isInputFocused, useReplay } from "@/lib/useReplay";
 import { useSimSession } from "@/lib/useSimSession";
 import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
+import type { LevelKey } from "@/lib/api";
 import {
   candlesInWindow,
   floorMinute,
@@ -33,19 +47,26 @@ import {
   revealedFillTime,
   spyPaneLabel,
 } from "@/lib/stackedReplay";
-import { DISPLAY_TZ_LABEL } from "@/lib/format";
+import { DISPLAY_TZ_LABEL, formatClock } from "@/lib/format";
 import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
 import { ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
 
-const DEFAULT_SYMBOL = "AAPL";
-const DEFAULT_DATE = "2026-07-01";
+/** Free replay starts on SPY and the most recent weekday; there is no stored default. */
+const FREE_SYMBOL = "SPY";
+function previousWeekday(): string {
+  const d = new Date();
+  do d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export function ReplayPage() {
-  const [symbol, setSymbol] = useState<string>(DEFAULT_SYMBOL);
-  const [date, setDate] = useState<string>(DEFAULT_DATE);
+  const [symbol, setSymbol] = useState<string>(FREE_SYMBOL);
+  const [date, setDate] = useState<string>(previousWeekday);
+  const [stackInd, setStackInd] = useState<StackIndicators>(DEFAULT_STACK_INDICATORS);
   const [config, setConfig] = useState<ReplayConfig>(DEFAULT_REPLAY_CONFIG);
   const [trades, setTrades] = useState<SimTrade[]>([]);
 
@@ -54,6 +75,9 @@ export function ReplayPage() {
   const tradeParam = Number(params.get("trade"));
   const tradeId = Number.isInteger(tradeParam) && tradeParam > 0 ? tradeParam : null;
   const lead = Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
+  // No trade: a picker of recent trades, or (behind a link) symbol + date.
+  const freeMode = tradeId === null && params.get("mode") === "symbol";
+  const picking = tradeId === null && !freeMode;
 
   const freeSession = useReplaySession({
     symbol,
@@ -62,9 +86,12 @@ export function ReplayPage() {
     emaPeriods: config.emaPeriods,
     rsiPeriod: config.rsiPeriod,
     orMinutes: config.orMinutes,
-    enabled: tradeId === null,
+    enabled: freeMode,
   });
   const tradeReplay = useReplayTrade(tradeId, lead);
+  const tradeRow = useTrade(tradeId);
+  const deskRules = useDeskRules();
+  const deskDay = useDeskDay(tradeRow.data?.session_date ?? null);
 
   // Trade mode: contract premium (top) stacked over SPY (bottom). The old
   // Underlying|Contract toggle and its `view` param are gone; a stale `view`
@@ -105,7 +132,21 @@ export function ReplayPage() {
     const contractCandles = hasContract
       ? candlesInWindow(contractData!.candles, startSec, endSec)
       : null;
-    return { spyCandles, vwap, contractCandles };
+    // EMAs (opt-in, grey): one minute-keyed map per period present.
+    const emas = Object.keys(tradeSession.indicators)
+      .filter((k) => /^ema\d+$/.test(k))
+      .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))
+      .slice(0, EMA_GREYS.length)
+      .map((k) => {
+        const series = tradeSession.indicators[k as keyof typeof tradeSession.indicators];
+        const values = new Map<number, number>();
+        tradeSession.candles.forEach((c, i) => {
+          const v = series?.[i];
+          if (v != null && !Number.isNaN(v)) values.set(floorMinute(isoToUtcSeconds(c.ts)), v);
+        });
+        return { label: k.toUpperCase(), values };
+      });
+    return { spyCandles, vwap, emas, contractCandles };
   }, [tradeSession, startSec, endSec, hasContract, contractData]);
 
   const spyLabel = spyPaneLabel(
@@ -150,6 +191,28 @@ export function ReplayPage() {
 
   const playheadTs = inTrade && data ? (data.candles[replay.currentIndex]?.ts ?? null) : null;
   const playheadSec = playheadTs ? floorMinute(isoToUtcSeconds(playheadTs)) : startSec;
+
+  // SPY pane: VWAP plus one level ladder by default; EMAs opt-in. Levels are the
+  // causal value at the playhead bar, never a later one.
+  const spyPane = useMemo(() => {
+    if (!tradeSession || !windowed) return null;
+    let idx = -1;
+    for (let i = 0; i < tradeSession.candles.length; i++) {
+      if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > playheadSec) break;
+      idx = i;
+    }
+    const levels = LADDERS[stackInd.ladder].levels.flatMap((l: { key: LevelKey; label: string }) => {
+      const v = valueAt(tradeSession.levels[l.key], idx);
+      return v == null ? [] : [{ label: l.label, price: v }];
+    });
+    return {
+      label: spyLabel,
+      candles: windowed.spyCandles,
+      vwap: stackInd.vwap ? windowed.vwap : undefined,
+      levels,
+      emas: stackInd.ema ? windowed.emas : undefined,
+    };
+  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel]);
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
   const windowEndTs = fillsQuery.data?.window_end_ts ?? null;
   useEffect(() => {
@@ -250,27 +313,63 @@ export function ReplayPage() {
     setTrades([]);
   }
 
-  // Trade mode: the header shows the trade's symbol and session date, not the
-  // free-replay defaults.
-  const shownSymbol = inTrade ? (tradeReplay.data?.session.symbol ?? "…") : symbol;
-  const shownDate = inTrade ? (tradeReplay.data?.session.session_date ?? date) : date;
+  // Trade mode header: the contract and the trade's session date.
+  const tradeContract =
+    tradeRow.data?.contract_label ?? contractData?.symbol ?? tradeReplay.data?.session.symbol ?? "…";
+  const tradeDate = tradeRow.data?.session_date ?? tradeReplay.data?.session.session_date ?? "";
+  const bar = useMemo(
+    () =>
+      ruleBarState({
+        rules: deskRules.data,
+        day: deskDay.data,
+        tradeId: tradeId ?? 0,
+        entryTs: tradeRow.data?.open_ts ?? null,
+      }),
+    [deskRules.data, deskDay.data, tradeId, tradeRow.data?.open_ts],
+  );
+  const setLead = (l: number) => setParams({ trade: String(tradeId), lead: String(l) });
+
+  if (picking) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <TradePicker onSymbolMode={() => setParams({ mode: "symbol" })} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <ReplayToolbar
-        symbol={shownSymbol}
-        onSymbolChange={inTrade ? () => {} : setSymbol}
-        date={shownDate}
-        onDateChange={inTrade ? () => {} : setDate}
-        controls={
-          <TradeReplayPicker
-            tradeId={tradeId}
+      {inTrade ? (
+        <>
+          <TradeReplayBar
+            contract={tradeContract}
+            date={tradeDate}
             lead={lead}
-            onStart={(id, l) => setParams({ trade: String(id), lead: String(l) })}
-            onClear={() => setParams({})}
+            onLeadChange={setLead}
+            clock={playheadTs ? formatClock(playheadTs) : null}
+            replay={replay}
+            disabled={!ready}
+            onExit={() => setParams({})}
           />
-        }
-      />
+          <RuleBar state={bar} loading={deskRules.isLoading || deskDay.isLoading || tradeRow.isLoading} />
+        </>
+      ) : (
+        <ReplayToolbar
+          symbol={symbol}
+          onSymbolChange={setSymbol}
+          date={date}
+          onDateChange={setDate}
+          controls={
+            <button
+              type="button"
+              className="text-label text-muted-foreground underline-offset-4 hover:underline"
+              onClick={() => setParams({})}
+            >
+              Replay a trade instead
+            </button>
+          }
+        />
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">
@@ -288,8 +387,8 @@ export function ReplayPage() {
           {!isLoading && !isError && data && replay.total === 0 && (
             <EmptyState symbol={symbol} date={date} />
           )}
-          {ready && inTrade && windowed && (
-            <div className="absolute inset-x-0 bottom-20 top-0">
+          {ready && inTrade && windowed && spyPane && (
+            <div className="absolute inset-x-0 bottom-16 top-0">
               <StackedReplayChart
                 top={
                   windowed.contractCandles
@@ -300,7 +399,7 @@ export function ReplayPage() {
                       }
                     : null
                 }
-                bottom={{ label: spyLabel, candles: windowed.spyCandles, vwap: windowed.vwap }}
+                bottom={spyPane}
                 startSec={startSec}
                 endSec={endSec}
                 playheadSec={playheadSec}
@@ -328,14 +427,24 @@ export function ReplayPage() {
               />
             </>
           )}
-          <ReplayControlBar
-            replay={replay}
-            disabled={!ready}
-            config={config}
-            onConfigChange={setConfig}
-            indicators={data?.indicators}
-            marks={marks}
-          />
+          {inTrade ? (
+            <TradeScrubber
+              replay={replay}
+              disabled={!ready}
+              marks={marks}
+              indicators={stackInd}
+              onIndicatorsChange={setStackInd}
+            />
+          ) : (
+            <ReplayControlBar
+              replay={replay}
+              disabled={!ready}
+              config={config}
+              onConfigChange={setConfig}
+              indicators={data?.indicators}
+              marks={marks}
+            />
+          )}
         </div>
 
         <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border md:block">
@@ -382,57 +491,6 @@ export function ReplayPage() {
   );
 }
 
-function TradeReplayPicker({
-  tradeId,
-  lead,
-  onStart,
-  onClear,
-}: {
-  tradeId: number | null;
-  lead: number;
-  onStart: (id: number, lead: number) => void;
-  onClear: () => void;
-}) {
-  const [idText, setIdText] = useState(tradeId !== null ? String(tradeId) : "");
-  const [leadText, setLeadText] = useState(String(lead));
-  const id = Number(idText);
-  const valid = Number.isInteger(id) && id > 0;
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <label htmlFor="replay-trade-id">Replay my trade</label>
-      <input
-        id="replay-trade-id"
-        className="tabular h-8 w-20 rounded-md border border-border bg-transparent px-2"
-        placeholder="trade id"
-        inputMode="numeric"
-        value={idText}
-        onChange={(e) => setIdText(e.target.value)}
-      />
-      <input
-        aria-label="Lead minutes"
-        className="tabular h-8 w-14 rounded-md border border-border bg-transparent px-2"
-        inputMode="numeric"
-        value={leadText}
-        onChange={(e) => setLeadText(e.target.value)}
-      />
-      <span className="text-muted-foreground">min before</span>
-      <button
-        type="button"
-        disabled={!valid}
-        className="h-8 rounded-md border border-border px-2 disabled:opacity-50"
-        onClick={() => onStart(id, Math.min(240, Math.max(0, Number(leadText) || 0)))}
-      >
-        Start
-      </button>
-      {tradeId !== null && (
-        <button type="button" className="h-8 px-2 text-muted-foreground" onClick={onClear}>
-          Exit
-        </button>
-      )}
-    </div>
-  );
-}
-
 function ChartLegend({
   session,
   currentIndex,
@@ -452,12 +510,12 @@ function ChartLegend({
   const showRsi = !visibility.rsiHidden && rKey != null;
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-xs backdrop-blur">
+    <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-label backdrop-blur">
       <span className="font-semibold tracking-tight">{session.symbol}</span>
       {session.meta.source_label && (
         <span className="text-muted-foreground">{session.meta.source_label}</span>
       )}
-      <span className="tabular text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
+      <span className="num text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {specs.map((o) => {
           const v = valueAt(session.indicators[o.key as IndicatorKey], currentIndex);
@@ -522,49 +580,24 @@ function EmptyState({ symbol, date }: { symbol: string; date: string }) {
 function ChartError({ error }: { error: unknown }) {
   const status = error instanceof ApiError ? error.status : undefined;
   const isBackendDown = status === 0;
-  const notImplemented = status === 501 || status === 404;
   const message =
     error instanceof ApiError
       ? error.detail || error.message
       : error instanceof Error
         ? error.message
-        : "Something went wrong loading the replay session.";
+        : "Something went wrong loading the replay.";
 
   return (
     <div className="absolute inset-0 flex items-center justify-center p-6">
-      <Alert variant={notImplemented ? "default" : "destructive"} className="max-w-md">
+      <Alert variant="destructive" className="max-w-md">
         {isBackendDown ? (
           <ServerCrash className="h-4 w-4" />
         ) : (
           <AlertCircle className="h-4 w-4" />
         )}
-        <AlertTitle>
-          {isBackendDown
-            ? "Backend not running"
-            : notImplemented
-              ? "Replay endpoint not ready yet"
-              : "Couldn't load session"}
-        </AlertTitle>
+        <AlertTitle>{isBackendDown ? "Cannot reach the server" : "Could not load the replay"}</AlertTitle>
         <AlertDescription>
-          {isBackendDown ? (
-            <>
-              Start it with{" "}
-              <code className="tabular rounded bg-muted px-1 py-0.5">
-                make backend
-              </code>{" "}
-              (expects <span className="tabular">http://localhost:9000</span>).
-            </>
-          ) : notImplemented ? (
-            <>
-              <code className="tabular rounded bg-muted px-1 py-0.5">
-                /api/replay/session
-              </code>{" "}
-              isn't implemented on the backend yet. The chart will light up once
-              the quant service lands this endpoint.
-            </>
-          ) : (
-            message
-          )}
+          {isBackendDown ? "Check that the app server is running, then reload." : message}
         </AlertDescription>
       </Alert>
     </div>

@@ -961,6 +961,29 @@ function toQuery(
   return qs.toString();
 }
 
+/** GET /api/rules: only the fields the Replay rule bar reads. */
+export interface DeskRules {
+  window: { start: string; end: string };
+  daily_stop: number;
+  daily_target: number;
+}
+
+/** One position of GET /api/days/{date}: only the fields the Replay rule bar reads. */
+export interface DeskDayPosition {
+  trade_id: number;
+  status: string;
+  pnl: number | null;
+  fills: { side: string; ts: string }[];
+  plan: { caller: string } | null;
+}
+
+/** GET /api/days/{date}. The whole day comes back; the UI must filter by time. */
+export interface DeskDay {
+  date: string;
+  positions: DeskDayPosition[];
+  fields: { callers: string[] } | null;
+}
+
 export const api = {
   health(): Promise<Health> {
     return request<Health>("/health");
@@ -1028,6 +1051,14 @@ export const api = {
 
   tradeExcursions(id: number | string): Promise<TradeExcursions> {
     return request<TradeExcursions>(`/trades/${id}/excursions`);
+  },
+
+  deskRules(): Promise<DeskRules> {
+    return request<DeskRules>("/rules");
+  },
+
+  deskDay(date: string): Promise<DeskDay> {
+    return request<DeskDay>(`/days/${date}`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

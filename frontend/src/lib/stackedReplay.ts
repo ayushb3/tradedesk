@@ -137,3 +137,28 @@ export function spyPaneLabel(symbol: string, sourceLabel?: string | null): strin
   }
   return symbol;
 }
+
+/**
+ * Spread axis labels so none overlap: sorted by y, each at least `gap` px below
+ * the one above, pushed back up from the bottom edge if needed. Labels that sit
+ * outside [0, height] are dropped. Returns the label y (centre) in px.
+ */
+export function spreadLabels<T extends { y: number }>(
+  items: T[],
+  gap: number,
+  height: number,
+): (T & { labelY: number })[] {
+  const inside = items
+    .filter((it) => it.y >= 0 && it.y <= height)
+    .sort((a, b) => a.y - b.y)
+    .map((it) => ({ ...it, labelY: it.y }));
+  for (let i = 1; i < inside.length; i++) {
+    inside[i].labelY = Math.max(inside[i].labelY, inside[i - 1].labelY + gap);
+  }
+  const maxY = height - gap / 2;
+  for (let i = inside.length - 1; i >= 0; i--) {
+    const limit = i === inside.length - 1 ? maxY : inside[i + 1].labelY - gap;
+    inside[i].labelY = Math.min(inside[i].labelY, limit);
+  }
+  return inside;
+}
