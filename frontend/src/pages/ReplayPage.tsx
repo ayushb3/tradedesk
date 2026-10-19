@@ -15,7 +15,7 @@ import {
   type ChartVisibility,
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
-import { StackedReplayChart } from "@/components/replay/StackedReplayChart";
+import { PriceChart } from "@/components/chart/PriceChart";
 import { RealTradeCard } from "@/components/replay/RealTradeCard";
 import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
@@ -378,7 +378,7 @@ export function ReplayPage() {
           )}
           {ready && inTrade && windowed && spyPane && (
             <div className="absolute inset-x-0 bottom-16 top-0">
-              <StackedReplayChart
+              <PriceChart
                 top={
                   windowed.contractCandles
                     ? {
@@ -392,6 +392,7 @@ export function ReplayPage() {
                 startSec={startSec}
                 endSec={endSec}
                 playheadSec={playheadSec}
+                mode={{ kind: "replay" }}
                 stopPrice={windowed.contractCandles ? simPos.stop : null}
                 stopAssumed={simPos.stopAssumed}
                 avgPrice={windowed.contractCandles && simPos.qty > 0 ? simPos.avg : null}

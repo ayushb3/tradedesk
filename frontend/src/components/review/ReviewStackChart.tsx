@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
-import { StackedReplayChart, type PaneSpec } from "@/components/replay/StackedReplayChart";
+import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,7 +21,7 @@ interface Props {
 }
 
 /**
- * Trade review chart: the Replay page's stacked contract-over-SPY chart as a static view.
+ * Trade review chart: the shared PriceChart (the same one Replay uses) in its review mode.
  * x-range runs 15 min before entry to 30 min after exit, the hold is shaded, the written stop
  * is the amber line, and the bars after the exit are grey behind a toggle. This is post-trade,
  * so the exit is visible (Replay never shows it early).
@@ -93,6 +93,9 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
   const loading = session.isLoading || (hasOption && contract.isLoading);
   const exitSec = view?.exitSec ?? null;
   const bound = view ? revealBound(view.endSec, exitSec, showAfterExit) : 0;
+  // With the after-exit bars hidden the window stops just past the exit (no dead right side);
+  // "Show after exit" brings back the full exit + 30 min window.
+  const chartEnd = view ? (showAfterExit || exitSec === null ? view.endSec : Math.min(view.endSec, exitSec + 3 * 60)) : 0;
   const note =
     hasOption && !contract.isLoading && !hasContract
       ? (contractData?.reason ?? (contract.isError ? "option bars could not be loaded" : "option bars unavailable"))
@@ -115,7 +118,6 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
           <span>Times in {DISPLAY_TZ_LABEL}</span>
         </span>
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-label text-muted-foreground">Ctrl or Cmd + scroll to zoom · double-click to reset</span>
           {exitSec !== null && (
             <button
               type="button"
@@ -142,7 +144,7 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
         </Alert>
       )}
 
-      <div className="h-[520px] rounded-lg border border-border bg-background/40 p-1">
+      <div className="h-[580px] rounded-lg border border-border bg-background/40 p-1">
         {loading ? (
           <Skeleton className="h-full w-full" />
         ) : session.isError || !view || !bottom ? (
@@ -157,16 +159,17 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
             </Alert>
           </div>
         ) : (
-          <StackedReplayChart
+          <PriceChart
             top={top}
             bottom={bottom}
             startSec={view.startSec}
-            endSec={view.endSec}
+            endSec={chartEnd}
             playheadSec={bound}
             stopPrice={top ? (contractData?.stop_price ?? null) : null}
             stopAssumed={contractData?.stop_assumed}
             fills={replayFills}
-            staticView={{ exitSec }}
+            mode={{ kind: "review", exitSec }}
+            noDataAfterSec={view.noDataAfterSec}
           />
         )}
       </div>
