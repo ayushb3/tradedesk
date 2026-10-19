@@ -3,7 +3,7 @@
  * Run: npm run check:sim
  */
 import type { DeskDayDetail, DeskPosition, RuleResult } from "./api";
-import { clockPt, dayVerdict, linePoints, tradeBands, tradeRows } from "./dayPage";
+import { clockPt, dayVerdict, linePoints, ptWallToMs, stripWindow, tradeBands, tradeRows } from "./dayPage";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -144,6 +144,22 @@ eq(
   linePoints([{ ms: 0, close: 5 }, { ms: 10, close: 5 }], 10, 10, 0, 10),
   "0.0,10.0 10.0,10.0",
 );
+
+// Session strip window (synthetic date; PDT in October, PST in January).
+eq("PDT open", new Date(ptWallToMs("2026-10-14", "06:30")).toISOString(), "2026-10-14T13:30:00.000Z");
+eq("PST open", new Date(ptWallToMs("2026-01-14", "06:30")).toISOString(), "2026-01-14T14:30:00.000Z");
+eq("PDT close", new Date(ptWallToMs("2026-10-14", "13:00")).toISOString(), "2026-10-14T20:00:00.000Z");
+{
+  const inside = pos(1, "2026-10-14T14:00:00Z", "2026-10-14T14:10:00Z", 5, 1, "written", []);
+  const w1 = stripWindow("2026-10-14", [inside]);
+  eq("strip clips to the regular session", [w1.startMs, w1.endMs], [ptWallToMs("2026-10-14", "06:30"), ptWallToMs("2026-10-14", "13:00")]);
+  const early = pos(2, "2026-10-14T11:00:00Z", "2026-10-14T11:10:00Z", 5, 1, "written", []);
+  const w2 = stripWindow("2026-10-14", [early, inside]);
+  eq("strip widens start for an early trade", w2.startMs, Date.parse("2026-10-14T11:00:00Z") - 5 * 60_000);
+  eq("strip keeps the session end", w2.endMs, ptWallToMs("2026-10-14", "13:00"));
+  const late = pos(3, "2026-10-14T21:00:00Z", "2026-10-14T21:30:00Z", 5, 1, "written", []);
+  eq("strip widens end for a late trade", stripWindow("2026-10-14", [late]).endMs, Date.parse("2026-10-14T21:30:00Z") + 5 * 60_000);
+}
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

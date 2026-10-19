@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { CalendarData } from "@/lib/api";
+import { ruleName, type DayMark } from "@/lib/daysHome";
 import { formatPnl, PNL_GREEN, PNL_RED } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,8 @@ interface PnlCalendarProps {
   onMonthChange: (month: string) => void;
   /** Clicking a day with trades jumps elsewhere (e.g. daily review). */
   onSelectDay?: (date: string) => void;
+  /** Rule state per date: a red dot per broken rule, a red outline on a stop breach. */
+  marks?: Record<string, DayMark>;
 }
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -41,6 +44,7 @@ export function PnlCalendar({
   loading,
   onMonthChange,
   onSelectDay,
+  marks,
 }: PnlCalendarProps) {
   const [y, m] = month.split("-").map(Number);
   const year = y ?? new Date().getUTCFullYear();
@@ -115,7 +119,7 @@ export function PnlCalendar({
             <div className="grid grid-cols-7 gap-1">
               {cells.map((day, i) => {
                 if (day === null)
-                  return <div key={`pad-${i}`} className="aspect-square" />;
+                  return <div key={`pad-${i}`} />;
                 const iso = `${month}-${String(day).padStart(2, "0")}`;
                 const cell = days[iso];
                 return (
@@ -128,6 +132,7 @@ export function PnlCalendar({
                     wins={cell?.wins}
                     losses={cell?.losses}
                     maxAbs={maxAbs}
+                    mark={marks?.[iso]}
                     onSelect={onSelectDay}
                   />
                 );
@@ -148,6 +153,7 @@ function DayCell({
   wins,
   losses,
   maxAbs,
+  mark,
   onSelect,
 }: {
   day: number;
@@ -157,6 +163,7 @@ function DayCell({
   wins: number | undefined;
   losses: number | undefined;
   maxAbs: number;
+  mark?: DayMark;
   onSelect?: (date: string) => void;
 }) {
   const hasTrades = trades != null && trades > 0;
@@ -188,27 +195,42 @@ function DayCell({
       onClick={interactive ? () => onSelect?.(iso) : undefined}
       style={bg ? { backgroundColor: bg } : undefined}
       className={cn(
-        "flex aspect-square flex-col items-start justify-between rounded-md border p-1 text-left transition-colors",
-        hasTrades ? "border-border/60" : "border-transparent",
+        "flex min-h-[4.75rem] flex-col items-start justify-between rounded-md border p-1.5 text-left transition-colors",
+        mark?.stopBreach
+          ? "border-2 border-loss"
+          : hasTrades
+            ? "border-border/60"
+            : "border-transparent",
         interactive ? "cursor-pointer hover:ring-1 hover:ring-ring" : "cursor-default",
       )}
       title={
         hasTrades
-          ? `${iso}: ${formatPnl(pnl)}${wlTooltip}`
+          ? `${iso}: ${formatPnl(pnl)}${wlTooltip}${
+              mark?.stopBreach ? " · broke the daily stop" : ""
+            }${mark?.broken.length ? ` · broken: ${mark.broken.map(ruleName).join(", ")}` : ""}`
           : iso
       }
     >
-      <span
-        className={cn(
-          "text-label tabular",
-          hasTrades ? "text-foreground/90" : "text-muted-foreground",
+      <span className="flex w-full items-center justify-between gap-1">
+        <span
+          className={cn(
+            "text-label tabular",
+            hasTrades ? "text-foreground/90" : "text-muted-foreground",
+          )}
+        >
+          {day}
+        </span>
+        {mark && mark.broken.length > 0 && (
+          <span className="flex items-center gap-0.5" aria-label={`${mark.broken.length} rules broken`}>
+            {mark.broken.map((c) => (
+              <span key={c} className="h-1.5 w-1.5 rounded-full bg-loss" />
+            ))}
+          </span>
         )}
-      >
-        {day}
       </span>
       {hasTrades && (
         <span className="w-full">
-          <span className="tabular block truncate text-label font-medium leading-tight">
+          <span className="num block truncate text-value font-semibold leading-tight">
             {compactPnl(pnl)}
           </span>
           <span className="tabular block text-label leading-tight text-foreground/70">

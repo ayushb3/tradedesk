@@ -18,12 +18,16 @@ import { ApiErrorState, EmptyState } from "@/components/journal/ApiStates";
 import { StatCards } from "@/components/journal/StatCards";
 import { PnlCalendar } from "@/components/journal/PnlCalendar";
 import { Breakdown } from "@/components/journal/Breakdowns";
-import { TradesTable } from "@/components/journal/TradesTable";
+import { GroupedTradesTable } from "@/components/journal/GroupedTradesTable";
+import { RuleScoreboard } from "@/components/days/RuleScoreboard";
+import { PatternsSection } from "@/components/days/PatternsSection";
+import { calendarMarks, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
 import { ApiError, type TradesParams } from "@/lib/api";
 import {
   useAnalyticsBy,
   useAnalyticsCalendar,
   useAnalyticsSummary,
+  useDeskDays,
   useHealth,
   useImportFills,
   useTrades,
@@ -69,6 +73,7 @@ export function JournalPage() {
   const trades = useTrades(params);
   const summary = useAnalyticsSummary(params);
   const calendar = useAnalyticsCalendar(month);
+  const deskDays = useDeskDays();
   const byTicker = useAnalyticsBy("ticker");
   const byTod = useAnalyticsBy("tod");
 
@@ -102,7 +107,18 @@ export function JournalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive]);
 
+  const monthDays = (deskDays.data?.days ?? []).filter((d) => inMonth(d.date, month));
+  const board = ruleScoreboard(monthDays);
+  const marks = calendarMarks(monthDays);
+  const monthName = new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
   const tradeList = trades.data ?? [];
+  const monthTrades = tradeList.filter((t) => inMonth(t.session_date, month));
+  const breaks = ruleBreaks(monthTrades);
   const hasTrades = tradeList.length > 0;
 
   return (
@@ -155,6 +171,8 @@ export function JournalPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex max-w-6xl flex-col gap-4">
+          <RuleScoreboard board={board} label={monthName} />
+
           <StatCards summary={summary.data} loading={summary.isLoading} />
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -164,6 +182,7 @@ export function JournalPage() {
               loading={calendar.isLoading}
               onMonthChange={setMonth}
               onSelectDay={(date) => navigate(`/journal/${date}`)}
+              marks={marks}
             />
             <div className="grid gap-4">
               <Breakdown
@@ -201,7 +220,7 @@ export function JournalPage() {
             ) : trades.isError ? (
               <ApiErrorState error={trades.error} />
             ) : hasTrades ? (
-              <TradesTable
+              <GroupedTradesTable
                 trades={tradeList}
                 onSelect={(id) => navigate(`/trades/${id}`)}
               />
@@ -221,6 +240,8 @@ export function JournalPage() {
               />
             )}
           </section>
+
+          <PatternsSection breaks={breaks} />
         </div>
       </div>
     </div>
