@@ -10,6 +10,7 @@ loss_line:
   amount: 1000
   start_date: 2026-01-01
 default_risk_pct: 30   # percent of premium when no max loss is written
+daily_stop_tolerance_pct: 30   # one trade may take the day this % past the stop before it is a break
 account_size:
   source_path: rh-export/out/account.json
   fallback: 5000

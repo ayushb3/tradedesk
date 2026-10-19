@@ -21,6 +21,11 @@ export interface Verdict {
   chips: VerdictChip[];
 }
 
+function usd(n: number): string {
+  const v = `$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return n < 0 ? `-${v}` : v;
+}
+
 const RULE_LABEL: Record<RuleResult["code"], string> = {
   before_cutoff: "After cutoff",
   daily_stop: "Past the daily stop",
@@ -57,7 +62,8 @@ export function dayVerdict(day: DeskDayDetail): Verdict {
     if (!stop.hit) {
       chips.push({ key: "stop", label: "Daily stop not hit", tone: "kept" });
     } else {
-      const broken = stop.trades_after > 0 || stop.blown_past;
+      const pastTol = !!stop.past_tolerance;
+      const broken = stop.trades_after > 0 || pastTol;
       chips.push({
         key: "stop",
         label: `Daily stop hit ${clockPt(stop.hit_at_pt)}`,
@@ -70,8 +76,15 @@ export function dayVerdict(day: DeskDayDetail): Verdict {
           tone: "broken",
         });
       }
-      if (stop.blown_past) {
-        chips.push({ key: "blown", label: "Blown past the stop", tone: "broken" });
+      const tol = stop.tolerance_pct ?? 0;
+      if (pastTol) {
+        chips.push({
+          key: "blown",
+          label: `Past the ${usd(stop.limit)} stop by more than ${tol}%`,
+          tone: "broken",
+        });
+      } else if (stop.blown_past) {
+        chips.push({ key: "blown", label: `Past the stop, within ${tol}%`, tone: "unknown" });
       }
     }
   }

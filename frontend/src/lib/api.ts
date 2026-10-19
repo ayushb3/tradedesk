@@ -673,7 +673,14 @@ export interface DeskStopResult {
   hit_at_pt?: string | null;
   trades_after: number;
   trade_ids_after: number[];
+  /** The crossing trade left the day strictly past the stop itself. */
   blown_past: boolean;
+  /** rules.daily_stop_tolerance_pct: how far past the stop one trade may take the day. */
+  tolerance_pct?: number;
+  /** limit x (1 + tolerance); past this the crossing trade breaks the rule. */
+  break_limit?: number;
+  /** The crossing trade left the day past break_limit (rule broken). */
+  past_tolerance?: boolean;
 }
 
 /** GET /api/days/{date}: the fields the day page reads. */

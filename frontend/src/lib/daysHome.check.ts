@@ -62,9 +62,14 @@ eq("marks skip clean and empty days", Object.keys(marks), ["2026-10-02", "2026-1
 eq("broken codes in rule order", marks["2026-10-02"].broken, ["before_cutoff", "daily_stop"]);
 eq("stop breach outline", [marks["2026-10-02"].stopBreach, marks["2026-10-04"].stopBreach], [true, false]);
 eq(
-  "blown past the stop is a breach even without the rule row",
-  calendarMarks([day("2026-10-05", -150, 1, [], { blown_past: true })])["2026-10-05"].stopBreach,
+  "past the stop tolerance is a breach even without the rule row",
+  calendarMarks([day("2026-10-05", -150, 1, [], { blown_past: true, past_tolerance: true })])["2026-10-05"].stopBreach,
   true,
+);
+eq(
+  "past the stop but within tolerance is no breach",
+  calendarMarks([day("2026-10-06", -120, 1, [], { blown_past: true, past_tolerance: false })])["2026-10-06"],
+  undefined,
 );
 
 // A position held across two days is booked on its session day, never the exit day.

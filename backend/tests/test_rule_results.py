@@ -160,13 +160,55 @@ def test_daily_stop_hit_and_trades_after():
     assert day.kept is False and "2 trades after" in day.detail
 
 
-def test_daily_stop_blown_past_with_nothing_after_is_broken():
-    # Owner default 2026-10-19: one trade blowing past the stop is itself the break.
-    hit = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.5))], rules())   # -150
-    assert hit.stop.hit and hit.stop.trades_after == 0 and hit.stop.blown_past
-    assert res(hit, "daily_stop", 1).kept is False
+def test_daily_stop_past_tolerance_with_nothing_after_is_broken():
+    # Owner 2026-10-19: one trade taking the day more than 30% past the stop is the break.
+    hit = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.5))], rules())   # -150 < -130
+    s = hit.stop
+    assert s.hit and s.trades_after == 0 and s.blown_past and s.past_tolerance
+    assert s.tolerance_pct == 30 and s.break_limit == approx(-130)
+    crossed = res(hit, "daily_stop", 1)
+    assert crossed.kept is False and "by more than 30%" in crossed.detail
     day = res(hit, "daily_stop")
-    assert day.kept is False and "blown past" in day.detail and "no trades after" in day.detail
+    assert day.kept is False and "more than 30%" in day.detail and "no trades after" in day.detail
+
+
+def test_daily_stop_within_tolerance_is_kept():
+    # -120 with a -100 stop: past the stop (blown_past) but within 30%, nothing after -> kept.
+    d = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.8))], rules())
+    assert d.stop.hit and d.stop.blown_past and not d.stop.past_tolerance
+    assert res(d, "daily_stop", 1).kept is True and "within 30%" in res(d, "daily_stop", 1).detail
+    assert res(d, "daily_stop").kept is True and "within 30%" in res(d, "daily_stop").detail
+    # exactly on the tolerance edge (-130) is still kept
+    edge = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.7))], rules())
+    assert edge.stop.crossed_net == approx(-130) and not edge.stop.past_tolerance
+    assert res(edge, "daily_stop").kept is True
+
+
+def test_daily_stop_within_tolerance_still_broken_by_trades_after():
+    d = rr.evaluate_day(DAY, [
+        ti(1, pos(at(13, 40), 2.0, 0.8)),   # -120: within tolerance
+        ti(2, pos(at(13, 50), 1.0, 1.1)),   # but opened after the hit
+    ], rules())
+    assert not d.stop.past_tolerance and d.stop.trade_ids_after == [2]
+    assert res(d, "daily_stop", 1).kept is True and res(d, "daily_stop", 2).kept is False
+    assert res(d, "daily_stop").kept is False
+
+
+def test_daily_stop_tolerance_is_configurable():
+    strict = rules().model_copy(update={"daily_stop_tolerance_pct": 0})
+    d = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.8))], strict)   # -120, 0% tolerance
+    assert d.stop.past_tolerance and res(d, "daily_stop").kept is False
+    loose = rules().model_copy(update={"daily_stop_tolerance_pct": 60})
+    d = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.5))], loose)    # -150, 60% -> -160
+    assert d.stop.blown_past and not d.stop.past_tolerance and res(d, "daily_stop").kept is True
+
+
+def test_daily_stop_tolerance_validated():
+    from app.desk.rules import validate
+    base = open("rules.example.yaml", encoding="utf-8").read()
+    assert validate(base) == []
+    bad = base.replace("daily_stop_tolerance_pct: 30", "daily_stop_tolerance_pct: 150")
+    assert any("daily_stop_tolerance_pct" in e for e in validate(bad))
 
 
 def test_daily_stop_landing_exactly_on_it_is_kept_and_not_hit_is_kept():

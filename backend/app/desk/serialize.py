@@ -58,6 +58,7 @@ def stop_result_out(s) -> StopResultOut:
         limit=s.limit, hit=s.hit, net=s.net, hit_at=s.hit_at, hit_at_pt=s.hit_at_pt,
         trades_after=s.trades_after, trade_ids_after=list(s.trade_ids_after),
         crossed_by=s.crossed_by, crossed_net=s.crossed_net, blown_past=s.blown_past,
+        tolerance_pct=s.tolerance_pct, break_limit=s.break_limit, past_tolerance=s.past_tolerance,
     )
 
 
