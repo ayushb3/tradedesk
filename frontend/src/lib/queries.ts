@@ -31,6 +31,7 @@ import {
   type KnowledgeModulesResponse,
   type KnowledgeProgressResponse,
   type PatchTradeRequest,
+  type ReplayContract,
   type ReplayFills,
   type ReplaySession,
   type ReplayTrade,
@@ -83,6 +84,15 @@ export function useReplayTrade(tradeId: number | null, leadMinutes: number) {
     queryKey: ["replay-trade", tradeId, leadMinutes],
     queryFn: () => api.replayTrade(tradeId as number, leadMinutes),
     enabled: tradeId !== null,
+  });
+}
+
+/** Contract mode: the trade's own premium bars + stop line (no fills beyond the start). */
+export function useReplayContract(tradeId: number | null, leadMinutes: number, enabled: boolean) {
+  return useQuery<ReplayContract>({
+    queryKey: ["replay-contract", tradeId, leadMinutes],
+    queryFn: () => api.replayTradeContract(tradeId as number, leadMinutes),
+    enabled: enabled && tradeId !== null,
   });
 }
 

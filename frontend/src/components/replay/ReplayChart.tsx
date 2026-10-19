@@ -12,7 +12,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 
-import type { IndicatorKey, LevelKey, ReplaySession, SimTrade } from "@/lib/api";
+import type { IndicatorKey, LevelKey, ReplayFill, ReplaySession, SimTrade } from "@/lib/api";
 import {
   isoToUtcSeconds,
   makeEtFormatters,
@@ -103,6 +103,12 @@ interface ReplayChartProps {
   currentIndex: number;
   trades: SimTrade[];
   visibility?: ChartVisibility;
+  /** Contract mode: horizontal stop line at this premium level. */
+  stopPrice?: number | null;
+  /** Contract mode: fills already revealed by the server (labelled in PT). */
+  fills?: ReplayFill[];
+  /** Contract mode has no RSI; hide the subpane. */
+  hideRsi?: boolean;
 }
 
 /**
@@ -119,6 +125,9 @@ export function ReplayChart({
   currentIndex,
   trades,
   visibility = SHOW_ALL,
+  stopPrice = null,
+  fills = [],
+  hideRsi = false,
 }: ReplayChartProps) {
   const priceRef = useRef<HTMLDivElement>(null);
   const rsiRef = useRef<HTMLDivElement>(null);
@@ -129,6 +138,7 @@ export function ReplayChart({
   const overlayRefs = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const levelLinesRef = useRef<IPriceLine[]>([]);
+  const stopLineRef = useRef<IPriceLine | null>(null);
   const fittedKeyRef = useRef<string | null>(null);
 
   // ---- create charts once -------------------------------------------------
@@ -374,6 +384,30 @@ export function ReplayChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, currentIndex, overlaySignature, visibility]);
 
+  // ---- time axis: shown under the RSI pane, or on the price pane without RSI --
+  useEffect(() => {
+    priceChartRef.current?.applyOptions({ timeScale: { visible: hideRsi } });
+  }, [hideRsi, session.meta.tz]);
+
+  // ---- stop line (Contract mode): one horizontal line at the stop premium --
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current;
+    if (!candleSeries) return;
+    if (stopLineRef.current) {
+      candleSeries.removePriceLine(stopLineRef.current);
+      stopLineRef.current = null;
+    }
+    if (stopPrice == null) return;
+    stopLineRef.current = candleSeries.createPriceLine({
+      price: stopPrice,
+      color: CHART_THEME.down,
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "STOP",
+    });
+  }, [stopPrice, session]);
+
   // ---- trade markers (only for bars already revealed) ---------------------
   useEffect(() => {
     const candleSeries = candleSeriesRef.current;
@@ -410,16 +444,30 @@ export function ReplayChart({
         });
       }
     });
+    // Real fills (Contract mode): the server already withheld future ones; the
+    // cutoff check is a second guard. Labelled with the PT clock time.
+    for (const f of fills) {
+      const time = Math.floor(isoToUtcSeconds(f.ts) / 60) * 60;
+      if (time > cutoff) continue;
+      const isBuy = f.side === "buy";
+      markers.push({
+        time: time as UTCTimestamp,
+        position: isBuy ? "belowBar" : "aboveBar",
+        color: isBuy ? CHART_THEME.up : CHART_THEME.down,
+        shape: isBuy ? "arrowUp" : "arrowDown",
+        text: `${f.role} ${f.qty} @ ${f.price.toFixed(2)} ${f.time_pt}`,
+      });
+    }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     candleSeries.setMarkers(markers);
-  }, [session, currentIndex, trades]);
+  }, [session, currentIndex, trades, fills]);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div ref={priceRef} className="min-h-0 flex-1" />
       <div
         ref={rsiRef}
-        className="h-32 shrink-0 border-t border-border"
+        className={hideRsi ? "hidden" : "h-32 shrink-0 border-t border-border"}
         aria-label="RSI(14)"
       />
     </div>

@@ -19,6 +19,7 @@ from app.api.deps import provider_dep, settings_dep
 from app.config import Settings
 from app.models.replay import (
     ReplayFill,
+    ReplayContractResponse,
     ReplayFillsResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
@@ -201,4 +202,67 @@ def replay_trade_fills(
     head = _as_utc(playhead)
     return ReplayFillsResponse(
         trade_id=trade_id, playhead=head, fills=revealed_fills(trade_id, head)
+    )
+
+
+@router.get("/replay/trade/{trade_id}/contract", response_model=ReplayContractResponse)
+def replay_trade_contract(
+    trade_id: int,
+    lead_minutes: int = Query(_DEFAULT_LEAD_MINUTES, ge=0, le=_MAX_LEAD_MINUTES),
+    playhead: datetime | None = Query(
+        None, description="Reveal fills at or before this time. Default: the start."
+    ),
+    provider: DataProvider = Depends(provider_dep),
+) -> ReplayContractResponse:
+    """Contract mode: the trade's own option premium 1-min bars, plus the stop
+    line (same `stop_price` and ledger risk as the trade review). Fills keep the
+    server-side playhead gate. When premium bars are unavailable the response
+    has `available=false` and no bars, stop or fills."""
+    from app.analytics.excursions import stop_price
+    from app.desk.rules import load_rules
+    from app.ingest.trade_excursions import UNAVAILABLE, fetch_bars, locate_position
+
+    trade = _load_trade_or_404(trade_id)
+    start_ts = _as_utc(trade.open_ts) - timedelta(minutes=lead_minutes)
+    head = _as_utc(playhead) if playhead is not None else start_ts
+    base = dict(
+        trade_id=trade_id, lead_minutes=lead_minutes, start_ts=start_ts, playhead=head,
+        session_date=trade.session_date,
+    )
+
+    bars, contract, reason = fetch_bars(trade_id, provider)
+    if bars is None or not bars.bars:
+        return ReplayContractResponse(
+            available=False,
+            reason=reason if contract is None else UNAVAILABLE,
+            symbol=contract.descriptor if contract is not None else None,
+            **base,
+        )
+
+    stop = None
+    try:
+        found = locate_position(trade_id, load_rules())
+    except ValueError:  # unreadable rules file: replay still works, without a stop line
+        found = None
+    if found is not None:
+        _, _, a = found
+        if a.avg_in is not None:
+            stop = stop_price(a.avg_in, a.qty_in, a.risk)
+
+    candles = bars.bars
+    start_index = next(
+        (i for i, c in enumerate(candles) if _as_utc(c.ts) >= start_ts),
+        max(len(candles) - 1, 0),
+    )
+    return ReplayContractResponse(
+        available=True,
+        symbol=contract.descriptor,
+        start_index=start_index,
+        candles=candles,
+        stop_price=stop,
+        synthetic=bars.synthetic,
+        estimated=bars.synthetic,
+        method=bars.method,
+        fills=revealed_fills(trade_id, head),
+        **base,
     )
