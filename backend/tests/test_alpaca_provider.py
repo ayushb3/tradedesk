@@ -145,6 +145,32 @@ def test_option_bars_map_and_cache(temp_engine):
     assert len(fake.calls) == 1
 
 
+def test_option_bars_same_day_end_clamped_before_the_delay(temp_engine, monkeypatch):
+    # Reviewing a trade while the session is still open: the request end must sit
+    # before now - 15 min (the free plan 403s on recent or future ends).
+    from datetime import datetime, timedelta, timezone
+
+    from app.providers.alpaca import provider as mod
+
+    now = datetime(2026, 6, 19, 23, 0, tzinfo=timezone.utc)  # 19:00 ET, extended hours
+    monkeypatch.setattr(mod, "_now", lambda: now)
+    seen = {}
+
+    def handler(req):
+        seen["end"] = req.url.params["end"]
+        return httpx.Response(200, json={"bars": {"SPY260619C00600000": [_bar("2026-06-19T19:50:00Z", 0.3)]}})
+
+    bars = _provider(Fake(handler), temp_engine).get_option_bars(OPT, PAST)
+    assert bars and bars[0].open == 0.3
+    end = datetime.fromisoformat(seen["end"].replace("Z", "+00:00"))
+    assert end <= now - timedelta(minutes=15)
+    # before the session has any servable minute: no request, no bars
+    monkeypatch.setattr(mod, "_now", lambda: datetime(2026, 6, 19, 8, 5, tzinfo=timezone.utc))
+    fake = Fake(lambda r: httpx.Response(500))
+    assert _provider(fake, temp_engine).get_option_bars(OPT, date(2026, 6, 18) + timedelta(days=1)) is None
+    assert fake.calls == []
+
+
 def test_option_bars_unavailable_returns_none(temp_engine):
     for status in (403, 404):
         fake = Fake(lambda r, s=status: httpx.Response(s))

@@ -14,7 +14,7 @@ D = "2026-10-14"
 
 
 def test_schema_version_bumped():
-    assert SCHEMA_VERSION == 10
+    assert SCHEMA_VERSION == 11
 
 
 def test_get_missing_returns_none(temp_engine):

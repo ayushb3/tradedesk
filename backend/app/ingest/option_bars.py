@@ -6,10 +6,15 @@ Orchestrates the premium-series data path for one option trade:
         provider bars off the fills' scale, or returns None
                                    ->  BS fallback     (synthetic=True,  "bs_interp")
 
-A provider series is only used verbatim when its median close is on the same
-scale as the trade's recorded fills; otherwise (or when the provider has no
-option-bar source and returns None) we use the fill-anchored Black-Scholes
-fallback, which provably passes through the actual executions.
+A provider series is only used verbatim when it is on the trade's scale AT THE
+FILLS: each fill price must sit inside (with tolerance) the range of the bars
+around that fill's minute. A whole-day comparison is wrong for 0DTE: a contract
+bought for cents near the close traded for dollars in the morning. Otherwise (or
+when the provider has no option-bar source and returns None) we use the
+fill-anchored Black-Scholes fallback, which provably passes through the actual
+executions -- unless the underlying it would price off is on a different scale
+than the strike (an SPX/SPXW contract on the SPY proxy), in which case there is
+no honest synthetic series and the result is "no premium data".
 
 Results are cached into ``option_bars_cache`` keyed by the canonical
 ``contract_key`` + timeframe. Reads are filtered to the trade's session day so a
@@ -18,7 +23,7 @@ chart to the close-date session). Read-only throughout.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from statistics import median
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
@@ -36,16 +41,26 @@ from app.providers.webull.errors import WebullError
 
 UTC = ZoneInfo("UTC")
 
-# A provider's synthesized premium series is only trustworthy if it sits on the
-# same order of magnitude as the trade's recorded fills. When the provider
-# curve's median is more than this multiple away from the fills' median (either
-# direction) we treat it as scale-incompatible and fall back to the
-# fill-anchored BS series, which provably passes through the real executions.
-# This catches gross (orders-of-magnitude) mismatches — e.g. the mock
-# synthesizing a deep-ITM ~7300 curve for an index option struck at 7575 whose
-# random-walk underlying is on an equity (~$260) scale — without disturbing a
-# provider series that merely wandered a little in-the-money.
-_PROVIDER_FILL_SCALE_TOL = 25.0
+# A provider premium series is trusted only if it sits on the fills' scale AT
+# THE FILLS. For each fill we take the provider bars within
+# ``_FILL_WINDOW_MIN`` minutes of the fill's minute; the fill matches when its
+# price lies inside that window's [low / F, high x F] with F =
+# ``_FILL_SCALE_FACTOR``: a scale check (orders of magnitude), not a print
+# match -- thin 0DTE bars and fills a few minutes off a sparse bar still pass.
+# The series is kept when at least half of the judged fills match. Fills with
+# no provider bar nearby are not judged; if no fill can be judged at all the
+# series is not trusted. Catches gross mismatches (a deep-ITM curve for an
+# index option on an equity-scale underlying) without rejecting a real 0DTE
+# series that was dollars in the morning and cents at the fills.
+_FILL_WINDOW_MIN = 3
+_FILL_SCALE_FACTOR = 25.0
+
+# The BS fallback needs the underlying on the strike's scale. An SPX/SPXW
+# contract priced off the SPY proxy (~1/10 of SPX) comes out at its intrinsic
+# value (thousands of dollars). When the provider served the underlying as a
+# labelled proxy (``Candle.source_label``) and its median close / strike falls
+# outside this band -> no synthetic series ("no premium data").
+_UNDERLYING_STRIKE_BAND = (0.5, 2.0)
 
 
 class OptionBars(NamedTuple):
@@ -163,6 +178,8 @@ def _synthetic_fallback(
         underlying = provider.get_candles(contract.underlying, session_day, timeframe)
     except WebullError:
         return None
+    if not _underlying_on_strike_scale(underlying, contract):
+        return None
     if fills is None:
         recorded = get_trade_fills(trade_id, engine=engine)
         fills = [(f.ts, f.price) for f in recorded]
@@ -170,25 +187,52 @@ def _synthetic_fallback(
     return OptionBars(bars=bars, synthetic=True, method="bs_interp")
 
 
-def _provider_series_matches_fills(
-    bars: list[Candle], fill_prices: list[float]
-) -> bool:
-    """True if the provider premium series sits on the fills' price scale.
+def _underlying_on_strike_scale(underlying: list[Candle], contract: OptionContract) -> bool:
+    """False for an index contract whose underlying came back as an off-scale proxy.
 
-    Compares median close to median fill price; a series more than
-    ``_PROVIDER_FILL_SCALE_TOL``x off (either way) is scale-incompatible (e.g.
-    a deep-ITM curve for an index option whose strike dwarfs the mock's
-    equity-scale underlying) and should defer to the fill-anchored fallback.
-    Missing bars or fills → treat as non-matching (prefer the anchored series).
+    An SPXW strike ~7000 on SPY ~700: pricing BS off it yields the option's
+    intrinsic value, not a premium. Only proxied candles (``source_label`` set)
+    are judged; a real underlying, or no candles, -> True.
     """
-    if not bars or not fill_prices:
+    if not any(c.source_label for c in underlying):
+        return True
+    closes = [c.close for c in underlying if c.close and c.close > 0]
+    if not closes or contract.strike <= 0:
+        return True
+    lo, hi = _UNDERLYING_STRIKE_BAND
+    return lo <= median(closes) / contract.strike <= hi
+
+
+def _provider_series_matches_fills(
+    bars: list[Candle], fills: list[tuple[datetime, float]]
+) -> bool:
+    """True if the provider premium series sits on the fills' scale at the fills.
+
+    Judged per fill against the bars within ``_FILL_WINDOW_MIN`` minutes of the
+    fill's minute (bar stamps are bar opens), never against the whole day: a
+    0DTE contract can be dollars at the open and cents at the fills. A fill
+    matches when its price is inside the window's
+    [low / _FILL_SCALE_FACTOR, high x _FILL_SCALE_FACTOR]. Kept when at least half the judged fills match; no bars
+    or no judgeable fill -> not matching (prefer the anchored series).
+    """
+    if not bars or not fills:
         return False
-    fill_med = median(fill_prices)
-    bar_med = median(b.close for b in bars)
-    if fill_med <= 0 or bar_med <= 0:
-        return False
-    ratio = bar_med / fill_med
-    return (1.0 / _PROVIDER_FILL_SCALE_TOL) <= ratio <= _PROVIDER_FILL_SCALE_TOL
+    stamped = [(_as_utc(b.ts), b) for b in bars]
+    reach = timedelta(minutes=_FILL_WINDOW_MIN)
+    judged = matched = 0
+    for ts, price in fills:
+        if price is None or price <= 0:
+            continue
+        minute = _as_utc(ts).replace(second=0, microsecond=0)
+        near = [b for t, b in stamped if minute - reach <= t <= minute + reach]
+        if not near:
+            continue
+        judged += 1
+        lo = min(b.low for b in near) / _FILL_SCALE_FACTOR
+        hi = max(b.high for b in near) * _FILL_SCALE_FACTOR
+        if lo <= price <= hi:
+            matched += 1
+    return judged > 0 and 2 * matched >= judged
 
 
 def get_option_bars_for_trade(
@@ -234,10 +278,9 @@ def get_option_bars_for_trade(
             # the fill-anchored fallback so the curve honors real executions.
             recorded = get_trade_fills(trade_id, engine=engine)
             fill_anchors = [(f.ts, f.price) for f in recorded]
-            fill_prices = [p for _, p in fill_anchors]
             # With no fills to judge against, keep the provider series as-is
             # (nothing to anchor a fallback to anyway).
-            if not fill_prices or _provider_series_matches_fills(bars, fill_prices):
+            if not fill_anchors or _provider_series_matches_fills(bars, fill_anchors):
                 result = OptionBars(bars=bars, synthetic=False, method="provider")
             else:
                 result = _synthetic_fallback(

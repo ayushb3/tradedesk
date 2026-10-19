@@ -44,9 +44,13 @@ def _session_window(day: date) -> tuple[datetime, datetime]:
     )
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 def _is_closed(day: date, now: datetime | None = None) -> bool:
     """True once the whole 04:00-20:00 ET session (plus 15 min SIP delay) is over."""
-    now = (now or datetime.now(UTC)).astimezone(UTC)
+    now = (now or _now()).astimezone(UTC)
     return now >= _session_window(day)[1] + timedelta(minutes=15)
 
 
@@ -169,6 +173,12 @@ class AlpacaProvider:
             return cached
         occ = occ_symbol(contract)
         start, end = _session_window(day)
+        # The free plan answers 403 for any request whose end is inside the latest
+        # 15 minutes (or in the future). Same-day reviews run while the extended
+        # session is still open, so clamp the end to what the plan may serve.
+        end = min(end, _now() - SIP_DELAY - timedelta(minutes=1))
+        if end <= start:
+            return None
         params = {
             "symbols": occ,
             "timeframe": alpaca_timeframe(timeframe),
