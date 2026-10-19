@@ -177,6 +177,8 @@ interface ViewState {
  * played bars with a few percent of padding. In replay the right edge of the view is
  * clamped to the playhead bar.
  */
+const STOP_PREF_KEY = "td.chart.stopLine";
+
 export function PriceChart({
   top,
   bottom,
@@ -184,7 +186,7 @@ export function PriceChart({
   endSec,
   playheadSec,
   mode,
-  stopPrice,
+  stopPrice: stopPriceProp,
   stopAssumed = false,
   avgPrice = null,
   simFills = [],
@@ -193,6 +195,24 @@ export function PriceChart({
   noDataAfterSec = null,
 }: Props) {
   const isReplay = mode.kind === "replay";
+  // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
+  const [showStop, setShowStop] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(STOP_PREF_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const toggleStop = () =>
+    setShowStop((v) => {
+      try {
+        window.localStorage.setItem(STOP_PREF_KEY, v ? "off" : "on");
+      } catch {
+        /* storage blocked: the toggle still works for this view */
+      }
+      return !v;
+    });
+  const stopPrice = showStop ? stopPriceProp : null;
   const reviewExit = mode.kind === "review" ? mode.exitSec : null;
   const topEl = useRef<HTMLDivElement>(null);
   const bottomEl = useRef<HTMLDivElement>(null);
@@ -768,6 +788,21 @@ export function PriceChart({
       <span className="hidden text-label text-muted-foreground xl:inline">
         Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset
       </span>
+      {stopPriceProp != null && (
+        <button
+          type="button"
+          aria-pressed={showStop}
+          onClick={toggleStop}
+          title={showStop ? "Hide the stop line" : "Show the stop line"}
+          className={
+            "flex items-center gap-1 rounded-md border px-2 py-0.5 text-label transition-colors " +
+            (showStop ? "border-stop/60 text-foreground" : "border-border text-muted-foreground hover:bg-muted")
+          }
+        >
+          <span className="inline-block h-0 w-3 border-t-2 border-dashed border-stop" />
+          {stopAssumed ? "Stop (assumed)" : "Stop"}
+        </button>
+      )}
       <button
         type="button"
         aria-label="Zoom out"
