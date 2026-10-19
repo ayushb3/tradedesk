@@ -128,7 +128,8 @@ def test_day_numbers(client):
     assert a["fills"][1]["order_type"] == "stop"
     assert a["fills"][1]["pnl"] == pytest.approx(97.90)
     assert a["fills"][0]["ts"].endswith("Z") and a["fills"][0]["ts_pt"] == "06:45:00 PT"
-    assert [t["code"] for t in a["tags"]] == ["stop_risk"]
+    # ledger tags only: the market-data tags (#52) depend on bars and are tested elsewhere
+    assert [t["code"] for t in a["tags"] if t["code"] not in ("held_past_stop", "exited_early")] == ["stop_risk"]
     assert a["trade_key"] and isinstance(a["trade_id"], int)
     assert d["fields"] is None
     assert d["window"]["start_pt"] == "06:30 PT" and d["window"]["end_pt"] == "08:30 PT"

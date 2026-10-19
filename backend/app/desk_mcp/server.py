@@ -5,7 +5,12 @@ from functools import lru_cache
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from app.providers.mock import MockProvider  # noqa: F401  (see note below)
+
 from . import rules_tools, snapshot, tools, writes
+
+# Note: MockProvider pulls in numpy. Tools run in worker threads, and a first-time numpy
+# import from a worker thread can hang on Windows, so import it here on the main thread.
 
 # Read tools are annotated read-only so the Claude app can cache them and skip confirms.
 READ_ONLY = ToolAnnotations(readOnlyHint=True)

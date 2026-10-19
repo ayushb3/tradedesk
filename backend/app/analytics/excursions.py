@@ -29,6 +29,7 @@ opens at or after ``close_ts`` and before ``close_ts + window``.
 """
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -237,3 +238,148 @@ def compute_excursions(
 
 def _round(x: float | None) -> float | None:
     return None if x is None else round(x, 3)
+
+
+# ----------------------------------------------------------------------------
+# Cross-trade rollup (#52): held past stop / exited early / time in drawdown.
+# Pure: callers hand in one ``ExcursionFact`` per measured trade.
+
+EXITED_EARLY_WINDOW_MIN = 30
+EXITED_EARLY_THRESHOLD_R = 1.0
+_EPS = 1e-9
+
+HELD_PAST_STOP = "held_past_stop"
+EXITED_EARLY = "exited_early"
+EXCURSION_PATTERN_CODES: tuple[str, ...] = (HELD_PAST_STOP, EXITED_EARLY)
+
+
+def beyond_exit_r(
+    bars: list[Candle],
+    *,
+    exit_px: float,
+    qty: int,
+    risk: float | None,
+    exit_ts: datetime,
+    window_min: int = EXITED_EARLY_WINDOW_MIN,
+    mult: int = CONTRACT_MULT,
+) -> float | None:
+    """How far price ran beyond the exit, in R measured from the exit price.
+
+    ``(max bar high in [exit_ts, exit_ts + window_min) - exit_px) * mult * qty / risk``,
+    floored at 0 (never negative). ``risk`` is the ledger's dollars-at-risk (same R
+    as everywhere else), ``qty`` the contracts bought. None when there are no bars
+    in the window or no risk. Unlike ``PostExitWindow.best_r`` (measured on average
+    cost) this starts at the exit price, so it answers "how much more was there
+    after I sold", not "how good was the trade".
+    """
+    if not risk or qty <= 0:
+        return None
+    e = _utc(exit_ts)
+    end = e + timedelta(minutes=window_min)
+    inside = [b for b in bars if e <= _utc(b.ts) < end]
+    if not inside:
+        return None
+    best = max(b.high for b in inside)
+    return max(0.0, (best - exit_px) * mult * qty / risk)
+
+
+@dataclass(frozen=True)
+class ExcursionFact:
+    """What the rollup needs from one *closed* trade that has bars covering its hold."""
+
+    trade_id: int
+    pnl: float  # net P&L (ledger, fees in)
+    risk: float | None  # ledger dollars-at-risk (the R unit)
+    crossed_stop: bool
+    drawdown_minutes: int
+    beyond_exit_r: float | None  # None when no bars follow the exit
+
+
+def held_past_stop(f: ExcursionFact) -> bool:
+    """Price crossed the stop line (a bar low reached it) during the hold."""
+    return f.crossed_stop
+
+
+def recovered(f: ExcursionFact) -> bool:
+    """Closed at or above break-even (pnl >= 0)."""
+    return f.pnl >= 0
+
+
+def exited_early(f: ExcursionFact) -> bool:
+    """A winner (pnl > 0) whose best high within 30 minutes after the exit was at
+    least 1R beyond the exit price (see ``beyond_exit_r``)."""
+    return (
+        f.pnl > 0
+        and f.beyond_exit_r is not None
+        and f.beyond_exit_r >= EXITED_EARLY_THRESHOLD_R - _EPS
+    )
+
+
+def excursion_codes(f: ExcursionFact | None) -> list[str]:
+    if f is None:
+        return []
+    out = []
+    if held_past_stop(f):
+        out.append(HELD_PAST_STOP)
+    if exited_early(f):
+        out.append(EXITED_EARLY)
+    return out
+
+
+def excursion_tag_spec(f: ExcursionFact, code: str) -> tuple[str, str]:
+    """(kind, text) for a position tag. kind: r = red flag, w = warning, a = note."""
+    if code == HELD_PAST_STOP:
+        if recovered(f):
+            return "w", "held past stop, recovered"
+        return "r", "held past stop, did not recover"
+    return "a", f"exited early (ran {f.beyond_exit_r:.1f}R more in {EXITED_EARLY_WINDOW_MIN} min)"
+
+
+@dataclass(frozen=True)
+class ExcursionRollup:
+    n_trades: int  # closed trades considered
+    n_measured: int  # of those, with bars covering the hold
+    n_skipped: int  # n_trades - n_measured (no bars); excluded from every count below
+    held_past_stop: int
+    recovered: int  # held past stop and closed with pnl >= 0
+    not_recovered: int  # held past stop and closed with pnl < 0
+    not_recovered_cost_usd: float
+    not_recovered_cost_r: float | None
+    exited_early: int
+    winners_checked: int  # measured winners with post-exit bars (the exited-early denominator)
+    median_drawdown_minutes: float | None
+
+
+def rollup_excursions(facts: list[ExcursionFact], n_trades: int | None = None) -> ExcursionRollup:
+    """Roll measured trades up into the three headline numbers.
+
+    * **Held past stop**: ``crossed_stop`` trades. ``recovered`` = pnl >= 0;
+      ``not_recovered`` = pnl < 0. Their **cost** is the net P&L beyond the stop
+      line: ``pnl + risk`` per trade (negative = lost more than the stop allowed,
+      positive = lost less than the stop, e.g. bounced before the exit), summed in
+      dollars; in R it is the sum of ``(pnl + risk) / risk``.
+    * **Exited early**: see ``exited_early`` (winner, best high in the next 30 min
+      >= 1R beyond the exit price, R on the ledger risk).
+    * **Median time in drawdown**: median ``drawdown_minutes`` (bars closing below
+      average cost during the hold) across measured trades.
+
+    ``n_trades`` is how many closed trades were considered (default: len(facts));
+    trades without bars are not in ``facts`` and show up as ``n_skipped``.
+    """
+    n_measured = len(facts)
+    total = n_measured if n_trades is None else n_trades
+    hps = [f for f in facts if held_past_stop(f)]
+    lost = [f for f in hps if not recovered(f)]
+    cost_usd = round(sum(f.pnl + (f.risk or 0.0) for f in lost), 2)
+    r_parts = [(f.pnl + f.risk) / f.risk for f in lost if f.risk]
+    winners = [f for f in facts if f.pnl > 0 and f.beyond_exit_r is not None]
+    dd = [f.drawdown_minutes for f in facts]
+    return ExcursionRollup(
+        n_trades=total, n_measured=n_measured, n_skipped=max(0, total - n_measured),
+        held_past_stop=len(hps), recovered=len(hps) - len(lost), not_recovered=len(lost),
+        not_recovered_cost_usd=cost_usd,
+        not_recovered_cost_r=round(sum(r_parts), 3) if r_parts else (0.0 if not lost else None),
+        exited_early=sum(1 for f in facts if exited_early(f)),
+        winners_checked=len(winners),
+        median_drawdown_minutes=statistics.median(dd) if dd else None,
+    )

@@ -24,6 +24,8 @@ PATTERN_KEYS: frozenset[str] = frozenset({
     "added_lower", "added_higher", "scaled_in", "held_loser", "gave_back",
     "runner_paid", "blown_max_loss", "stop_risk", "overnight", "still_open",
     "late_fill", "off_plan",
+    # Market-data patterns (#52): need option bars, so they appear only when measured.
+    "held_past_stop", "exited_early",
 })
 # Friendlier spellings accepted in the rules file; normalised to the codes above.
 PATTERN_ALIASES: dict[str, str] = {

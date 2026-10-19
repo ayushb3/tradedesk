@@ -182,6 +182,36 @@ class RecurringLesson(LessonLinkOut):
     positions: int  # positions carrying the pattern across the range
 
 
+class HeldPastStopOut(BaseModel):
+    count: int = 0  # trades where price crossed the stop line during the hold
+    recovered: int = 0  # ... and closed at or above break-even (pnl >= 0)
+    not_recovered: int = 0  # ... and closed below break-even
+    not_recovered_cost_usd: float = 0.0  # sum of (pnl + risk): net P&L beyond the stop
+    not_recovered_cost_r: float | None = None  # sum of (pnl + risk) / risk
+
+
+class ExitedEarlyOut(BaseModel):
+    count: int = 0  # winners whose best high in the next window ran >= threshold_r beyond the exit
+    winners_checked: int = 0  # measured winners that have bars after the exit
+    window_minutes: int = 30
+    threshold_r: float = 1.0  # R on the ledger risk, measured from the exit price
+
+
+class ExcursionRollupOut(BaseModel):
+    """Market-data rollup (#52). Only trades with option bars are measured; the rest are
+    skipped, never guessed. Informational: no score, no dollars-left-on-the-table."""
+
+    measured: bool = False  # False: bars were not looked up for this response
+    n_trades: int = 0  # closed trades considered
+    n_measured: int = 0
+    n_skipped: int = 0
+    summary: str = ""  # "n measured / n trades"
+    held_past_stop: HeldPastStopOut = Field(default_factory=HeldPastStopOut)
+    exited_early: ExitedEarlyOut = Field(default_factory=ExitedEarlyOut)
+    median_drawdown_minutes: float | None = None  # bars closing below avg cost during the hold
+    bars_mode: str | None = None  # "mock" | "cache" | "provider"
+
+
 class DayDetail(BaseModel):
     tz: str
     as_of: UtcDatetime | None = None
@@ -198,6 +228,7 @@ class DayDetail(BaseModel):
     size_written_first: bool | None = None  # derived: every trade has a non-late plan
     blown_max_loss: bool = False
     lessons: list[LessonLinkOut] = Field(default_factory=list)
+    excursion_rollup: ExcursionRollupOut = Field(default_factory=ExcursionRollupOut)
 
 
 class BiggestRisk(BaseModel):
@@ -233,6 +264,7 @@ class PatternsResponse(BaseModel):
     stops: StopUsageOut
     biggest_risk: BiggestRisk | None = None
     lessons: list[RecurringLesson] = Field(default_factory=list)  # patterns on 2+ days
+    excursion_rollup: ExcursionRollupOut = Field(default_factory=ExcursionRollupOut)
 
 
 class LineToday(BaseModel):

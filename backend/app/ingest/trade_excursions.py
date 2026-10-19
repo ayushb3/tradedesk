@@ -124,9 +124,24 @@ def trade_excursions(
     if found is None:
         return None
     _, lp, a = found
-    contract = get_trade_option_contract(trade_id, engine=engine)
+    bars, contract, reason = fetch_bars(trade_id, provider, engine, bars_mode)
     if contract is None:
         return build_trade_excursions(lp, a, rules, None, reason="not an option trade")
+    return build_trade_excursions(
+        lp, a, rules, bars, contract_label=contract.descriptor, reason=reason
+    )
+
+
+def fetch_bars(
+    trade_id: int, provider=None, engine: Engine | None = None, bars_mode: str = "provider"
+):
+    """(bars, contract, reason) for a trade; ``bars`` None when unavailable.
+
+    ``bars_mode`` as in the module docstring. ``contract`` None = not an option trade.
+    """
+    contract = get_trade_option_contract(trade_id, engine=engine)
+    if contract is None:
+        return None, None, "not an option trade"
     bars: OptionBars | None
     if bars_mode == "cache" or provider is None:
         bars = get_cached_option_bars_for_trade(trade_id, "1m", engine)
@@ -139,6 +154,4 @@ def trade_excursions(
         except Exception:  # a provider outage must not break the review
             bars = None
         reason = UNAVAILABLE
-    return build_trade_excursions(
-        lp, a, rules, bars, contract_label=contract.descriptor, reason=reason
-    )
+    return bars, contract, reason
