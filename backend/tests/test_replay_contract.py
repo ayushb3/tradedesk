@@ -154,3 +154,24 @@ def test_estimated_flag_passed_through(client):
 
 def test_unknown_trade_404(client):
     assert client.get("/api/replay/trade/999999/contract").status_code == 404
+
+
+def test_window_end_is_exit_plus_30_minutes_on_both_endpoints(client):
+    tid = _tid(client)
+    _override(client, _Bars())
+    try:
+        c = client.get(f"/api/replay/trade/{tid}/contract").json()
+        end = datetime.fromisoformat(c["window_end_ts"])
+        exit_fill = max(
+            datetime.fromisoformat(f["ts"])
+            for f in client.get(
+                f"/api/replay/trade/{tid}/fills", params={"playhead": _iso(600)}
+            ).json()["fills"]
+            if f["role"] == "exit"
+        )
+        assert end >= exit_fill + timedelta(minutes=30) - timedelta(minutes=1)
+        assert end <= exit_fill + timedelta(minutes=31)
+        # the early (unrevealed) response must not carry any exit fill
+        assert all(f["role"] != "exit" for f in c["fills"])
+    finally:
+        client.app.dependency_overrides.clear()

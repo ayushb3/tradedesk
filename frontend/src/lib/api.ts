@@ -149,6 +149,8 @@ export interface ReplayTrade {
   lead_minutes: number;
   start_ts: string;
   start_index: number;
+  /** Exit + 30 min: right edge of the x-range. Never the exit itself. */
+  window_end_ts: string | null;
   playhead: string;
   session: ReplaySession;
   fills: ReplayFill[];
@@ -164,6 +166,7 @@ export interface ReplayContract {
   lead_minutes: number;
   start_ts: string;
   start_index: number;
+  window_end_ts: string | null;
   playhead: string;
   candles: Candle[];
   /** Premium level at which the trade's risk is lost (same stop as the review). */

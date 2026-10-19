@@ -123,6 +123,16 @@ def _as_utc(ts: datetime) -> datetime:
     return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
 
 
+_AFTER_EXIT_MINUTES = 30
+
+
+def _window_end(trade) -> datetime | None:
+    """Right edge of the replay x-range: exit + 30 min (None while the trade is open)."""
+    if trade.close_ts is None:
+        return None
+    return _as_utc(trade.close_ts) + timedelta(minutes=_AFTER_EXIT_MINUTES)
+
+
 def _load_trade_or_404(trade_id: int):
     from app.ingest.query import get_trade
 
@@ -186,6 +196,7 @@ def replay_trade(
         lead_minutes=lead_minutes,
         start_ts=start_ts,
         start_index=start_index,
+        window_end_ts=_window_end(trade),
         playhead=head,
         session=session,
         fills=revealed_fills(trade_id, head),
@@ -227,7 +238,7 @@ def replay_trade_contract(
     head = _as_utc(playhead) if playhead is not None else start_ts
     base = dict(
         trade_id=trade_id, lead_minutes=lead_minutes, start_ts=start_ts, playhead=head,
-        session_date=trade.session_date,
+        session_date=trade.session_date, window_end_ts=_window_end(trade),
     )
 
     bars, contract, reason = fetch_bars(trade_id, provider)

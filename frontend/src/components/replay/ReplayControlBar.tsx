@@ -49,6 +49,11 @@ interface ReplayControlBarProps {
   config: ReplayConfig;
   onConfigChange: (c: ReplayConfig) => void;
   indicators?: IndicatorSeriesMap;
+  /**
+   * Trade-window marks on the scrubber, as bar indexes. Pass only what the
+   * playhead has already reached: the entry and exit stay hidden until then.
+   */
+  marks?: { entryIndex: number | null; exitIndex: number | null };
 }
 
 export function ReplayControlBar({
@@ -57,6 +62,7 @@ export function ReplayControlBar({
   config,
   onConfigChange,
   indicators,
+  marks,
 }: ReplayControlBarProps) {
   const off = disabled || replay.total === 0;
 
@@ -125,19 +131,22 @@ export function ReplayControlBar({
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
 
-        {/* Scrubber */}
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, replay.total - 1)}
-          value={replay.currentIndex}
-          disabled={off}
-          onMouseDown={replay.pause}
-          onChange={(e) => replay.setIndex(Number(e.target.value))}
-          className="h-1 flex-1 cursor-pointer accent-primary"
-          aria-label="Scrub replay position"
-          aria-valuetext={replay.barLabel || undefined}
-        />
+        {/* Scrubber (+ trade-window marks) */}
+        <div className="relative flex h-5 flex-1 items-center">
+          <ScrubberMarks marks={marks} total={replay.total} current={replay.currentIndex} />
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, replay.total - 1)}
+            value={replay.currentIndex}
+            disabled={off}
+            onMouseDown={replay.pause}
+            onChange={(e) => replay.setIndex(Number(e.target.value))}
+            className="relative h-1 w-full cursor-pointer accent-primary"
+            aria-label="Scrub replay position"
+            aria-valuetext={replay.barLabel || undefined}
+          />
+        </div>
 
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
@@ -211,6 +220,45 @@ export function ReplayControlBar({
             {replay.barLabel}
           </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trade-window marks: shaded span from entry to exit (or to the playhead while
+// the exit is unrevealed) with a tick at each end.
+// ---------------------------------------------------------------------------
+
+function ScrubberMarks({
+  marks,
+  total,
+  current,
+}: {
+  marks?: { entryIndex: number | null; exitIndex: number | null };
+  total: number;
+  current: number;
+}) {
+  if (!marks || total < 2 || marks.entryIndex === null) return null;
+  const pct = (i: number) => (i / (total - 1)) * 100;
+  const end = Math.max(marks.exitIndex ?? current, marks.entryIndex);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-5" aria-hidden>
+      <div
+        className="absolute inset-y-0 rounded-sm bg-play/20"
+        style={{ left: `${pct(marks.entryIndex)}%`, width: `${pct(end) - pct(marks.entryIndex)}%` }}
+      />
+      <div
+        className="absolute inset-y-0 w-px bg-foreground/60"
+        style={{ left: `${pct(marks.entryIndex)}%` }}
+        title="Entry"
+      />
+      {marks.exitIndex !== null && (
+        <div
+          className="absolute inset-y-0 w-px bg-foreground/60"
+          style={{ left: `${pct(marks.exitIndex)}%` }}
+          title="Exit"
+        />
       )}
     </div>
   );

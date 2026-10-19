@@ -65,6 +65,7 @@ class ReplayTradeResponse(BaseModel):
     lead_minutes: int
     start_ts: UtcDatetime  # entry time minus lead
     start_index: int       # first candle at or after start_ts
+    window_end_ts: UtcDatetime | None = None  # exit + 30 min: right edge of the x-range; never the exit itself
     playhead: UtcDatetime
     session: ReplaySessionResponse
     fills: list[ReplayFill]
@@ -83,6 +84,7 @@ class ReplayContractResponse(BaseModel):
     lead_minutes: int
     start_ts: UtcDatetime
     start_index: int = 0
+    window_end_ts: UtcDatetime | None = None  # exit + 30 min: right edge of the x-range; never the exit itself
     playhead: UtcDatetime
     candles: list[Candle] = Field(default_factory=list)
     stop_price: float | None = None  # premium level at which the written/default risk is lost
