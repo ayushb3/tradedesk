@@ -115,7 +115,7 @@ export function TradePanel({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-3">
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
           Log sim trade
         </h2>
 
@@ -208,11 +208,11 @@ export function TradePanel({
       </section>
 
       <section className="min-h-0 space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
           Session trades ({trades.length})
         </h2>
         {trades.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-label text-muted-foreground">
             No trades logged yet. Mark an entry and exit, then log the trade.
           </p>
         ) : (
@@ -246,7 +246,7 @@ function FillRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <Label>{label}</Label>
-        <span className="tabular text-[11px] text-muted-foreground">
+        <span className="tabular text-label text-muted-foreground">
           {fill ? `${formatEt(fill.ts, tz)} ${DISPLAY_TZ_LABEL}` : "not set"}
         </span>
       </div>
@@ -282,17 +282,17 @@ function TradeRow({ trade, index }: { trade: SimTrade; index: number }) {
     pnl == null
       ? "text-muted-foreground"
       : pnl >= 0
-        ? "text-[#26a69a]"
-        : "text-[#ef5350]";
+        ? "text-gain"
+        : "text-loss";
 
   return (
-    <li className="rounded-md border border-border bg-card px-3 py-2 text-xs">
+    <li className="rounded-md border border-border bg-card px-3 py-2 text-label">
       <div className="flex items-center justify-between">
         <span className="font-medium">
           #{index + 1}{" "}
           <span
             className={
-              trade.direction === "long" ? "text-[#26a69a]" : "text-[#ef5350]"
+              trade.direction === "long" ? "text-gain" : "text-loss"
             }
           >
             {trade.direction.toUpperCase()}

@@ -133,19 +133,19 @@ function TradeCard({
         <span className="text-sm font-semibold tracking-tight">{label}</span>
         <span
           className={cn(
-            "text-[10px] font-medium uppercase",
+            "text-label font-medium uppercase",
             trade.direction === "long" ? "text-[#26a69a]" : "text-[#ef5350]",
           )}
         >
           {trade.direction}
         </span>
         {trade.simulated && (
-          <Badge variant="muted" className="text-[10px]">
+          <Badge variant="muted" className="text-label">
             sim
           </Badge>
         )}
         {trade.grade && (
-          <Badge variant="outline" className="ml-auto text-[10px]">
+          <Badge variant="outline" className="ml-auto text-label">
             {trade.grade}
           </Badge>
         )}
@@ -168,7 +168,7 @@ function TradeCard({
             <Sparkline data={trade.sparkline} className="w-full" width={200} />
           </button>
         ) : (
-          <div className="flex h-7 items-center text-[10px] text-muted-foreground">
+          <div className="flex h-7 items-center text-label text-muted-foreground">
             No price path
           </div>
         )}
@@ -177,7 +177,7 @@ function TradeCard({
             type="button"
             onClick={() => setExpanded(false)}
             aria-expanded={true}
-            className="flex w-fit items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            className="flex w-fit items-center gap-1 text-label text-muted-foreground transition-colors hover:text-foreground"
           >
             <ChevronDown className="h-3 w-3" />
             Collapse
@@ -204,7 +204,7 @@ function TradeCard({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <p className="tabular text-[10px] text-muted-foreground">
+        <p className="tabular text-label text-muted-foreground">
           {formatClock(trade.open_ts)}
           {trade.close_ts ? ` → ${formatClock(trade.close_ts)}` : ""} {DISPLAY_TZ_LABEL}
         </p>
@@ -212,7 +212,7 @@ function TradeCard({
           variant="outline"
           size="sm"
           onClick={onReplay}
-          className="h-6 gap-1 px-2 text-[10px]"
+          className="h-6 gap-1 px-2 text-label"
         >
           <Play className="h-3 w-3" />
           Replay this trade
@@ -221,7 +221,7 @@ function TradeCard({
           variant="outline"
           size="sm"
           onClick={onOpen}
-          className="h-6 gap-1 px-2 text-[10px]"
+          className="h-6 gap-1 px-2 text-label"
         >
           <Maximize2 className="h-3 w-3" />
           Open
@@ -240,7 +240,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+      <span className="text-label uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       <span className="text-xs">{children}</span>
@@ -277,7 +277,7 @@ function DailySummary({
           key={s.label}
           className="rounded-lg border border-border bg-card p-3"
         >
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-label font-medium uppercase tracking-wide text-muted-foreground">
             {s.label}
           </p>
           <p className={"tabular mt-1 text-lg font-semibold " + (s.colorClass ?? "")}>

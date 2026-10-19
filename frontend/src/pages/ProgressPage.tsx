@@ -102,7 +102,7 @@ function StreakCards({
           <p className="text-center text-xs text-muted-foreground">
             drills in a row following your rules
           </p>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
             Discipline streak
           </p>
         </CardContent>
@@ -117,7 +117,7 @@ function StreakCards({
           <p className="text-center text-xs text-muted-foreground">
             your best run
           </p>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="text-label font-semibold uppercase tracking-widest text-muted-foreground/60">
             Longest streak
           </p>
         </CardContent>

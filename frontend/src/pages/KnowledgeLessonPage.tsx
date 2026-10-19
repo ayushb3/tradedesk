@@ -90,10 +90,10 @@ function StudySheet({ sheet }: { sheet: KnowledgeLessonSheet }) {
     <Card>
       <CardContent className="flex flex-col gap-6 p-5">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-widest text-muted-foreground/60">
+          <span className="text-label uppercase tracking-widest text-muted-foreground/60">
             Study sheet
           </span>
-          <span className="text-[11px] text-muted-foreground/40">
+          <span className="text-label text-muted-foreground/40">
             AI-distilled · verify against the lesson
           </span>
         </div>
@@ -265,7 +265,7 @@ export function KnowledgeLessonPage() {
 
               {data.concepts.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] uppercase tracking-widest text-muted-foreground/60">
+                  <span className="text-label uppercase tracking-widest text-muted-foreground/60">
                     Concepts
                   </span>
                   {data.concepts.map((c) => (

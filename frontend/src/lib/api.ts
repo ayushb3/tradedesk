@@ -149,6 +149,8 @@ export interface ReplayTrade {
   lead_minutes: number;
   start_ts: string;
   start_index: number;
+  /** Exit + 30 min, only once the playhead is at or past the exit. */
+  window_end_ts: string | null;
   playhead: string;
   session: ReplaySession;
   fills: ReplayFill[];
@@ -164,10 +166,13 @@ export interface ReplayContract {
   lead_minutes: number;
   start_ts: string;
   start_index: number;
+  window_end_ts: string | null;
   playhead: string;
   candles: Candle[];
   /** Premium level at which the trade's risk is lost (same stop as the review). */
   stop_price: number | null;
+  /** True when no max loss was written: `stop_price` is the default (-30%) stop. */
+  stop_assumed?: boolean;
   synthetic: boolean;
   /** Bars are a model, not provider prints: show the "estimated" badge. */
   estimated: boolean;
@@ -179,6 +184,8 @@ export interface ReplayFills {
   trade_id: number;
   playhead: string;
   fills: ReplayFill[];
+  /** Exit + 30 min; present only once the playhead is at or past the exit. */
+  window_end_ts?: string | null;
 }
 
 /** Full replay payload: GET /api/replay/session?symbol=&date= */
@@ -971,6 +978,29 @@ function toQuery(
   return qs.toString();
 }
 
+/** GET /api/rules: only the fields the Replay rule bar reads. */
+export interface DeskRules {
+  window: { start: string; end: string };
+  daily_stop: number;
+  daily_target: number;
+}
+
+/** One position of GET /api/days/{date}: only the fields the Replay rule bar reads. */
+export interface DeskDayPosition {
+  trade_id: number;
+  status: string;
+  pnl: number | null;
+  fills: { side: string; ts: string }[];
+  plan: { caller: string } | null;
+}
+
+/** GET /api/days/{date}. The whole day comes back; the UI must filter by time. */
+export interface DeskDay {
+  date: string;
+  positions: DeskDayPosition[];
+  fields: { callers: string[] } | null;
+}
+
 export const api = {
   health(): Promise<Health> {
     return request<Health>("/health");
@@ -1038,6 +1068,14 @@ export const api = {
 
   tradeExcursions(id: number | string): Promise<TradeExcursions> {
     return request<TradeExcursions>(`/trades/${id}/excursions`);
+  },
+
+  deskRules(): Promise<DeskRules> {
+    return request<DeskRules>("/rules");
+  },
+
+  deskDay(date: string): Promise<DeskDay> {
+    return request<DeskDay>(`/days/${date}`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

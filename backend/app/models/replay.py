@@ -54,6 +54,7 @@ class ReplayFillsResponse(BaseModel):
     trade_id: int
     playhead: UtcDatetime
     fills: list[ReplayFill]
+    window_end_ts: UtcDatetime | None = None  # set only once playhead >= exit
 
 
 class ReplayTradeResponse(BaseModel):
@@ -65,6 +66,7 @@ class ReplayTradeResponse(BaseModel):
     lead_minutes: int
     start_ts: UtcDatetime  # entry time minus lead
     start_index: int       # first candle at or after start_ts
+    window_end_ts: UtcDatetime | None = None  # exit + 30 min, only once playhead >= exit
     playhead: UtcDatetime
     session: ReplaySessionResponse
     fills: list[ReplayFill]
@@ -83,9 +85,11 @@ class ReplayContractResponse(BaseModel):
     lead_minutes: int
     start_ts: UtcDatetime
     start_index: int = 0
+    window_end_ts: UtcDatetime | None = None  # exit + 30 min, only once playhead >= exit
     playhead: UtcDatetime
     candles: list[Candle] = Field(default_factory=list)
     stop_price: float | None = None  # premium level at which the written/default risk is lost
+    stop_assumed: bool = False       # True when no max loss was written: stop_price is the default-risk stop
     synthetic: bool = False          # bars are a model, not provider prints
     estimated: bool = False          # same flag, named for the UI badge
     method: str | None = None        # "provider" | "bs_interp"

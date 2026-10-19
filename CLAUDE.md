@@ -201,3 +201,18 @@ feature-level PR (generalizes the existing Gate 2 critiquer pass);
 - Override with `TRADEDESK_DB_PATH`. No per-script `--db` flags are needed.
 - Never commit `data/` (real fills live there). Tests use temp DBs, never `data/desk.db`.
 - Move or copy a DB with `backend/scripts/copy_db.py --from <path> --to <path>`.
+- **Running or orchestrating the desk: read `docs/RUNBOOK-AI-DESK.md` first.** It covers how the local
+  app runs, the issue → agent → PR → gate → browser check → owner OK → merge loop, and the gotchas.
+- `data/rules.yaml` is the source of truth for rule values (`rules.example.yaml` is the synthetic
+  template); read them through `app/desk/rules.py`, never hard-code them.
+- MCP tools (`backend/app/desk_mcp/`):
+  - read, `readOnlyHint=True`: `status`, `rules`, `list_days`, `get_day`, `get_trade`, `patterns`, `line_status`;
+  - write, owner-approved per call: `import_robinhood`, `add_plan`, `annotate_trade`, `day_fields`,
+    `propose_rules`, `update_rules`, `push_phone_snapshot`.
+  - The server makes **no network calls**; an AST test enforces this.
+- Market data: `TRADEDESK_MARKET_DATA=alpaca` (default `mock`) uses the Alpaca market-data client only,
+  never the trading API. Caches are keyed on provider `source`; a new cache must be too.
+- R has one definition (written max loss; if none, an assumed −30% stop labelled "assumed"),
+  `ledger.resolve_r`, landing with redesign slice 6 (#65). Do not compute R anywhere else.
+- Replay never reveals the real trade's exit, or bars after the playhead, before the playhead gets
+  there. Gate it server-side.

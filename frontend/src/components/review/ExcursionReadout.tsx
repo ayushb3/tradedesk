@@ -28,7 +28,7 @@ export function ExcursionReadout({ excursion }: { excursion: Excursion }) {
         pct={excursion.mae_pct}
         colorClass="text-[#ef5350]"
       />
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <span className="text-label uppercase tracking-wide text-muted-foreground">
         {basisLabel} basis
         {excursion.estimated && (
           <span className="ml-1 text-[#d9a441]">· estimated</span>
@@ -53,7 +53,7 @@ function Metric({
 }) {
   return (
     <div className="flex flex-col" title={title}>
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+      <span className="text-label uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       <span className={cn("tabular text-sm font-medium", colorClass)}>

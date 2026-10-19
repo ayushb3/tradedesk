@@ -30,8 +30,8 @@ const CHART_THEME = {
   down: "#ef5350",
 };
 
-/** Colors cycled through for EMA overlays, in order of increasing period. */
-const EMA_COLORS = ["#f5a623", "#4f9dff", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
+/** Greys for EMA overlays (opt-in), in order of increasing period. */
+const EMA_COLORS = ["#d4d4d8", "#a1a1aa", "#8b8b93", "#71717a", "#5f5f68", "#4b4b52"];
 
 export interface OverlaySpec {
   key: string; // matches a key in session.indicators, e.g. "ema9"
@@ -109,6 +109,12 @@ interface ReplayChartProps {
   fills?: ReplayFill[];
   /** Contract mode has no RSI; hide the subpane. */
   hideRsi?: boolean;
+  /**
+   * First bar of the initial visible range (default: session start). Contract
+   * mode passes the lead-in start so the price axis scales to the trade window
+   * instead of the whole session's premium range. Pan/zoom still reach all bars.
+   */
+  viewFrom?: number;
 }
 
 /**
@@ -128,6 +134,7 @@ export function ReplayChart({
   stopPrice = null,
   fills = [],
   hideRsi = false,
+  viewFrom = 0,
 }: ReplayChartProps) {
   const priceRef = useRef<HTMLDivElement>(null);
   const rsiRef = useRef<HTMLDivElement>(null);
@@ -371,18 +378,19 @@ export function ReplayChart({
     // already exist — the range spans the whole session instead of being clamped
     // to the 1–2 real bars present at index=0. Reveals then land inside this
     // fixed window; the user can pan/zoom freely without the range being reset.
-    const key = `${session.symbol}:${session.session_date}:${candles.length}`;
+    const from = Math.max(0, Math.min(viewFrom, candles.length - 1));
+    const key = `${session.symbol}:${session.session_date}:${candles.length}:${from}`;
     if (fittedKeyRef.current !== key) {
       // Half-bar margin on each side so the first/last candle isn't flush
       // against the chart edge (lightweight-charts convention).
-      const fullRange = { from: -0.5, to: candles.length - 0.5 };
+      const fullRange = { from: from - 0.5, to: candles.length - 0.5 };
       priceChartRef.current?.timeScale().setVisibleLogicalRange(fullRange);
       rsiChartRef.current?.timeScale().setVisibleLogicalRange(fullRange);
       fittedKeyRef.current = key;
     }
     // overlaySignature/visibility drive series set + which lines are drawn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, currentIndex, overlaySignature, visibility]);
+  }, [session, currentIndex, overlaySignature, visibility, viewFrom]);
 
   // ---- time axis: shown under the RSI pane, or on the price pane without RSI --
   useEffect(() => {

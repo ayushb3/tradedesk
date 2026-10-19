@@ -29,7 +29,7 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
     <div className="overflow-hidden rounded-lg border border-border">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border bg-background/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border bg-background/40 text-label uppercase tracking-wide text-muted-foreground">
             <th className="px-3 py-2 text-left font-medium">Time</th>
             <th className="px-3 py-2 text-left font-medium">Side</th>
             <th className="px-3 py-2 text-left font-medium">Role</th>

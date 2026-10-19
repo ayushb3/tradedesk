@@ -38,6 +38,7 @@ import { SPEEDS, speedLabel, type ReplayState, type Speed } from "@/lib/useRepla
 import { REPLAY_TIMEFRAMES, type IndicatorSeriesMap } from "@/lib/api";
 import {
   DEFAULT_REPLAY_CONFIG,
+  emaKeys,
   type ReplayConfig,
 } from "@/lib/replayConfig";
 import { overlaySpecs, LEVEL_META } from "@/components/replay/ReplayChart";
@@ -49,6 +50,11 @@ interface ReplayControlBarProps {
   config: ReplayConfig;
   onConfigChange: (c: ReplayConfig) => void;
   indicators?: IndicatorSeriesMap;
+  /**
+   * Trade-window marks on the scrubber, as bar indexes. Pass only what the
+   * playhead has already reached: the entry and exit stay hidden until then.
+   */
+  marks?: { entryIndex: number | null; exitIndex: number | null };
 }
 
 export function ReplayControlBar({
@@ -57,6 +63,7 @@ export function ReplayControlBar({
   config,
   onConfigChange,
   indicators,
+  marks,
 }: ReplayControlBarProps) {
   const off = disabled || replay.total === 0;
 
@@ -125,19 +132,22 @@ export function ReplayControlBar({
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
 
-        {/* Scrubber */}
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, replay.total - 1)}
-          value={replay.currentIndex}
-          disabled={off}
-          onMouseDown={replay.pause}
-          onChange={(e) => replay.setIndex(Number(e.target.value))}
-          className="h-1 flex-1 cursor-pointer accent-primary"
-          aria-label="Scrub replay position"
-          aria-valuetext={replay.barLabel || undefined}
-        />
+        {/* Scrubber (+ trade-window marks) */}
+        <div className="relative flex h-5 flex-1 items-center">
+          <ScrubberMarks marks={marks} total={replay.total} current={replay.currentIndex} />
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, replay.total - 1)}
+            value={replay.currentIndex}
+            disabled={off}
+            onMouseDown={replay.pause}
+            onChange={(e) => replay.setIndex(Number(e.target.value))}
+            className="relative h-1 w-full cursor-pointer accent-primary"
+            aria-label="Scrub replay position"
+            aria-valuetext={replay.barLabel || undefined}
+          />
+        </div>
 
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
@@ -205,12 +215,51 @@ export function ReplayControlBar({
       {replay.barLabel && (
         <div className="flex justify-center">
           <span
-            className="font-mono tabular-nums text-[11px] text-muted-foreground"
+            className="font-mono tabular-nums text-label text-muted-foreground"
             aria-live="polite"
           >
             {replay.barLabel}
           </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trade-window marks: shaded span from entry to exit (or to the playhead while
+// the exit is unrevealed) with a tick at each end.
+// ---------------------------------------------------------------------------
+
+export function ScrubberMarks({
+  marks,
+  total,
+  current,
+}: {
+  marks?: { entryIndex: number | null; exitIndex: number | null };
+  total: number;
+  current: number;
+}) {
+  if (!marks || total < 2 || marks.entryIndex === null) return null;
+  const pct = (i: number) => (i / (total - 1)) * 100;
+  const end = Math.max(marks.exitIndex ?? current, marks.entryIndex);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-5" aria-hidden>
+      <div
+        className="absolute inset-y-0 rounded-sm bg-play/20"
+        style={{ left: `${pct(marks.entryIndex)}%`, width: `${pct(end) - pct(marks.entryIndex)}%` }}
+      />
+      <div
+        className="absolute inset-y-0 w-px bg-foreground/60"
+        style={{ left: `${pct(marks.entryIndex)}%` }}
+        title="Entry"
+      />
+      {marks.exitIndex !== null && (
+        <div
+          className="absolute inset-y-0 w-px bg-foreground/60"
+          style={{ left: `${pct(marks.exitIndex)}%` }}
+          title="Exit"
+        />
       )}
     </div>
   );
@@ -256,7 +305,7 @@ function JumpToTimeInput({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         className={[
-          "w-16 rounded-md border bg-transparent px-2 py-1 text-[11px] tabular-nums",
+          "w-16 rounded-md border bg-transparent px-2 py-1 text-label tabular-nums",
           "placeholder:text-muted-foreground/50",
           "focus:outline-none focus:ring-1 focus:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -267,7 +316,7 @@ function JumpToTimeInput({
         aria-label={`Jump to time (${DISPLAY_TZ_LABEL})`}
         title={`Jump to time (${DISPLAY_TZ_LABEL}) — type HH:MM and press Enter`}
       />
-      <span className="text-[10px] text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
+      <span className="text-label text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
     </div>
   );
 }
@@ -316,7 +365,11 @@ function IndicatorsPopover({
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => !isNaN(n) && n > 0);
     if (parsed.length > 0) {
-      onConfigChange({ ...config, emaPeriods: parsed });
+      // New EMA keys start hidden (opt-in); other overlays keep their state.
+      const hidden = new Set(config.hiddenOverlays);
+      for (const k of emaKeys(config.emaPeriods)) hidden.delete(k);
+      for (const k of emaKeys(parsed)) hidden.add(k);
+      onConfigChange({ ...config, emaPeriods: parsed, hiddenOverlays: hidden });
     }
   }
 
@@ -339,7 +392,7 @@ function IndicatorsPopover({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 gap-1.5 px-2 text-xs"
+          className="h-7 gap-1.5 px-2 text-label"
           aria-label="Indicator settings"
           title="Indicator settings"
         >
@@ -355,13 +408,13 @@ function IndicatorsPopover({
         <div className="flex flex-col gap-3">
           {/* Header */}
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
               Indicators
             </span>
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-2 text-[10px]"
+              className="h-6 px-2 text-label"
               onClick={() => {
                 onConfigChange(DEFAULT_REPLAY_CONFIG);
                 setEmaDraft(DEFAULT_REPLAY_CONFIG.emaPeriods.join(", "));
@@ -374,7 +427,7 @@ function IndicatorsPopover({
           {/* Overlay toggles */}
           {specs.length > 0 && (
             <section>
-              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
                 Overlays
               </p>
               <div className="flex flex-col gap-1">
@@ -396,7 +449,7 @@ function IndicatorsPopover({
 
           {/* Level toggles */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Levels
             </p>
             <div className="flex flex-col gap-1">
@@ -417,7 +470,7 @@ function IndicatorsPopover({
 
           {/* RSI toggle */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Subpane
             </p>
             <ToggleRow
@@ -432,13 +485,13 @@ function IndicatorsPopover({
 
           {/* Param inputs — trigger refetch upstream */}
           <section>
-            <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
               Parameters (refetch)
             </p>
             <div className="flex flex-col gap-2">
               {/* EMA periods */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   EMA periods
                 </label>
                 <input
@@ -452,7 +505,7 @@ function IndicatorsPopover({
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-28 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-28 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder="9, 21, 50, 200"
                   aria-label="EMA periods (comma-separated)"
                 />
@@ -460,7 +513,7 @@ function IndicatorsPopover({
 
               {/* RSI period */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   RSI period
                 </label>
                 <input
@@ -469,14 +522,14 @@ function IndicatorsPopover({
                   max={100}
                   value={config.rsiPeriod}
                   onChange={handleRsiPeriod}
-                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   aria-label="RSI period"
                 />
               </div>
 
               {/* OR minutes */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   OR window (min)
                 </label>
                 <input
@@ -485,7 +538,7 @@ function IndicatorsPopover({
                   max={60}
                   value={config.orMinutes}
                   onChange={handleOrMinutes}
-                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   aria-label="Opening range window in minutes"
                 />
               </div>
@@ -516,7 +569,7 @@ function ToggleRow({
     <button
       type="button"
       onClick={onToggle}
-      className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
+      className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-label hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
       aria-pressed={on}
     >
       {/* Color swatch */}
