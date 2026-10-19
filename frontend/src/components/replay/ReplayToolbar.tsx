@@ -134,7 +134,7 @@ function SymbolCombobox({
               {normInput.length > 0 ? (
                 <button
                   type="button"
-                  className="w-full px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  className="w-full px-2 py-1.5 text-left text-body hover:bg-accent"
                   onClick={() => commit(normInput)}
                 >
                   Use &ldquo;{normInput}&rdquo;

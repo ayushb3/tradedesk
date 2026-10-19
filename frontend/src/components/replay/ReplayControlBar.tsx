@@ -38,6 +38,7 @@ import { SPEEDS, speedLabel, type ReplayState, type Speed } from "@/lib/useRepla
 import { REPLAY_TIMEFRAMES, type IndicatorSeriesMap } from "@/lib/api";
 import {
   DEFAULT_REPLAY_CONFIG,
+  emaKeys,
   type ReplayConfig,
 } from "@/lib/replayConfig";
 import { overlaySpecs, LEVEL_META } from "@/components/replay/ReplayChart";
@@ -230,7 +231,7 @@ export function ReplayControlBar({
 // the exit is unrevealed) with a tick at each end.
 // ---------------------------------------------------------------------------
 
-function ScrubberMarks({
+export function ScrubberMarks({
   marks,
   total,
   current,
@@ -364,7 +365,11 @@ function IndicatorsPopover({
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => !isNaN(n) && n > 0);
     if (parsed.length > 0) {
-      onConfigChange({ ...config, emaPeriods: parsed });
+      // New EMA keys start hidden (opt-in); other overlays keep their state.
+      const hidden = new Set(config.hiddenOverlays);
+      for (const k of emaKeys(config.emaPeriods)) hidden.delete(k);
+      for (const k of emaKeys(parsed)) hidden.add(k);
+      onConfigChange({ ...config, emaPeriods: parsed, hiddenOverlays: hidden });
     }
   }
 
@@ -387,7 +392,7 @@ function IndicatorsPopover({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 gap-1.5 px-2 text-xs"
+          className="h-7 gap-1.5 px-2 text-label"
           aria-label="Indicator settings"
           title="Indicator settings"
         >
@@ -403,7 +408,7 @@ function IndicatorsPopover({
         <div className="flex flex-col gap-3">
           {/* Header */}
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
               Indicators
             </span>
             <Button
@@ -486,7 +491,7 @@ function IndicatorsPopover({
             <div className="flex flex-col gap-2">
               {/* EMA periods */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   EMA periods
                 </label>
                 <input
@@ -500,7 +505,7 @@ function IndicatorsPopover({
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-28 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-28 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder="9, 21, 50, 200"
                   aria-label="EMA periods (comma-separated)"
                 />
@@ -508,7 +513,7 @@ function IndicatorsPopover({
 
               {/* RSI period */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   RSI period
                 </label>
                 <input
@@ -517,14 +522,14 @@ function IndicatorsPopover({
                   max={100}
                   value={config.rsiPeriod}
                   onChange={handleRsiPeriod}
-                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   aria-label="RSI period"
                 />
               </div>
 
               {/* OR minutes */}
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-label text-muted-foreground">
                   OR window (min)
                 </label>
                 <input
@@ -533,7 +538,7 @@ function IndicatorsPopover({
                   max={60}
                   value={config.orMinutes}
                   onChange={handleOrMinutes}
-                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   aria-label="Opening range window in minutes"
                 />
               </div>
@@ -564,7 +569,7 @@ function ToggleRow({
     <button
       type="button"
       onClick={onToggle}
-      className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
+      className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-label hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
       aria-pressed={on}
     >
       {/* Color swatch */}
