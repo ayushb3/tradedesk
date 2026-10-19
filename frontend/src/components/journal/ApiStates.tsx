@@ -41,11 +41,7 @@ export function ApiErrorState({ error }: { error: unknown }) {
       <AlertDescription>
         {backendDown ? (
           <>
-            Start it with{" "}
-            <code className="tabular rounded bg-muted px-1 py-0.5">
-              make backend
-            </code>{" "}
-            (expects <span className="tabular">http://localhost:9000</span>).
+            The data service isn't reachable. Start it, then reload.
           </>
         ) : notReady ? (
           "This part of the journal lights up once the backend implements it."

@@ -63,7 +63,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (cause) {
     // Network-level failure — most commonly the backend isn't running.
     throw new ApiError(
-      "Could not reach the TradeDesk backend. Is it running on :9000?",
+      "Could not reach the TradeDesk backend. Is it running?",
       0,
       cause instanceof Error ? cause.message : String(cause),
     );
@@ -696,6 +696,16 @@ export interface DeskDaySummary {
   stop_result: DeskStopResult | null;
 }
 
+/** GET /api/rules: the desk rules file as the backend parsed it (read-only here). */
+export interface DeskRules {
+  tz?: string;
+  window?: { start?: string; end?: string };
+  daily_stop?: number;
+  daily_target?: number;
+  default_risk_pct?: number;
+  rules?: { number: number; text: string }[];
+}
+
 export interface DeskDaysResponse {
   tz: string;
   days: DeskDaySummary[];
@@ -1179,6 +1189,10 @@ export const api = {
 
   replayDaySoFar(tradeId: number): Promise<ReplayDaySoFar> {
     return request<ReplayDaySoFar>(`/replay/trade/${tradeId}/day-so-far`);
+  },
+
+  deskRules(): Promise<DeskRules> {
+    return request<DeskRules>("/rules");
   },
 
   deskDays(): Promise<DeskDaysResponse> {

@@ -21,7 +21,7 @@ import { Breakdown } from "@/components/journal/Breakdowns";
 import { GroupedTradesTable } from "@/components/journal/GroupedTradesTable";
 import { RuleScoreboard } from "@/components/days/RuleScoreboard";
 import { PatternsSection } from "@/components/days/PatternsSection";
-import { calendarFromDays, calendarMarks, tradeRange, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
+import { calendarFromDays, calendarMarks, lastTradingDay, tradeRange, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
 import { ApiError, type TradesParams } from "@/lib/api";
 import {
   useAnalyticsBy,
@@ -58,7 +58,7 @@ export function JournalPage() {
 
   const [symbol, setSymbol] = useState<string>(ALL);
   const [sim, setSim] = useState<string>(ALL);
-  const [month, setMonth] = useState<string>(currentMonth());
+  const [pickedMonth, setMonth] = useState<string | null>(null);
 
   const params: TradesParams = {
     ...(symbol !== ALL ? { symbol } : {}),
@@ -105,6 +105,11 @@ export function JournalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive]);
 
+  // The home opens on the month of the last trading day (not the calendar
+  // month, which may be empty); once the user pages the calendar, theirs wins.
+  const lastDay = lastTradingDay(deskDays.data?.days ?? []);
+  const month = pickedMonth ?? (lastDay ? lastDay.slice(0, 7) : currentMonth());
+
   const monthDays = (deskDays.data?.days ?? []).filter((d) => inMonth(d.date, month));
   const board = ruleScoreboard(monthDays);
   const marks = calendarMarks(monthDays);
@@ -123,7 +128,7 @@ export function JournalPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
-        <h1 className="font-semibold tracking-tight">Journal</h1>
+        <h1 className="font-semibold tracking-tight">Days</h1>
 
         <div className="ml-auto flex items-center gap-3">
           <div className="hidden items-center gap-2 sm:flex">

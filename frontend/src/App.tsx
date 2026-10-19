@@ -3,7 +3,9 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { ReplayPage } from "@/pages/ReplayPage";
 import { JournalPage } from "@/pages/JournalPage";
-import { todayET } from "@/lib/format";
+import { RulesSettingsPage } from "@/pages/RulesSettingsPage";
+import { lastTradingDay } from "@/lib/daysHome";
+import { useDeskDays } from "@/lib/queries";
 // M7a — Trade Review page (share trades) + calendar day drill-in.
 import { TradeReviewPage } from "@/pages/TradeReviewPage";
 import { JournalDayPage } from "@/pages/JournalDayPage";
@@ -35,25 +37,29 @@ function DebriefRedirect() {
 }
 
 /**
- * Redirect for the retired /daily-review page (#67). The day surface is now the
- * single /journal/:date page (stat row + cards + prompts). Old links land on
- * today's ET session; pick another day from the Journal P&L calendar.
+ * Redirect for the retired /daily-review page: Daily Review is merged into
+ * Days, so old links land on the last trading day's Day page (or the Days home
+ * when there are no trades yet). Waits for the day list, then replaces.
  */
 function DailyReviewRedirect() {
-  return <Navigate to={`/journal/${todayET()}`} replace />;
+  const days = useDeskDays();
+  if (days.isLoading) return null;
+  const last = lastTradingDay(days.data?.days ?? []);
+  return <Navigate to={last ? `/journal/${last}` : "/journal"} replace />;
 }
 
 export function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/replay" replace />} />
+        {/* The app opens on Days (the home shows the last trading day's month). */}
+        <Route index element={<Navigate to="/journal" replace />} />
         <Route path="/replay" element={<ReplayPage />} />
         <Route path="/journal" element={<JournalPage />} />
         {/* M7a — day drill-in + per-trade review (share trades) */}
         <Route path="/journal/:date" element={<JournalDayPage />} />
         <Route path="/trades/:id" element={<TradeReviewPage />} />
-        {/* /daily-review retired (#67) — the single day surface is /journal/:date */}
+        {/* Daily Review is merged into Days: old route goes to the last trading day */}
         <Route path="/daily-review" element={<DailyReviewRedirect />} />
         {/* M6 training — unified list (scenarios + drill launch) */}
         <Route path="/training/scenarios" element={<ScenarioListPage />} />
@@ -80,7 +86,9 @@ export function App() {
         {/* M8c — Knowledge: concept index + concept detail */}
         <Route path="/knowledge/concepts" element={<KnowledgeConceptsPage />} />
         <Route path="/knowledge/concepts/:slug" element={<KnowledgeConceptPage />} />
-        <Route path="*" element={<Navigate to="/replay" replace />} />
+        {/* Rules: a small settings page, reached from the gear in the nav footer */}
+        <Route path="/settings/rules" element={<RulesSettingsPage />} />
+        <Route path="*" element={<Navigate to="/journal" replace />} />
       </Route>
     </Routes>
   );

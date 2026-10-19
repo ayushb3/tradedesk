@@ -12,6 +12,7 @@
  * as an Alert rather than an error — mirrors the M8a/M8b Knowledge pages.
  */
 
+import { LearnTabs } from "@/components/knowledge/LearnTabs";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Network, Search, ServerCrash } from "lucide-react";
@@ -91,7 +92,8 @@ export function KnowledgeConceptsPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
-        <h1 className="font-semibold tracking-tight">Knowledge · Concepts</h1>
+        <h1 className="font-semibold tracking-tight">Learn</h1>
+        <LearnTabs />
         {data && data.available ? (
           <span className="ml-auto text-xs text-muted-foreground">
             {data.concept_count} concepts
@@ -114,7 +116,7 @@ export function KnowledgeConceptsPage() {
               <AlertDescription>
                 {concepts.error instanceof ApiError
                   ? concepts.error.detail ?? concepts.error.message
-                  : "Unexpected error. Is the backend running on :9000?"}
+                  : "Unexpected error. Is the data service running?"}
               </AlertDescription>
             </Alert>
           ) : notGenerated ? (
@@ -123,7 +125,7 @@ export function KnowledgeConceptsPage() {
               <AlertTitle>Concepts not generated yet</AlertTitle>
               <AlertDescription>
                 {data?.detail ??
-                  "Run `make knowledge-concepts` to distil the curriculum into a browsable concept index."}
+                  "The concept index has not been built yet."}
               </AlertDescription>
             </Alert>
           ) : (

@@ -14,6 +14,7 @@ import {
   type ByRow,
   type CalendarData,
   type DeskDaysResponse,
+  type DeskRules,
   type Candle,
   type CandlesParams,
   type CreateSimTradeRequest,
@@ -273,6 +274,15 @@ export function useTradeExcursions(id: number | string | null, enabled = true) {
     queryKey: ["trade-excursions", id],
     queryFn: () => api.tradeExcursions(id as number | string),
     enabled: enabled && id !== null && id !== undefined,
+  });
+}
+
+/** The desk rules (window, stop, target, rule list) for the read-only settings page. */
+export function useDeskRules() {
+  return useQuery<DeskRules>({
+    queryKey: ["desk-rules"],
+    queryFn: () => api.deskRules(),
+    retry: false,
   });
 }
 
