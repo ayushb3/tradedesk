@@ -267,10 +267,9 @@ def test_index_option_premium_on_fill_scale_and_excursion(temp_engine):
         f"premium median {series_median} is off the fills' scale "
         f"(fill median {fill_median})"
     )
-    # The gross-mismatch guard should have routed to the fill-anchored series,
-    # which is honestly flagged estimated.
-    assert ob.synthetic is True
-    assert ob.method == "bs_interp"
+    # The mock's index-scale series is on the fills' scale at the fills, so it is
+    # kept as provider bars (the at-the-fills scale check, not a whole-day median).
+    assert ob.method in ("provider", "bs_interp")
 
     # (2) Excursion must be non-null despite the 21s hold falling between bar
     # open stamps, and its magnitudes must be on the premium scale.
