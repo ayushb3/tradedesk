@@ -151,17 +151,29 @@ def test_daily_stop_hit_and_trades_after():
     s = d.stop
     assert s.hit and s.hit_at == at(13, 45) and s.hit_at_pt == "06:45:00 PT"
     assert s.trades_after == 2 and s.trade_ids_after == [2, 3] and s.limit == -100
-    assert res(d, "daily_stop", 1).kept is True        # the trade that crossed it
+    crossed = res(d, "daily_stop", 1)   # took the day to -150, past the -100 stop
+    assert crossed.kept is False and "past the" in crossed.detail
+    assert s.crossed_by == 1 and s.crossed_net == approx(-150) and s.blown_past
     assert res(d, "daily_stop", 2).kept is False
     assert "min after the daily stop" in res(d, "daily_stop", 2).detail
     day = res(d, "daily_stop")
     assert day.kept is False and "2 trades after" in day.detail
 
 
-def test_daily_stop_hit_with_nothing_after_is_kept_and_not_hit_is_kept():
-    hit = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.5))], rules())
-    assert hit.stop.hit and hit.stop.trades_after == 0
-    assert res(hit, "daily_stop").kept is True and "no trades after" in res(hit, "daily_stop").detail
+def test_daily_stop_blown_past_with_nothing_after_is_broken():
+    # Owner default 2026-10-19: one trade blowing past the stop is itself the break.
+    hit = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 0.5))], rules())   # -150
+    assert hit.stop.hit and hit.stop.trades_after == 0 and hit.stop.blown_past
+    assert res(hit, "daily_stop", 1).kept is False
+    day = res(hit, "daily_stop")
+    assert day.kept is False and "blown past" in day.detail and "no trades after" in day.detail
+
+
+def test_daily_stop_landing_exactly_on_it_is_kept_and_not_hit_is_kept():
+    exact = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 2.0, 1.0))], rules())   # exactly -100
+    assert exact.stop.hit and not exact.stop.blown_past
+    assert res(exact, "daily_stop", 1).kept is True
+    assert res(exact, "daily_stop").kept is True and "no trades after" in res(exact, "daily_stop").detail
     ok = rr.evaluate_day(DAY, [ti(1, pos(at(13, 40), 1.0, 0.95))], rules())
     assert not ok.stop.hit and res(ok, "daily_stop").kept is True
 

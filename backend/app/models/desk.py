@@ -85,6 +85,9 @@ class StopResultOut(BaseModel):
     hit_at_pt: str | None = None  # e.g. "07:12:30 PT"
     trades_after: int = 0  # trades opened after the stop was hit
     trade_ids_after: list[int] = Field(default_factory=list)
+    crossed_by: int | None = None  # trade whose sell reached the limit
+    crossed_net: float | None = None  # day net after that trade's last sell
+    blown_past: bool = False  # that trade left the day strictly past the limit (rule broken)
 
 
 class PositionOut(BaseModel):
