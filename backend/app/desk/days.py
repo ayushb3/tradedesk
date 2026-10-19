@@ -29,6 +29,7 @@ from app.db.connection import get_engine, init_db
 from app.db.schema import fills as fills_t
 from app.db.schema import trade_fills as trade_fills_t
 from app.db.schema import trades as trades_t
+from app.analytics.excursions import ExcursionFact
 from app.desk import ledger
 from app.desk.day_fields import get_day_fields
 from app.desk.matching import effective_status
@@ -168,6 +169,10 @@ class DayData:
     size_written_first: bool | None = None  # True only if every trade has a non-late plan
     blown_max_loss: bool = False
     engine: Engine | None = None  # the DB this day was read from (lesson lookups)
+    # Excursion facts (#52) by trade id, for closed trades whose bars cover the hold.
+    # Empty until ``app.ingest.excursion_rollup.attach_excursions`` runs (needs bars).
+    excursions: dict[int, ExcursionFact] = field(default_factory=dict)
+    excursions_attached: bool = False
 
 
 def _analyze(conn, engine, rules, by_day, day: date) -> DayData:

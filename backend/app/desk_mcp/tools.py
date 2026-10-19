@@ -111,7 +111,8 @@ def get_day(ctx: Ctx, date: str) -> dict:
     d = desk_days.get_day(day, ctx.rules, ctx.engine)
     if d is None:
         raise ValueError(f"no trades or day fields for {day}")
-    return _json(serialize.day_detail(day, d, ctx.rules, desk_days.as_of(ctx.engine)))
+    mode = _attach_excursions(ctx, [d])
+    return _json(serialize.day_detail(day, d, ctx.rules, desk_days.as_of(ctx.engine), mode))
 
 
 def get_trade(ctx: Ctx, id: int) -> dict:
@@ -178,12 +179,30 @@ def _excursions(ctx: Ctx, trade_id: int, lp, a) -> dict:
     return _json(res)
 
 
+def _attach_excursions(ctx: Ctx, days) -> str:
+    """Attach excursion facts (#52) to ``days``; returns the bars mode used.
+
+    No network from here: mock mode uses the deterministic mock provider (nothing
+    cached or written), real mode reads only option bars already cached.
+    """
+    from app.ingest.excursion_rollup import attach_excursions
+
+    if ctx.mode == "mock":
+        from app.providers.mock import MockProvider
+
+        attach_excursions(days, ctx.rules, MockProvider(get_settings()), ctx.engine, "mock")
+        return "mock"
+    attach_excursions(days, ctx.rules, None, ctx.engine, "cache")
+    return "cache"
+
+
 def patterns(ctx: Ctx, date_from: str | None = None, date_to: str | None = None) -> dict:
     d_from = _parse_date(date_from) if date_from else None
     d_to = _parse_date(date_to) if date_to else None
     rules_, a, days = desk_days.patterns(d_from, d_to, ctx.rules, ctx.engine)
+    mode = _attach_excursions(ctx, days)
     return _json(serialize.patterns_response(
-        rules_, a, days, d_from, d_to, desk_days.as_of(ctx.engine)))
+        rules_, a, days, d_from, d_to, desk_days.as_of(ctx.engine), mode))
 
 
 def line_status(ctx: Ctx) -> dict:
