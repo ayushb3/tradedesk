@@ -556,6 +556,20 @@ export interface HoldExcursion {
   drawdown_minutes: number;
   crossed_stop: boolean;
   crossed_stop_at_pt: string | null;
+  /** Minutes after the first fill. */
+  crossed_stop_minutes?: number | null;
+  /** Set when the data-quality check trimmed wicks: R as printed on the bars. */
+  raw_mae_r?: number | null;
+  raw_mfe_r?: number | null;
+}
+
+/** Did the premium get back to the average entry within the window after the exit. */
+export interface AfterExit {
+  window_min: number;
+  bars: number;
+  complete: boolean;
+  returned_at_pt: string | null;
+  minutes_after_exit: number | null;
 }
 
 export interface PostExitWindow {
@@ -582,6 +596,12 @@ export interface TradeExcursions {
   fills: ExcursionFill[];
   hold: HoldExcursion | null;
   post_exit: PostExitWindow[];
+  after_exit?: AfterExit | null;
+  /** "suspect_wicks": thin 1-min bars; `hold` is on wick-trimmed (body) extremes. */
+  quality?: "ok" | "suspect_wicks" | "short_hold";
+  quality_reason?: string | null;
+  clamped?: boolean;
+  suspect_wicks?: number;
 }
 
 /** GET /api/trades/{id}/option-bars — standalone premium OHLCV series. */
@@ -1054,6 +1074,18 @@ function toQuery(
   return qs.toString();
 }
 
+/** GET /api/days/{date}: only the fields the Trade review day tally reads. */
+export interface ReviewDay {
+  date: string;
+  positions: {
+    trade_id: number;
+    status: string;
+    pnl: number | null;
+    fills: { side: string; ts: string }[];
+  }[];
+  stop_result?: { limit: number; hit: boolean; hit_at_pt?: string | null } | null;
+}
+
 export const api = {
   health(): Promise<Health> {
     return request<Health>("/health");
@@ -1074,6 +1106,14 @@ export const api = {
 
   trade(id: number | string): Promise<Trade> {
     return request<Trade>(`/trades/${id}`);
+  },
+
+  setCallSource(id: number | string, callSource: "mentor" | "own" | null): Promise<Trade> {
+    return request<Trade>(`/trades/${id}/call-source`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ call_source: callSource }),
+    });
   },
 
   patchTrade(id: number | string, body: PatchTradeRequest): Promise<Trade> {
@@ -1129,6 +1169,10 @@ export const api = {
 
   deskDay(date: string): Promise<DeskDayDetail> {
     return request<DeskDayDetail>(`/days/${date}`);
+  },
+
+  reviewDay(date: string): Promise<ReviewDay> {
+    return request<ReviewDay>(`/days/${date}`);
   },
 
   dayTrades(date: string): Promise<DayTradesResponse> {

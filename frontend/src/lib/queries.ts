@@ -33,6 +33,7 @@ import {
   type PatchTradeRequest,
   type ReplayContract,
   type ReplayDaySoFar,
+  type ReviewDay,
   type ReplayFills,
   type DeskDayDetail,
   type ReplaySession,
@@ -172,6 +173,30 @@ export function usePatchTrade() {
     mutationFn: ({ id, body }) => api.patchTrade(id, body),
     onSuccess: (trade) => {
       qc.setQueryData(["trade", trade.id], trade);
+      for (const root of JOURNAL_ROOTS) {
+        void qc.invalidateQueries({ queryKey: [root] });
+      }
+    },
+  });
+}
+
+/**
+ * One-tap call source (mentor | own) on a trade. After the PUT the review payload, the
+ * trade, the excursions and the desk day are refetched so the rule chips and the day
+ * tally follow the change.
+ */
+export function useSetCallSource() {
+  const qc = useQueryClient();
+  return useMutation<
+    Trade,
+    unknown,
+    { id: number | string; callSource: "mentor" | "own" | null }
+  >({
+    mutationFn: ({ id, callSource }) => api.setCallSource(id, callSource),
+    onSuccess: (trade) => {
+      void qc.invalidateQueries({ queryKey: ["trade-review"] });
+      void qc.invalidateQueries({ queryKey: ["trade", trade.id] });
+      void qc.invalidateQueries({ queryKey: ["review-day"] });
       for (const root of JOURNAL_ROOTS) {
         void qc.invalidateQueries({ queryKey: [root] });
       }
@@ -428,6 +453,16 @@ export function useReplayDaySoFar(tradeId: number | null) {
     queryKey: ["replay-day-so-far", tradeId],
     queryFn: () => api.replayDaySoFar(tradeId as number),
     enabled: tradeId !== null,
+    retry: false,
+  });
+}
+
+/** The desk day (positions + stop result) behind the Trade review day tally. */
+export function useReviewDay(date: string | null) {
+  return useQuery<ReviewDay>({
+    queryKey: ["review-day", date],
+    queryFn: () => api.reviewDay(date as string),
+    enabled: Boolean(date),
     retry: false,
   });
 }

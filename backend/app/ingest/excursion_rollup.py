@@ -37,6 +37,7 @@ def fact_for_position(
     ex = compute_excursions(
         bars.bars, avg_in=a.avg_in, qty=a.qty_in, risk=a.risk,
         open_ts=a.fills[0].ts, close_ts=last.ts,
+        fills=[(f.ts, f.px) for f in a.fills],  # same bounded, wick-trimmed hold as the review
     )
     if ex.hold is None:
         return None

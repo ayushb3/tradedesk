@@ -149,6 +149,22 @@ class HoldExcursionOut(BaseModel):
     crossed_stop: bool
     crossed_stop_at: UtcDatetime | None = None
     crossed_stop_at_pt: str | None = None
+    crossed_stop_minutes: int | None = None  # minutes after the first fill
+    # Set when the data-quality check trimmed wicks: these are the values as printed.
+    raw_mae_r: float | None = None
+    raw_mfe_r: float | None = None
+
+
+class AfterExitOut(BaseModel):
+    """Did the premium get back to the average entry within the window after the final exit.
+    Direction only: no dollars."""
+
+    window_min: int
+    bars: int = 0
+    complete: bool = False
+    returned_at: UtcDatetime | None = None
+    returned_at_pt: str | None = None
+    minutes_after_exit: int | None = None
 
 
 class PostExitWindowOut(BaseModel):
@@ -182,3 +198,12 @@ class TradeExcursionsResponse(BaseModel):
     fills: list[ExcursionFill] = Field(default_factory=list)
     hold: HoldExcursionOut | None = None
     post_exit: list[PostExitWindowOut] = Field(default_factory=list)
+    after_exit: AfterExitOut | None = None
+    # Data quality (thin 1-min bars): "ok" | "suspect_wicks" | "short_hold" (hold inside <= 2 bars:
+    # MAE/MFE from the fills alone). When suspect, `hold` is
+    # computed on bars trimmed to their body extremes (`clamped`), the raw R values are on
+    # `hold.raw_mae_r` / `hold.raw_mfe_r`, and `quality_reason` says what was found.
+    quality: str = "ok"
+    quality_reason: str | None = None
+    clamped: bool = False
+    suspect_wicks: int = 0
