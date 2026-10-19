@@ -204,6 +204,7 @@ export function ReplayPage() {
                 stopPrice={showingContract ? (contractData?.stop_price ?? null) : null}
                 fills={showingContract ? (fillsQuery.data?.fills ?? []) : []}
                 hideRsi={showingContract}
+                viewFrom={showingContract ? (contractData?.start_index ?? 0) : 0}
               />
             </>
           )}
