@@ -160,10 +160,12 @@ def revealed_fills(trade_id: int, playhead: datetime) -> list[ReplayFill]:
     """Server-side gate: only fills with ts <= playhead are ever returned."""
     from app.ingest.query import get_trade_fills
 
-    head = _as_utc(playhead)
+    # Whole seconds: the playhead means "this second has printed", so a fill that printed
+    # anywhere inside second S shows at playhead S (the same rule as the second bars).
+    head = _as_utc(playhead).replace(microsecond=0)
     out: list[ReplayFill] = []
     for f in get_trade_fills(trade_id):
-        if _as_utc(f.ts) <= head:
+        if _as_utc(f.ts).replace(microsecond=0) <= head:
             out.append(
                 ReplayFill(
                     seq=f.seq,

@@ -28,17 +28,21 @@ export function TradeReplayBar({
   replay,
   disabled,
   onExit,
+  seconds,
 }: {
   contract: string;
   date: string;
   lead: number;
   onLeadChange: (lead: number) => void;
-  /** "HH:MM" of the playhead bar in PT, or null while loading. */
+  /** "HH:MM" (or "HH:MM:SS" in Seconds mode) of the playhead in PT, or null while loading. */
   clock: string | null;
   replay: ReplayState;
   disabled: boolean;
   onExit: () => void;
+  /** The Seconds playback toggle; omitted when the trade has no second-level data source. */
+  seconds?: { on: boolean; available: boolean; checking: boolean; reason: string | null; onToggle: () => void };
 }) {
+  const sOn = seconds?.on === true;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-border px-4 py-2">
       <div className="min-w-0">
@@ -63,6 +67,25 @@ export function TradeReplayBar({
         </div>
       </div>
 
+      {seconds && (
+        <button
+          type="button"
+          aria-pressed={sOn}
+          disabled={disabled || !seconds.available}
+          onClick={seconds.onToggle}
+          title={
+            seconds.available
+              ? "Play second by second: the current minute candle forms from tick prints"
+              : seconds.checking
+                ? "Checking for second-level prints"
+                : `Seconds unavailable: ${seconds.reason ?? "no trade prints"}`
+          }
+          className={`${segment(sOn)} rounded-md disabled:opacity-50`}
+        >
+          Seconds
+        </button>
+      )}
+
       <div className="flex items-baseline gap-2" aria-live="off">
         <span className="num text-key">{clock ?? "--:--"}</span>
         <span className="label-caps text-label text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
@@ -74,8 +97,8 @@ export function TradeReplayBar({
           variant="ghost"
           disabled={disabled || replay.atStart}
           onClick={replay.stepBack}
-          aria-label="Step back (←)"
-          title="Step back (←)"
+          aria-label={sOn ? "Step back 1 second (←)" : "Step back (←)"}
+          title={sOn ? "Back 1 s (←), 1 min (Shift+←)" : "Step back (←)"}
         >
           <StepBack />
         </Button>
@@ -95,8 +118,8 @@ export function TradeReplayBar({
           variant="ghost"
           disabled={disabled || replay.atEnd}
           onClick={replay.stepForward}
-          aria-label="Step forward (→)"
-          title="Step forward (→)"
+          aria-label={sOn ? "Step forward 1 second (→)" : "Step forward (→)"}
+          title={sOn ? "Forward 1 s (→), 1 min (Shift+→)" : "Step forward (→)"}
         >
           <StepForward />
         </Button>

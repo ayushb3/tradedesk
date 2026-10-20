@@ -428,3 +428,20 @@ def test_tick_feed_provider_is_cut_at_the_playhead_and_fetched_once(client):
     finally:
         client.app.dependency_overrides.clear()
         second_bars.clear_memo()
+
+
+def test_fill_inside_a_second_reveals_at_that_second(monkeypatch):
+    """The fills gate uses whole seconds: a fill that printed at :50.8 shows at playhead :50."""
+    from types import SimpleNamespace
+
+    from app.api.routes.replay import revealed_fills
+    from app.ingest import query
+
+    fill = SimpleNamespace(
+        seq=1, role="entry", side="buy", qty=1.0, price=1.0,
+        ts=datetime(2026, 10, 13, 13, 45, 50, 800000, tzinfo=UTC),
+    )
+    monkeypatch.setattr(query, "get_trade_fills", lambda trade_id, engine=None: [fill])
+    at = datetime(2026, 10, 13, 13, 45, 50, tzinfo=UTC)
+    assert revealed_fills(1, at - timedelta(seconds=1)) == []
+    assert [f.time_pt for f in revealed_fills(1, at)] == ["06:45:50 PT"]
