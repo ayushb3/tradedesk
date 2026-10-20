@@ -24,6 +24,7 @@ import {
   useReplayDaySoFar,
   useReplayContract,
   useReplaySession,
+  useReplaySecondsProbe,
   useReplayTrade,
   useReplayTradeFills,
   useTrade,
@@ -35,7 +36,17 @@ import {
   LADDERS,
   type StackIndicators,
 } from "@/lib/stackIndicators";
-import { isInputFocused, useReplay } from "@/lib/useReplay";
+import { isInputFocused, useReplay, type ReplayState, type Speed } from "@/lib/useReplay";
+import { useSecondsReplay } from "@/lib/useSecondsReplay";
+import {
+  finishedOnly,
+  formatClockSeconds,
+  formatClockSecondsPt,
+  liveCandle,
+  minuteIndexAt,
+  replaySeries,
+  type SecondsSpeed,
+} from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
 import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
 import type { LevelKey } from "@/lib/api";
@@ -118,7 +129,20 @@ export function ReplayPage() {
   const revealedEndSec = revealedEnd?.key === endKey ? revealedEnd.sec : 0;
   const endSec = Math.max(initialEndSec, Math.min(revealedEndSec, sessionEndSec));
 
-  const windowed = useMemo(() => {
+  // Seconds mode (opt-in, only when the trade has second-level prints).
+  const [secondsOn, setSecondsOn] = useState(false);
+  useEffect(() => setSecondsOn(false), [tradeId, lead]);
+  const secondsProbe = useReplaySecondsProbe(tradeId, lead, tradeReplay.data?.start_ts ?? null);
+  const useSeconds = secondsOn && secondsProbe.data?.available === true;
+  const secs = useSecondsReplay({
+    enabled: useSeconds,
+    tradeId,
+    lead,
+    minSec: startSec,
+    maxSec: endSec + 59,
+  });
+
+  const windowedAll = useMemo(() => {
     if (!tradeSession) return null;
     const spyCandles = candlesInWindow(tradeSession.candles, startSec, endSec);
     const vwapSeries = tradeSession.indicators.vwap;
@@ -147,6 +171,23 @@ export function ReplayPage() {
     return { spyCandles, vwap, emas, contractCandles };
   }, [tradeSession, startSec, endSec, hasContract, contractData]);
 
+  // What the panes may show. In Seconds mode the current minute is the candle formed from the
+  // seconds played so far, later minutes are dropped, and the causal minute-keyed lines stop
+  // at the last FINISHED minute (the playhead minute's values would include later seconds).
+  const windowed = useMemo(() => {
+    if (!windowedAll || !useSeconds) return windowedAll;
+    const ph = secs.playSec;
+    return {
+      ...windowedAll,
+      spyCandles: replaySeries(windowedAll.spyCandles, secs.underlying, ph),
+      contractCandles: windowedAll.contractCandles
+        ? replaySeries(windowedAll.contractCandles, secs.contract, ph)
+        : null,
+      vwap: finishedOnly(windowedAll.vwap, ph),
+      emas: windowedAll.emas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
+    };
+  }, [windowedAll, useSeconds, secs.playSec, secs.underlying, secs.contract]);
+
   const spyLabel = spyPaneLabel(
     tradeSession?.symbol ?? "SPY",
     tradeSession?.meta.source_label,
@@ -154,13 +195,13 @@ export function ReplayPage() {
 
   // The replay is driven by the contract bars, or by SPY when there are none.
   const stackSession: ReplaySession | undefined = useMemo(() => {
-    if (!tradeSession || !windowed) return undefined;
+    if (!tradeSession || !windowedAll) return undefined;
     const meta = { ...tradeSession.meta };
-    if (windowed.contractCandles && contractData) {
+    if (windowedAll.contractCandles && contractData) {
       return {
         symbol: contractData.symbol ?? "Contract",
         session_date: contractData.session_date ?? tradeSession.session_date,
-        candles: windowed.contractCandles,
+        candles: windowedAll.contractCandles,
         indicators: {},
         levels: {},
         meta: { ...meta, source_label: contractData.estimated ? "estimated premium" : "option premium" },
@@ -169,12 +210,12 @@ export function ReplayPage() {
     return {
       symbol: tradeSession.symbol,
       session_date: tradeSession.session_date,
-      candles: windowed.spyCandles,
+      candles: windowedAll.spyCandles,
       indicators: {},
       levels: {},
       meta,
     };
-  }, [tradeSession, windowed, contractData]);
+  }, [tradeSession, windowedAll, contractData]);
 
   const inTrade = tradeId !== null;
   const active = inTrade ? tradeReplay : freeSession;
@@ -185,18 +226,70 @@ export function ReplayPage() {
 
   // The session is already cut to the trade window, so the replay starts at bar 0
   // (the engine resets to the first bar whenever the bar count changes).
-  const replay = useReplay(data);
+  const minuteReplay = useReplay(data, { keyboardEnabled: !useSeconds });
 
-  const playheadTs = inTrade && data ? (data.candles[replay.currentIndex]?.ts ?? null) : null;
-  const playheadSec = playheadTs ? floorMinute(isoToUtcSeconds(playheadTs)) : startSec;
+  // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
+  // minute engine only supplies the bar count. Everything below reads `replay`.
+  const secIndex = data ? minuteIndexAt(data.candles, secs.playSec) : 0;
+  const replay: ReplayState = useSeconds
+    ? {
+        ...minuteReplay,
+        currentIndex: secIndex,
+        currentBar: secIndex,
+        isPlaying: secs.isPlaying,
+        speed: secs.speed,
+        atStart: secs.atStart,
+        atEnd: secs.atEnd,
+        play: secs.play,
+        pause: secs.pause,
+        toggle: secs.toggle,
+        stepForward: secs.stepForward,
+        stepBack: secs.stepBack,
+        restart: secs.restart,
+        setSpeed: (sp: Speed) => {
+          if (sp === 1 || sp === 2 || sp === 4) secs.setSpeed(sp as SecondsSpeed);
+        },
+        setIndex: (i: number) => {
+          const c = data?.candles[i];
+          if (c) secs.seek(isoToUtcSeconds(c.ts));
+        },
+        barLabel: formatClockSecondsPt(secs.playSec),
+      }
+    : minuteReplay;
+
+  const playheadTs =
+    inTrade && data
+      ? useSeconds
+        ? new Date(secs.playSec * 1000).toISOString()
+        : (data.candles[replay.currentIndex]?.ts ?? null)
+      : null;
+  const playheadSec = useSeconds
+    ? floorMinute(secs.playSec)
+    : playheadTs
+      ? floorMinute(isoToUtcSeconds(playheadTs))
+      : startSec;
+  const toggleSeconds = () => {
+    if (useSeconds) {
+      secs.pause();
+      minuteReplay.setIndex(secIndex);
+      setSecondsOn(false);
+    } else {
+      minuteReplay.pause();
+      secs.seek(playheadSec);
+      setSecondsOn(true);
+    }
+  };
 
   // SPY pane: VWAP plus one level ladder by default; EMAs opt-in. Levels are the
   // causal value at the playhead bar, never a later one.
   const spyPane = useMemo(() => {
     if (!tradeSession || !windowed) return null;
     let idx = -1;
+    // Seconds mode: levels as of the last finished minute (day high/low would otherwise
+    // include seconds that have not played yet).
+    const levelSec = useSeconds ? playheadSec - 60 : playheadSec;
     for (let i = 0; i < tradeSession.candles.length; i++) {
-      if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > playheadSec) break;
+      if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > levelSec) break;
       idx = i;
     }
     const levels = LADDERS[stackInd.ladder].levels.flatMap((l: { key: LevelKey; label: string }) => {
@@ -210,7 +303,7 @@ export function ReplayPage() {
       levels,
       emas: stackInd.ema ? windowed.emas : undefined,
     };
-  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel]);
+  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds]);
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
   const windowEndTs = fillsQuery.data?.window_end_ts ?? null;
   useEffect(() => {
@@ -222,23 +315,28 @@ export function ReplayPage() {
   // Extending the window changes the bar count, which resets the engine to bar 0;
   // put the playhead (and playback) back where it was.
   const lastRun = useRef({ total: 0, index: 0, playing: false });
-  const { setIndex, play } = replay;
+  const { setIndex, play } = minuteReplay;
   useEffect(() => {
     const prev = lastRun.current;
-    if (inTrade && prev.total > 0 && replay.total !== prev.total && replay.total > prev.total) {
+    const m = minuteReplay;
+    if (inTrade && !useSeconds && prev.total > 0 && m.total !== prev.total && m.total > prev.total) {
       setIndex(prev.index);
       if (prev.playing) play();
     }
     lastRun.current = {
-      total: replay.total,
-      index: replay.total !== prev.total ? prev.index : replay.currentIndex,
-      playing: replay.total !== prev.total ? prev.playing : replay.isPlaying,
+      total: m.total,
+      index: m.total !== prev.total ? prev.index : m.currentIndex,
+      playing: m.total !== prev.total ? prev.playing : m.isPlaying,
     };
-  }, [inTrade, replay.total, replay.currentIndex, replay.isPlaying, setIndex, play]);
+  }, [inTrade, useSeconds, minuteReplay.total, minuteReplay.currentIndex, minuteReplay.isPlaying, setIndex, play]);
 
   const revealedFills = useMemo(
-    () => (fillsQuery.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= playheadSec + 59),
-    [fillsQuery.data, playheadSec],
+    // Fills reveal at their exact second in Seconds mode, at the end of the playhead minute otherwise.
+    () =>
+      (fillsQuery.data?.fills ?? []).filter(
+        (f) => isoToUtcSeconds(f.ts) <= (useSeconds ? secs.playSec : playheadSec + 59),
+      ),
+    [fillsQuery.data, playheadSec, useSeconds, secs.playSec],
   );
 
   // Scrubber marks: only what the playhead has reached.
@@ -256,7 +354,13 @@ export function ReplayPage() {
   }, [inTrade, data, revealedFills, playheadSec]);
 
   // Trade-mode sim: fills at the playhead bar's close on the premium pane.
-  const playCandle = inTrade && data ? (data.candles[replay.currentIndex] ?? null) : null;
+  // Seconds mode: the latest print so far (never the minute's final close).
+  const playCandle =
+    inTrade && data
+      ? useSeconds
+        ? liveCandle(windowed?.contractCandles ?? [], secs.playSec)
+        : (data.candles[replay.currentIndex] ?? null)
+      : null;
   const sim = useSimSession({
     resetKey: endKey,
     symbol: contractData?.symbol ?? tradeSession?.symbol ?? "",
@@ -335,10 +439,19 @@ export function ReplayPage() {
             date={tradeDate}
             lead={lead}
             onLeadChange={setLead}
-            clock={playheadTs ? formatClock(playheadTs) : null}
+            clock={
+              playheadTs ? (useSeconds ? formatClockSeconds(secs.playSec) : formatClock(playheadTs)) : null
+            }
             replay={replay}
             disabled={!ready}
             onExit={() => setParams({})}
+            seconds={{
+              on: useSeconds,
+              available: secondsProbe.data?.available === true,
+              checking: secondsProbe.isLoading,
+              reason: secondsProbe.data?.reason ?? (secondsProbe.isError ? "request failed" : null),
+              onToggle: toggleSeconds,
+            }}
           />
           <RuleBar state={bar} loading={daySoFar.isLoading} />
         </>
@@ -371,6 +484,11 @@ export function ReplayPage() {
               </Alert>
             </div>
           )}
+          {useSeconds && secs.error && (
+            <div className="absolute left-3 top-3 z-20 rounded-md bg-card/90 px-3 py-1.5 text-label" role="status">
+              Seconds: {secs.error}
+            </div>
+          )}
           {isLoading && <ChartSkeleton />}
           {isError && <ChartError error={error} />}
           {!isLoading && !isError && data && replay.total === 0 && (
@@ -399,6 +517,7 @@ export function ReplayPage() {
                 simFills={windowed.contractCandles ? simFills : []}
                 onStopChange={sim.onSetStop}
                 fills={windowed.contractCandles ? revealedFills : []}
+                playheadLabel={useSeconds ? formatClockSecondsPt(secs.playSec) : undefined}
               />
             </div>
           )}

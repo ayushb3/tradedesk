@@ -109,6 +109,8 @@ interface Props {
   fills: ReplayFill[];
   /** Set when the bars end before the wanted window does: the last bar's minute. */
   noDataAfterSec?: number | null;
+  /** Replay, Seconds mode: the playhead readout with seconds, e.g. "06:47:12 PT", and fill chips with seconds. */
+  playheadLabel?: string;
 }
 
 interface Layout {
@@ -149,6 +151,14 @@ const hm = new Intl.DateTimeFormat("en-US", {
   hourCycle: "h23",
 });
 const ptClock = (sec: number) => `${hm.format(sec * 1000)} ${DISPLAY_TZ_LABEL}`;
+const hms = new Intl.DateTimeFormat("en-US", {
+  timeZone: DISPLAY_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+const ptClockSec = (sec: number) => `${hms.format(sec * 1000)} ${DISPLAY_TZ_LABEL}`;
 
 interface PaneRuntime {
   chart: IChartApi;
@@ -193,6 +203,7 @@ export function PriceChart({
   onStopChange,
   fills,
   noDataAfterSec = null,
+  playheadLabel,
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -655,10 +666,14 @@ export function PriceChart({
   const chipSources = useMemo(
     () =>
       fills
-        .map((f) => ({ sec: floorMinute(isoToUtcSeconds(f.ts)), side: f.side }))
+        .map((f) => ({ sec: floorMinute(isoToUtcSeconds(f.ts)), exact: isoToUtcSeconds(f.ts), side: f.side }))
         .filter((f) => f.sec <= playheadSec)
-        .map((f) => ({ ...f, text: fillChipText(f.side, ptClock(f.sec)) })),
-    [fills, playheadSec],
+        .map((f) => ({
+          sec: f.sec,
+          side: f.side,
+          text: fillChipText(f.side, playheadLabel ? ptClockSec(f.exact) : ptClock(f.sec)),
+        })),
+    [fills, playheadSec, playheadLabel],
   );
   useEffect(() => {
     const p = panes.current;
@@ -774,6 +789,7 @@ export function PriceChart({
   };
 
   const noDataFor = (spec: PaneSpec): string | null => {
+    if (isReplay && playheadLabel) return null; // Seconds mode: a quiet minute is not missing data
     const last = spec.candles.length ? floorMinute(isoToUtcSeconds(spec.candles[spec.candles.length - 1].ts)) : null;
     let at: number | null = null;
     if (isReplay) {
@@ -842,6 +858,7 @@ export function PriceChart({
           playheadSec={playheadSec}
           isReplay={isReplay}
           hovered={hoverSec !== null}
+          playheadLabel={playheadLabel}
           elRef={topEl}
           showTicks
           overlay={stopHandle}
@@ -858,6 +875,7 @@ export function PriceChart({
         playheadSec={playheadSec}
         isReplay={isReplay}
         hovered={hoverSec !== null}
+        playheadLabel={playheadLabel}
         elRef={bottomEl}
         showTicks={!top}
         details={detailFor("bottom", shown)}
@@ -876,6 +894,7 @@ function Pane({
   playheadSec,
   isReplay,
   hovered,
+  playheadLabel,
   elRef,
   showTicks,
   overlay,
@@ -890,6 +909,7 @@ function Pane({
   playheadSec: number;
   isReplay: boolean;
   hovered: boolean;
+  playheadLabel?: string;
   elRef: React.RefObject<HTMLDivElement>;
   showTicks: boolean;
   overlay?: React.ReactNode;
@@ -918,7 +938,11 @@ function Pane({
         <span className="label-caps text-label font-semibold">{spec.label}</span>
         {spec.badge}
         <span className="num text-label text-muted-foreground">
-          {shown === null ? "hover a bar for OHLC" : ptClock(shown)}
+          {shown === null
+            ? "hover a bar for OHLC"
+            : !hovered && isReplay && playheadLabel
+              ? playheadLabel
+              : ptClock(shown)}
           {hovered || !isReplay ? "" : " · playhead"}
         </span>
         {shown === null ? null : bar ? (

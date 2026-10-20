@@ -2,8 +2,8 @@
 
 Market data only (bars). ``get_fills`` / ``get_positions`` / ``get_account`` are
 delegated to the mode provider (mock or webull) -- Alpaca is never a broker here.
-Results are cached in ``candles_cache`` / ``option_bars_cache``; a session that
-is not yet closed is never cached.
+Results are cached in ``candles_cache`` / ``option_bars_cache`` /
+``second_bars_cache``; a session that is not yet closed is never cached.
 """
 from __future__ import annotations
 
@@ -15,9 +15,16 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 
 from app.config import Settings
-from app.db.schema import candles_cache, option_bars_cache
+from app.db.schema import (
+    candles_cache,
+    option_bars_cache,
+    second_bars_cache,
+    second_bars_coverage,
+)
 from app.models.market import Account, Candle, OptionContract, Position
 from app.models.trades import Fill
+
+from app.providers.seconds import SecondsUnavailable, aggregate_ticks, ticks_from_alpaca
 
 from .client import AlpacaDataClient
 from .errors import AlpacaHTTPError
@@ -31,6 +38,8 @@ _FEEDS = ("iex", "sip")
 OPTION_HISTORY_START = date(2024, 2, 1)
 # Free plan blocks SIP for the latest 15 minutes.
 SIP_DELAY = timedelta(minutes=15)
+# Hard stop on trade-print pagination (10k prints a page) so a busy window stays bounded.
+_MAX_TRADE_PAGES = 80
 
 
 def _parse_ts(s: str) -> datetime:
@@ -55,6 +64,9 @@ def _is_closed(day: date, now: datetime | None = None) -> bool:
 
 
 class AlpacaProvider:
+    #: Second-bar windows come over the network: callers may keep them in memory.
+    memoize_seconds = True
+
     def __init__(
         self,
         settings: Settings,
@@ -207,6 +219,127 @@ class AlpacaProvider:
         if _is_closed(day):
             self._write_option(key, timeframe, bars)
         return bars
+
+    # -- second bars (aggregated from tick trades) ----------------------- #
+    def get_second_bars(self, symbol: str, start: datetime, end: datetime) -> list[Candle]:
+        """1-second bars for the stock (or its labelled proxy) over [start, end].
+
+        Raises :class:`SecondsUnavailable` when the plan/source has no prints.
+        """
+        out_symbol = symbol.upper()
+        sym, label = stock_symbol_for(out_symbol)
+
+        def fetch(s: datetime, e: datetime) -> list[dict]:
+            feed = self.feed
+            if feed == "sip" and e > _now() - SIP_DELAY:
+                feed = "iex"
+            params = {"start": rfc3339(s), "end": rfc3339(e), "limit": 10000, "feed": feed}
+            path = f"/v2/stocks/{sym}/trades"
+            try:
+                pages = self._trade_pages(path, params)
+            except AlpacaHTTPError as exc:
+                if exc.status == 403 and feed != "iex":
+                    params["feed"] = "iex"
+                    pages = self._trade_pages(path, params)
+                else:
+                    raise
+            return [r for body in pages for r in (body.get("trades") or [])]
+
+        return self._seconds(sym, out_symbol, label, start, end, fetch)
+
+    def get_option_second_bars(
+        self, contract: OptionContract, start: datetime, end: datetime
+    ) -> list[Candle]:
+        """1-second premium bars for one option contract over [start, end]."""
+        occ = occ_symbol(contract)
+
+        def fetch(s: datetime, e: datetime) -> list[dict]:
+            params = {"symbols": occ, "start": rfc3339(s), "end": rfc3339(e), "limit": 10000}
+            pages = self._trade_pages("/v1beta1/options/trades", params)
+            return [r for body in pages for r in (body.get("trades") or {}).get(occ, [])]
+
+        return self._seconds(contract.contract_key, contract.contract_key, None, start, end, fetch)
+
+    def _trade_pages(self, path: str, params: dict) -> list[dict]:
+        pages: list[dict] = []
+        for body in self.client.pages(path, params):
+            pages.append(body)
+            if len(pages) >= _MAX_TRADE_PAGES and body.get("next_page_token"):
+                # A partial window would silently end early (and must never be cached).
+                raise SecondsUnavailable("too many trade prints in the replay window")
+        return pages
+
+    def _seconds(self, series_key, out_symbol, label, start, end, fetch) -> list[Candle]:
+        start, end = start.astimezone(UTC), end.astimezone(UTC)
+        day = start.astimezone(ET).date()
+        if day < OPTION_HISTORY_START:
+            raise SecondsUnavailable("no trade prints for that date")
+        cached = self._read_seconds(series_key, out_symbol, label, start, end)
+        if cached is not None:
+            return cached
+        # The free plan 403s any request whose end is inside the latest 15 minutes.
+        usable_end = min(end, _now() - SIP_DELAY - timedelta(minutes=1))
+        if usable_end <= start:
+            raise SecondsUnavailable("trade prints are delayed 15 minutes on this plan")
+        try:
+            rows = fetch(start, usable_end)
+        except AlpacaHTTPError as exc:
+            if exc.status in (400, 403, 404, 422):
+                raise SecondsUnavailable("trade prints are not available on this plan") from None
+            raise
+        bars = aggregate_ticks(ticks_from_alpaca(rows), out_symbol, 1, label)
+        if usable_end == end and _is_closed(day):
+            self._write_seconds(series_key, bars, start, end)
+        return bars
+
+    def _read_seconds(self, key, out_symbol, label, start, end) -> list[Candle] | None:
+        cov, t = second_bars_coverage, second_bars_cache
+        s, e = start.replace(tzinfo=None), end.replace(tzinfo=None)
+        with self._eng().connect() as conn:
+            covered = conn.execute(
+                select(cov.c.start_utc).where(
+                    cov.c.source == PROVIDER_NAME, cov.c.series_key == key,
+                    cov.c.start_utc <= s, cov.c.end_utc >= e,
+                ).limit(1)
+            ).first()
+            if covered is None:
+                return None
+            rows = conn.execute(
+                select(t).where(
+                    t.c.source == PROVIDER_NAME, t.c.series_key == key,
+                    t.c.ts_utc >= s, t.c.ts_utc <= e,
+                ).order_by(t.c.ts_utc)
+            ).fetchall()
+        return [
+            Candle(
+                symbol=out_symbol, ts=m["ts_utc"].replace(tzinfo=UTC), open=m["open"], high=m["high"], low=m["low"],
+                close=m["close"], volume=m["volume"], timeframe="1s", source_label=label,
+            )
+            for m in (r._mapping for r in rows)
+        ]
+
+    def _write_seconds(self, key: str, bars: list[Candle], start: datetime, end: datetime) -> None:
+        with self._eng().begin() as conn:
+            for b in bars:
+                vals = dict(
+                    source=PROVIDER_NAME, series_key=key,
+                    ts_utc=b.ts.astimezone(UTC).replace(tzinfo=None),
+                    open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume,
+                )
+                stmt = sqlite_insert(second_bars_cache).values(**vals)
+                conn.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=["source", "series_key", "ts_utc"],
+                        set_={k: v for k, v in vals.items()
+                              if k not in ("source", "series_key", "ts_utc")},
+                    )
+                )
+            conn.execute(
+                sqlite_insert(second_bars_coverage)
+                .values(source=PROVIDER_NAME, series_key=key,
+                        start_utc=start.replace(tzinfo=None), end_utc=end.replace(tzinfo=None))
+                .on_conflict_do_nothing()
+            )
 
     # -- cache ---------------------------------------------------------- #
     def _read_candles(self, sym: str, timeframe: str, day: date) -> list[Candle]:

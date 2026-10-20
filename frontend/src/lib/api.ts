@@ -208,6 +208,23 @@ export interface ReplayContract {
   fills: ReplayFill[];
 }
 
+/** GET /api/replay/trade/{id}/seconds: tick-trade bars, cut at the playhead on the server. */
+export interface ReplaySeconds {
+  trade_id: number;
+  available: boolean;
+  reason: string | null;
+  res: "1s" | "5s";
+  playhead: string;
+  after: string | null;
+  start_ts: string | null;
+  contract: Candle[];
+  underlying: Candle[];
+  contract_label: string | null;
+  underlying_symbol: string | null;
+  /** e.g. "SPY (proxy)" when the underlying is a stand-in. */
+  source_label: string | null;
+}
+
 export interface ReplayFills {
   trade_id: number;
   playhead: string;
@@ -1253,6 +1270,16 @@ export const api = {
     const qs = new URLSearchParams({ lead_minutes: String(leadMinutes) });
     if (playhead) qs.set("playhead", playhead);
     return request<ReplayContract>(`/replay/trade/${tradeId}/contract?${qs.toString()}`);
+  },
+
+  replayTradeSeconds(
+    tradeId: number,
+    opts: { playhead: string; after?: string | null; lead?: number; res?: "1s" | "5s" },
+  ): Promise<ReplaySeconds> {
+    const qs = new URLSearchParams({ playhead: opts.playhead, res: opts.res ?? "1s" });
+    if (opts.after) qs.set("after", opts.after);
+    if (opts.lead !== undefined) qs.set("lead_minutes", String(opts.lead));
+    return request<ReplaySeconds>(`/replay/trade/${tradeId}/seconds?${qs.toString()}`);
   },
 
   replayTradeFills(tradeId: number, playhead: string): Promise<ReplayFills> {

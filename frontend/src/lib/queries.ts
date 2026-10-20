@@ -34,6 +34,7 @@ import {
   type KnowledgeProgressResponse,
   type PatchTradeRequest,
   type ReplayContract,
+  type ReplaySeconds,
   type ReplayDaySoFar,
   type ReviewDay,
   type ReplayFills,
@@ -98,6 +99,20 @@ export function useReplayContract(tradeId: number | null, leadMinutes: number, e
     queryKey: ["replay-contract", tradeId, leadMinutes],
     queryFn: () => api.replayTradeContract(tradeId as number, leadMinutes),
     enabled: enabled && tradeId !== null,
+  });
+}
+
+/**
+ * Does this trade have second-level prints? Asks for the lead-start second only (at most one
+ * bar), so nothing past the start is fetched. Drives whether the Seconds toggle is offered.
+ */
+export function useReplaySecondsProbe(tradeId: number | null, lead: number, startTs: string | null) {
+  return useQuery<ReplaySeconds>({
+    queryKey: ["replay-seconds-probe", tradeId, lead],
+    queryFn: () => api.replayTradeSeconds(tradeId as number, { playhead: startTs as string, lead }),
+    enabled: tradeId !== null && startTs !== null,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

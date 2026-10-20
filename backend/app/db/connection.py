@@ -38,7 +38,8 @@ from .schema import metadata
 # v11 (option-bar scale fix): one-time purge of synthetic option_bars_cache rows. The old
 #     whole-day scale check threw away real 0DTE provider bars and cached BS fallbacks
 #     (some priced SPX contracts off the SPY proxy); they are rebuilt on demand.
-SCHEMA_VERSION = 11
+# v12 (Replay seconds): second_bars_cache, second_bars_coverage (new tables, created by create_all).
+SCHEMA_VERSION = 12
 
 # Standalone metadata so the bookkeeping table is created alongside the app
 # tables but is not part of the domain `metadata` exported to callers.

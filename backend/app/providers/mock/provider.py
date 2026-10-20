@@ -18,6 +18,7 @@ from app.config import Settings
 from app.models.market import Account, Candle, OptionContract, Position
 from app.models.trades import Fill, Side
 
+from .seconds import split_minute_bars
 from .synthetic import generate_candles, resample_candles, seed_for
 
 UTC = ZoneInfo("UTC")
@@ -95,6 +96,27 @@ class MockProvider:
         if not underlying:
             return []
         return synthesize_mock_premium_bars(underlying, contract, timeframe)
+
+    # ------------------------------------------------------------------ #
+    # Second bars (Replay "Seconds")
+    # ------------------------------------------------------------------ #
+    #: Mock has no tick feed: second bars are synthesized from the minute bars.
+    synthesizes_seconds = True
+
+    def seconds_from_minutes(self, bars: list[Candle], start: datetime, end: datetime) -> list[Candle]:
+        """Deterministic 1s bars for the minute bars that fall in [start, end]; their
+        aggregate is exactly those minute bars."""
+        s, e = _as_utc(start), _as_utc(end)
+        return [
+            b for b in split_minute_bars(m for m in bars if s <= _as_utc(m.ts) <= e)
+            if s <= _as_utc(b.ts) <= e
+        ]
+
+    def get_second_bars(self, symbol: str, start: datetime, end: datetime) -> list[Candle]:
+        s = _as_utc(start)
+        day = s.astimezone(ZoneInfo(self.tz)).date()
+        floor = s.replace(second=0, microsecond=0)
+        return self.seconds_from_minutes(self.get_candles(symbol, day, "1m"), floor, end)
 
     # ------------------------------------------------------------------ #
     # Fills
