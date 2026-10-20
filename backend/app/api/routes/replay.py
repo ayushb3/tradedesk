@@ -23,6 +23,7 @@ from app.models.replay import (
     ReplayFill,
     ReplayContractResponse,
     ReplayFillsResponse,
+    ReplaySecondsResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
 )
@@ -298,6 +299,57 @@ def replay_trade_contract(
         method=bars.method,
         fills=revealed_fills(trade_id, head),
         **base,
+    )
+
+
+@router.get("/replay/trade/{trade_id}/seconds", response_model=ReplaySecondsResponse)
+def replay_trade_seconds(
+    trade_id: int,
+    playhead: datetime = Query(..., description="Reveal second bars up to and including this second."),
+    res: str = Query("1s", description="Bar resolution: 1s or 5s."),
+    after: datetime | None = Query(
+        None, description="Incremental fetch: only bars newer than this timestamp."
+    ),
+    lead_minutes: int = Query(_DEFAULT_LEAD_MINUTES, ge=0, le=_MAX_LEAD_MINUTES),
+    provider: DataProvider = Depends(provider_dep),
+) -> ReplaySecondsResponse:
+    """Seconds mode: tick-trade bars for the contract and its underlying, cut at the
+    playhead on the SERVER (like fills). The playhead is a whole second and means
+    "this second has printed": a bar is sent only once its last second is at or
+    before it, so a 5s bar waits for its fifth second. The client polls with `after`
+    and never holds a bar from the future. Unavailable sources answer
+    `available=false` with a reason (mock data, no prints, a 403 on the free plan)."""
+    from app.ingest.second_bars import get_trade_seconds
+    from app.providers.seconds import parse_res, rebucket, revealed
+
+    try:
+        res_s = parse_res(res)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    head = _as_utc(playhead).replace(microsecond=0)
+    floor_after = _as_utc(after) if after is not None else None
+    base = dict(trade_id=trade_id, res=res, playhead=head, after=floor_after)
+
+    found = get_trade_seconds(trade_id, provider, lead_minutes)
+    if found is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    if not found.available:
+        return ReplaySecondsResponse(
+            available=False, reason=found.reason, start_ts=found.start, **base
+        )
+
+    def cut(bars):
+        if res_s != 1:
+            bars = rebucket(bars, res_s)
+        out = revealed(bars, head, res_s)
+        if floor_after is not None:
+            out = [b for b in out if _as_utc(b.ts) > floor_after]
+        return out
+
+    return ReplaySecondsResponse(
+        available=True, start_ts=found.start, contract=cut(found.contract),
+        underlying=cut(found.underlying), contract_label=found.contract_label,
+        underlying_symbol=found.underlying_symbol, source_label=found.source_label, **base,
     )
 
 

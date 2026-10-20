@@ -149,7 +149,7 @@ def test_get_latest_session_for_subject(temp_engine):
 # --------------------------------------------------------------------------- #
 
 def test_schema_version_is_10():
-    assert SCHEMA_VERSION == 11
+    assert SCHEMA_VERSION == 12
 
 
 def test_agent_tables_exist_on_fresh_db(temp_engine):

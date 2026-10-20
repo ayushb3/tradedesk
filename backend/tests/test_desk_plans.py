@@ -18,7 +18,7 @@ T0 = datetime(2026, 10, 14, 13, 30, tzinfo=timezone.utc)  # 06:30 PT
 
 
 def test_schema_version():
-    assert SCHEMA_VERSION == 11
+    assert SCHEMA_VERSION == 12
 
 
 # ── parsing ──────────────────────────────────────────────────────────────── #

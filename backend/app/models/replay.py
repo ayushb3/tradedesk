@@ -108,6 +108,26 @@ class ReplayContractResponse(BaseModel):
     fills: list[ReplayFill] = Field(default_factory=list)
 
 
+class ReplaySecondsResponse(BaseModel):
+    """Second-level bars for 'Replay my trade' (Seconds mode), cut at the playhead on
+    the server: no bar covering a second after `playhead` is ever serialized, and
+    nothing here (no fills, no window end, no result) can reveal the exit. `after`
+    makes it incremental: only bars newer than that timestamp are sent."""
+
+    trade_id: int
+    available: bool
+    reason: str | None = None
+    res: str = "1s"                  # "1s" | "5s"
+    playhead: UtcDatetime
+    after: UtcDatetime | None = None
+    start_ts: UtcDatetime | None = None  # first second of the window (lead start, whole minute)
+    contract: list[Candle] = Field(default_factory=list)    # option premium bars (empty for a share trade)
+    underlying: list[Candle] = Field(default_factory=list)  # underlying bars (SPY for index options)
+    contract_label: str | None = None
+    underlying_symbol: str | None = None
+    source_label: str | None = None  # e.g. "SPY (proxy)" when the underlying is a stand-in
+
+
 class DaySoFarResponse(BaseModel):
     """The replayed day as it stood BEFORE this trade's entry, for the rule bar.
 

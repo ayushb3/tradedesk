@@ -91,6 +91,37 @@ option_bars_cache = Table(
 )
 
 
+# second_bars_cache — 1-second bars aggregated from tick trades (Replay "Seconds").
+# PK (source, series_key, ts_utc). `source` is the provider that produced the row
+# (reads MUST filter on it); `series_key` is the option contract_key or the stock
+# symbol that was fetched. Only 1s bars are stored: coarser bars are re-bucketed on
+# read. Seconds with no prints have no row. Rows are written only once the session
+# is closed, together with a coverage row, because an empty second is
+# indistinguishable from "not fetched" without one.
+second_bars_cache = Table(
+    "second_bars_cache",
+    metadata,
+    Column("source", String, primary_key=True),
+    Column("series_key", String, primary_key=True),
+    Column("ts_utc", DateTime, primary_key=True),
+    Column("open", Float, nullable=False),
+    Column("high", Float, nullable=False),
+    Column("low", Float, nullable=False),
+    Column("close", Float, nullable=False),
+    Column("volume", Float, nullable=False),
+)
+
+# second_bars_coverage — the [start_utc, end_utc] windows already fetched in full.
+second_bars_coverage = Table(
+    "second_bars_coverage",
+    metadata,
+    Column("source", String, primary_key=True),
+    Column("series_key", String, primary_key=True),
+    Column("start_utc", DateTime, primary_key=True),
+    Column("end_utc", DateTime, primary_key=True),
+)
+
+
 # fills — one execution; simulated=True for replay-generated fills.
 fills = Table(
     "fills",
