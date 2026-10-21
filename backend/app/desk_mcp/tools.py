@@ -208,3 +208,31 @@ def patterns(ctx: Ctx, date_from: str | None = None, date_to: str | None = None)
 def line_status(ctx: Ctx) -> dict:
     ls = desk_days.line_status(rules=ctx.rules, engine=ctx.engine)
     return _json(serialize.line_response(ls, desk_days.as_of(ctx.engine)))
+
+
+# ----------------------------------------------------------------- course notes
+# Private notes read from TRADEDESK_COURSE_NOTES_DIR (local files only, never raises).
+
+def search_course(ctx: Ctx, query: str, k: int = 8) -> dict:
+    from app.knowledge import course_search
+    return course_search.run(ctx.db_path, "search", query, k)
+
+
+def get_topic(ctx: Ctx, slug: str) -> dict:
+    from app.knowledge import course_search
+    return course_search.run(ctx.db_path, "get_topic", slug)
+
+
+def get_sheet(ctx: Ctx, lesson_id: str) -> dict:
+    from app.knowledge import course_search
+    return course_search.run(ctx.db_path, "get_sheet", lesson_id)
+
+
+def lessons_for(ctx: Ctx, topic: str) -> dict:
+    from app.knowledge import course_search
+    return course_search.run(ctx.db_path, "lessons_for", topic)
+
+
+def course_status(ctx: Ctx) -> dict:
+    from app.knowledge import course_search
+    return course_search.run(ctx.db_path, "status")

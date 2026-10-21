@@ -1,0 +1,5 @@
+{"lesson": "1.2", "claim": "Trimming a third at the first target lets a runner pay for scratches.", "kind": "rule", "tags": ["trade-management"], "evidence": "synthetic evidence one"}
+{"lesson": "2.1", "claim": "A runner is trailed behind higher lows and sold when the floor breaks.", "kind": "rule", "tags": ["trade-management"], "evidence": "synthetic evidence two"}
+{"lesson": "3.1.1", "claim": "The stop is only ever tightened, never moved further away.", "kind": "rule", "tags": ["stops"], "evidence": "synthetic evidence three"}
+{"lesson": "2.3", "claim": "Divide dollar risk by stop distance to size the position.", "kind": "formula", "tags": ["position-sizing"], "evidence": "synthetic evidence four"}
+{"lesson": "1.1", "claim": "Write the plan before the open.", "kind": "habit", "tags": ["premarket-routine"], "evidence": "synthetic evidence five"}
