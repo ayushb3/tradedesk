@@ -145,7 +145,8 @@ def test_tool_annotations_over_inprocess_server(ctx):
     listed = asyncio.run(mcp.list_tools())
     ro = {t.name: t.annotations.readOnlyHint for t in listed}
     reads = {"status", "rules", "list_days", "get_day", "get_trade", "patterns",
-             "line_status", "propose_rules", "push_phone_snapshot"}
+             "line_status", "propose_rules", "push_phone_snapshot", "search_course", "get_topic",
+             "get_sheet", "lessons_for", "course_status"}
     writes_ = {"import_robinhood", "add_plan", "annotate_trade", "day_fields", "update_rules"}
     assert set(ro) == reads | writes_
     assert all(ro[n] is True for n in reads) and all(ro[n] is False for n in writes_)
