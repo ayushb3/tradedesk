@@ -252,6 +252,7 @@ def test_stdio_server_lists_tools_and_serves_line_status(tmp_path):
         "status", "rules", "list_days", "get_day", "get_trade", "patterns", "line_status",
         "import_robinhood", "add_plan", "annotate_trade", "day_fields",
         "propose_rules", "update_rules", "push_phone_snapshot",
+        "search_course", "get_topic", "get_sheet", "lessons_for", "course_status",
     }
     assert not line.isError
     payload = json.loads(line.content[0].text)

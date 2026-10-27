@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # docs/PLAN-M6-TRAINING.md §2.
     anthropic_api_key: str = ""
 
+    # Optional folder of private course notes (TRADEDESK_COURSE_NOTES_DIR). Read at
+    # runtime by the MCP course tools; never copied into the repo. Empty = tools say
+    # "course notes not configured".
+    course_notes_dir: str = ""
+
     @field_validator("db_path")
     @classmethod
     def _resolve_db_path(cls, v: str) -> str:
