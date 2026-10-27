@@ -160,7 +160,14 @@ def learn_bars(
     start, pause, until = (_utc(drill.bars_from), _utc(drill.pause_at), _utc(drill.bars_until))
     try:
         day = date_cls.fromisoformat(drill.date)
-        bars = provider.get_candles(drill.ticker, day, drill.timeframe)
+        # The drill was built (and its answer key computed) from the cached session bars,
+        # so serve those same bars. The provider is only a fallback: in mock mode it would
+        # synthesize a different price path than the one the key was graded on.
+        from app.learn.build import read_cached
+
+        bars = read_cached(settings.db_path, drill.ticker, day) if drill.timeframe == "1m" else []
+        if not bars:
+            bars = provider.get_candles(drill.ticker, day, drill.timeframe)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"bars unavailable: {type(exc).__name__}")
     if answered:

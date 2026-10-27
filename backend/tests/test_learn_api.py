@@ -235,3 +235,26 @@ def test_lessons_all_and_search(client):
     assert set(row) == {"id", "title", "module", "video_url", "topics"}
     hits = client.get("/api/learn/lessons?q=where to put the stop").json()
     assert hits and hits[0]["id"] == "3.1.1"
+
+
+def test_bars_come_from_the_cache_the_drill_was_built_on(client, tmp_path):
+    # The answer key was computed on cached bars; the mock provider would synthesize a
+    # different price path, so cached rows must win over the provider.
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    from app.db.connection import get_engine, init_db
+
+    init_db(get_engine())
+    con = sqlite3.connect(tmp_path / "api.db")
+    t0 = datetime(2026, 10, 14, 13, 30)
+    con.executemany(
+        "INSERT INTO candles_cache (symbol, timeframe, ts_utc, open, high, low, close, volume, provider)"
+        " VALUES ('SPY', '1m', ?, 777.0, 777.5, 776.5, 777.25, 10, 'fake')",
+        [((t0 + timedelta(minutes=i)).isoformat(sep=" "),) for i in range(120)],
+    )
+    con.commit()
+    con.close()
+    b = client.get(f"/api/learn/drills/{D1}/bars").json()
+    assert b["candles"] and {c["close"] for c in b["candles"]} == {777.25}
+    assert all(c["ts"] < "2026-10-14T14:33:00Z" for c in b["candles"])
