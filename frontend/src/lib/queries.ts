@@ -24,6 +24,14 @@ import {
   type DayTradesResponse,
   type Health,
   type ImportResult,
+  type DrillPublic,
+  type GradeResult,
+  type LearnAnswerRequest,
+  type LearnBars,
+  type LearnLesson,
+  type LearnNotConfigured,
+  type LearnToday,
+  type LearnTopic,
   type KnowledgeSearchResponse,
   type KnowledgeStatus,
   type KnowledgeConceptsResponse,
@@ -501,5 +509,75 @@ export function useReviewDay(date: string | null) {
     queryFn: () => api.reviewDay(date as string),
     enabled: Boolean(date),
     retry: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Learn: drills, topic map, lessons
+// ---------------------------------------------------------------------------
+
+export function useLearnToday() {
+  return useQuery<LearnToday | LearnNotConfigured>({
+    queryKey: ["learn-today"],
+    queryFn: () => api.learnToday(),
+  });
+}
+
+export function useLearnTopics() {
+  return useQuery<LearnTopic[] | LearnNotConfigured>({
+    queryKey: ["learn-topics"],
+    queryFn: () => api.learnTopics(),
+  });
+}
+
+export function useLearnLessons(q: string) {
+  return useQuery<LearnLesson[] | LearnNotConfigured>({
+    queryKey: ["learn-lessons", q],
+    queryFn: () => api.learnLessons(q),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useLearnDrill(id: string | undefined) {
+  return useQuery<DrillPublic | LearnNotConfigured>({
+    queryKey: ["learn-drill", id],
+    queryFn: () => api.learnDrill(id as string),
+    enabled: Boolean(id),
+  });
+}
+
+/** Bars for a drill. `answered` is in the key so the full set is refetched after the answer. */
+export function useLearnBars(id: string | undefined, answered: boolean, ready = true) {
+  return useQuery<LearnBars | LearnNotConfigured>({
+    queryKey: ["learn-bars", id, answered],
+    queryFn: () => api.learnBars(id as string),
+    enabled: Boolean(id) && ready,
+    staleTime: 0,
+    gcTime: 0,
+    // Keep the pre-answer bars on screen while the full set loads after the answer.
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** The saved grade of an already-answered drill (404 while unanswered). */
+export function useLearnResult(id: string | undefined, enabled: boolean) {
+  return useQuery<GradeResult>({
+    queryKey: ["learn-result", id],
+    queryFn: () => api.learnResult(id as string),
+    enabled: Boolean(id) && enabled,
+    retry: false,
+  });
+}
+
+export function useLearnAnswer(id: string) {
+  const qc = useQueryClient();
+  return useMutation<GradeResult, unknown, LearnAnswerRequest>({
+    mutationFn: (body) => api.learnAnswer(id, body),
+    onSuccess: (res) => {
+      qc.setQueryData(["learn-result", id], res);
+      void qc.invalidateQueries({ queryKey: ["learn-today"] });
+      void qc.invalidateQueries({ queryKey: ["learn-topics"] });
+      void qc.invalidateQueries({ queryKey: ["learn-drill", id] });
+    },
   });
 }

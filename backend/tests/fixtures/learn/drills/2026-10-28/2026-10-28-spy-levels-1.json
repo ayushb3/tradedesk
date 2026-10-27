@@ -1,0 +1,22 @@
+{
+  "id": "2026-10-28-spy-levels-1",
+  "set_date": "2026-10-28",
+  "topic": "stops",
+  "lessons": ["3.1.1", "2.1"],
+  "ticker": "SPY",
+  "date": "2026-10-14",
+  "timeframe": "1m",
+  "bars_from": "2026-10-14T13:30:00Z",
+  "pause_at": "2026-10-14T14:33:00Z",
+  "bars_until": "2026-10-14T16:02:00Z",
+  "question_steps": ["level", "enter", "stop", "target"],
+  "answer_key": {"level": 600.05, "enter": "enter", "side": "short", "stop": 600.07, "target": 597.45},
+  "grading_rubric": {
+    "level_tol_pct": 0.1, "stop_tol_pct": 0.1, "target_tol_pct": 0.15,
+    "rule_refs": {"level": "2.1 § Key ideas", "enter": "2.1 § Setup checklist",
+                  "stop": "3.1.1 § Key ideas", "target": "2.1 § In one paragraph"}
+  },
+  "explanation": "Synthetic explanation, cites 3.1.1 and 2.1.",
+  "detector": "level_touches",
+  "review": true
+}

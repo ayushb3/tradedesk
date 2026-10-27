@@ -1,0 +1,18 @@
+{
+  "id": "2026-10-28-spy-patience-2",
+  "set_date": "2026-10-28",
+  "topic": "trade-management",
+  "lessons": ["2.3"],
+  "ticker": "SPY",
+  "date": "2026-10-14",
+  "timeframe": "1m",
+  "bars_from": "2026-10-14T13:30:00Z",
+  "pause_at": "2026-10-14T14:33:00Z",
+  "bars_until": "2026-10-14T16:02:00Z",
+  "question_steps": ["level", "enter", "stop", "target"],
+  "answer_key": {"level": 600.05, "enter": "wait", "side": null, "stop": null, "target": null},
+  "grading_rubric": {"rule_refs": {"level": "2.3 § In one paragraph", "enter": "2.3 § Common mistakes"}},
+  "explanation": "Synthetic wait explanation.",
+  "detector": "level_touches",
+  "review": false
+}

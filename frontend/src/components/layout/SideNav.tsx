@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/journal", label: "Days", icon: CalendarDays, prefixes: ["/journal", "/trades", "/training/leaks"] },
   { to: "/replay", label: "Replay", icon: CandlestickChart, prefixes: ["/replay"] },
-  { to: "/knowledge/modules", label: "Learn", icon: BookOpen, prefixes: ["/knowledge"] },
+  { to: "/learn", label: "Learn", icon: BookOpen, prefixes: ["/learn", "/knowledge"] },
 ] as const;
 
 function NavItem({
