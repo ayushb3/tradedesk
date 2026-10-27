@@ -24,6 +24,9 @@ import { KnowledgeModulesPage } from "@/pages/KnowledgeModulesPage";
 import { KnowledgeLessonPage } from "@/pages/KnowledgeLessonPage";
 // M8c — Knowledge: concept index + concept detail
 import { KnowledgeConceptsPage } from "@/pages/KnowledgeConceptsPage";
+// Learn: nightly drills, topic map, lessons
+import { LearnPage } from "@/pages/LearnPage";
+import { LearnDrillPage } from "@/pages/LearnDrillPage";
 import { KnowledgeConceptPage } from "@/pages/KnowledgeConceptPage";
 
 /**
@@ -86,6 +89,9 @@ export function App() {
         {/* M8c — Knowledge: concept index + concept detail */}
         <Route path="/knowledge/concepts" element={<KnowledgeConceptsPage />} />
         <Route path="/knowledge/concepts/:slug" element={<KnowledgeConceptPage />} />
+        {/* Learn: nightly drills + topic map + lessons */}
+        <Route path="/learn" element={<LearnPage />} />
+        <Route path="/learn/drills/:id" element={<LearnDrillPage />} />
         {/* Rules: a small settings page, reached from the gear in the nav footer */}
         <Route path="/settings/rules" element={<RulesSettingsPage />} />
         <Route path="*" element={<Navigate to="/journal" replace />} />

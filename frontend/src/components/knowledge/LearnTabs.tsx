@@ -4,13 +4,14 @@ import { cn } from "@/lib/utils";
 import { useKnowledgeConcepts } from "@/lib/queries";
 
 /**
- * Sub-navigation inside Learn: Modules and Search always; Concepts only once
+ * Sub-navigation inside Learn: Drills, Modules and Search always; Concepts only once
  * the concept index has content (hidden-until-content, routes stay reachable).
  */
 export function LearnTabs() {
   const concepts = useKnowledgeConcepts();
   const showConcepts = Boolean(concepts.data?.available && concepts.data.concept_count > 0);
   const tabs = [
+    { to: "/learn", label: "Drills" },
     { to: "/knowledge/modules", label: "Modules" },
     { to: "/knowledge/search", label: "Search" },
     ...(showConcepts ? [{ to: "/knowledge/concepts", label: "Concepts" }] : []),

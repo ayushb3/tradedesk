@@ -1122,6 +1122,109 @@ function toQuery(
   return qs.toString();
 }
 
+// ---------------------------------------------------------------------------
+// Learn: nightly drills, topic map, lessons (GET/POST /api/learn/*)
+// ---------------------------------------------------------------------------
+
+/** Every /learn endpoint answers 200 with this when TRADEDESK_LEARN_DIR is unset. */
+export interface LearnNotConfigured {
+  configured: false;
+  message: string;
+}
+
+export interface LessonRef {
+  id: string;
+  title: string | null;
+  video_url: string | null;
+}
+
+export type LearnStepName = "level" | "enter" | "stop" | "target";
+
+/** A drill as the UI may see it: never the answer key, rubric or explanation. */
+export interface DrillPublic {
+  id: string;
+  set_date: string;
+  topic: string;
+  lessons: LessonRef[];
+  ticker: string;
+  date: string;
+  timeframe: string;
+  bars_from: string;
+  pause_at: string;
+  question_steps: LearnStepName[];
+  review: boolean;
+  status: "new" | "done";
+  score: number | null;
+}
+
+export interface LearnToday {
+  configured: true;
+  set_date: string | null;
+  drills: DrillPublic[];
+  review_pending: boolean;
+}
+
+export interface LearnBars {
+  ticker: string;
+  timeframe: string;
+  candles: Candle[];
+  revealed_until: string | null;
+}
+
+export interface LearnAnswerRequest {
+  level: number | null;
+  enter: "enter" | "wait";
+  side: "long" | "short" | null;
+  stop: number | null;
+  target: number | null;
+  note?: string;
+}
+
+export interface LearnStepResult {
+  step: LearnStepName;
+  graded: boolean;
+  ok: boolean;
+  points: number;
+  max: number;
+  yours: number | string | null;
+  key: number | string | null;
+  note: string;
+}
+
+export interface LearnAnswerKey {
+  level: number | null;
+  enter: "enter" | "wait";
+  side: "long" | "short" | null;
+  stop: number | null;
+  target: number | null;
+}
+
+export interface GradeResult {
+  drill_id: string;
+  score: number;
+  steps: LearnStepResult[];
+  answer_key: LearnAnswerKey;
+  explanation: string;
+  lessons: LessonRef[];
+  rule_refs: Record<string, string>;
+}
+
+export interface LearnTopic {
+  slug: string;
+  title: string;
+  drills_done: number;
+  avg_score: number | null;
+  last_date: string | null;
+}
+
+export interface LearnLesson {
+  id: string;
+  title: string;
+  module: string;
+  video_url: string | null;
+  topics: string[];
+}
+
 /** GET /api/days/{date}: only the fields the Trade review day tally reads. */
 export interface ReviewDay {
   date: string;
@@ -1306,6 +1409,34 @@ export const api = {
   knowledgeSearch(q: string, k = 8): Promise<KnowledgeSearchResponse> {
     const qs = toQuery({ q, k });
     return request<KnowledgeSearchResponse>(`/knowledge/search?${qs}`);
+  },
+
+  // Learn
+  learnToday(): Promise<LearnToday | LearnNotConfigured> {
+    return request<LearnToday | LearnNotConfigured>("/learn/today");
+  },
+  learnDrill(id: string): Promise<DrillPublic | LearnNotConfigured> {
+    return request<DrillPublic | LearnNotConfigured>(`/learn/drills/${encodeURIComponent(id)}`);
+  },
+  learnBars(id: string): Promise<LearnBars | LearnNotConfigured> {
+    return request<LearnBars | LearnNotConfigured>(`/learn/drills/${encodeURIComponent(id)}/bars`);
+  },
+  learnAnswer(id: string, body: LearnAnswerRequest): Promise<GradeResult> {
+    return request<GradeResult>(`/learn/drills/${encodeURIComponent(id)}/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  },
+  learnResult(id: string): Promise<GradeResult> {
+    return request<GradeResult>(`/learn/drills/${encodeURIComponent(id)}/result`);
+  },
+  learnTopics(): Promise<LearnTopic[] | LearnNotConfigured> {
+    return request<LearnTopic[] | LearnNotConfigured>("/learn/topics");
+  },
+  learnLessons(q: string): Promise<LearnLesson[] | LearnNotConfigured> {
+    const qs = toQuery({ q });
+    return request<LearnLesson[] | LearnNotConfigured>(`/learn/lessons${qs ? `?${qs}` : ""}`);
   },
 
   // M8b — knowledge base: modules tree + lesson reader + progress
