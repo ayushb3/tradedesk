@@ -42,6 +42,14 @@ def _force_mock_mode(monkeypatch):
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_export_dir(monkeypatch, tmp_path_factory):
+    """Never let a test read a real Robinhood export from the default location."""
+    monkeypatch.setenv(
+        "TRADEDESK_EXPORT_DIR", str(tmp_path_factory.mktemp("noexport") / "missing")
+    )
+
+
 @pytest.fixture()
 def temp_engine(tmp_path):
     """A throwaway SQLite engine backed by a temp file (never the real DB)."""

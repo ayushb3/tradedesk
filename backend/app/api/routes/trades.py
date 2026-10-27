@@ -14,6 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import provider_dep
+from app.config import get_settings
 from pydantic import BaseModel
 
 from app.models.trades import Trade, TradeUpdate
@@ -46,6 +47,36 @@ def import_fills(
     )
 
     try:
+        settings = get_settings()
+        if settings.mode != "webull":
+            # Mock/demo mode: a real desk.db holds Robinhood export fills, so the
+            # button loads the newest local export file instead of demo data.
+            from app.db.connection import get_engine, init_db
+            from app.desk_mcp import writes
+            from app.ingest.imports import _has_real_fills
+
+            engine = get_engine()
+            init_db(engine)
+            try:
+                exported = writes.import_newest_export(engine)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if exported is not None:
+                return {
+                    "fills_imported": exported["fills_added"],
+                    "trades_built": exported["trades"],
+                    "source": "robinhood_export",
+                    "export_file": exported["file"],
+                    "days_touched": exported["days_touched"],
+                }
+            with engine.connect() as conn:
+                has_real = _has_real_fills(conn)
+            if has_real:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(f"no Robinhood export found in {writes.export_dir().name}; "
+                            "run the export first"),
+                )
         return _import(provider, full=full)
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="fill import not implemented")
