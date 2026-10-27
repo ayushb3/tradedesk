@@ -156,31 +156,75 @@ def resolve_export_file(path: str) -> Path:
 
 # ---------------------------------------------------------------------- tools
 
+def _import_export_file(engine, real: Path) -> dict:
+    """Parse + import a path-guarded export file; raw counts only (no ids)."""
+    try:
+        source = RobinhoodExport.from_file(real)
+    except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        raise ValueError("file is not a valid option-orders export") from exc
+    fills = source.parsed.fills
+    if not fills:
+        raise ValueError("no executed single-leg option orders in this export")
+    # The import path re-runs plan matching for every day that has plans.
+    result = ingest_imports.import_fills(source, engine)
+    days = Counter(f.ts.astimezone(PT).date().isoformat() for f in fills)
+    return {
+        "fills_in_export": len(fills),
+        "fills_added": result["fills_imported"],
+        "trades": result["trades_built"],
+        "days_touched": len(days),
+        "first_day": min(days), "last_day": max(days),
+        "multi_leg_skipped": source.parsed.skipped_multi_leg,
+    }
+
+
 def import_robinhood(ctx: Ctx, path: str) -> dict:
     """Import fills from an exported ``raw-option-orders-*.json`` (counts only)."""
     def run() -> dict:
         real = resolve_export_file(path)
-        try:
-            source = RobinhoodExport.from_file(real)
-        except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
-            raise ValueError("file is not a valid option-orders export") from exc
-        fills = source.parsed.fills
-        if not fills:
-            raise ValueError("no executed single-leg option orders in this export")
-        # The import path re-runs plan matching for every day that has plans.
-        result = ingest_imports.import_fills(source, ctx.engine)
-        days = Counter(f.ts.astimezone(PT).date().isoformat() for f in fills)
-        return {
-            **_meta(ctx),
-            "fills_in_export": len(fills),
-            "fills_added": result["fills_imported"],
-            "trades": result["trades_built"],
-            "days_touched": len(days),
-            "first_day": min(days), "last_day": max(days),
-            "multi_leg_skipped": source.parsed.skipped_multi_leg,
-        }
+        return {**_meta(ctx), **_import_export_file(ctx.engine, real)}
 
     return _audited(ctx, "import_robinhood", {"path": path}, run)
+
+
+def newest_export_file() -> Path | None:
+    """Newest (by mtime) valid ``raw-option-orders-*.json`` in the export dir, or None.
+
+    Every candidate goes through :func:`resolve_export_file`, so symlinks escaping the
+    directory, oversize files and non-matching names are ignored."""
+    try:
+        base = export_dir().resolve(strict=True)
+    except OSError:
+        return None
+    best: tuple[float, Path] | None = None
+    try:
+        names = [p.name for p in base.iterdir()]
+    except OSError:
+        return None
+    for name in names:
+        if not fnmatch.fnmatch(name.lower(), EXPORT_PATTERN):
+            continue
+        try:
+            real = resolve_export_file(name)
+            mtime = real.stat().st_mtime
+        except (ValueError, OSError):
+            continue
+        if best is None or mtime > best[0]:
+            best = (mtime, real)
+    return best[1] if best else None
+
+
+def import_newest_export(engine, db_path: str = "", mode: str = "mock") -> dict | None:
+    """Import the newest export file (audited like ``import_robinhood``).
+
+    Returns None when there is no export file. Used by the web app's Import button."""
+    real = newest_export_file()
+    if real is None:
+        return None
+    ctx = Ctx(mode, db_path, engine, None)  # type: ignore[arg-type]  # audit needs engine+mode only
+    out = _audited(ctx, "import_robinhood", {"path": real.name},
+                   lambda: _import_export_file(engine, real))
+    return {**out, "file": real.name}
 
 
 def add_plan(

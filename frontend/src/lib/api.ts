@@ -421,6 +421,10 @@ export interface PatchTradeRequest {
 export interface ImportResult {
   fills_imported: number;
   trades_built: number;
+  /** Set when the import read a local Robinhood export file (mock mode). */
+  source?: string;
+  export_file?: string;
+  days_touched?: number;
 }
 
 export interface CreateTagRequest {

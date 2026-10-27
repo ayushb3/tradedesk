@@ -80,7 +80,9 @@ export function JournalPage() {
       onSuccess: (res) =>
         toast({
           title: "Fills imported",
-          description: `${res.fills_imported} fills · ${res.trades_built} trades built`,
+          description:
+            `${res.fills_imported} fills · ${res.trades_built} trades built` +
+            (res.export_file ? ` · from ${res.export_file}` : ""),
           variant: "success",
         }),
       onError: (err) =>
