@@ -68,6 +68,31 @@ def create_server(ctx: tools.Ctx | None = None) -> FastMCP:
         """Build the phone snapshot docs for a day (default: latest). Returns them; Claude writes each to the desk page db with ArtifactData. Times are PT."""
         return snapshot.push_phone_snapshot(get(), date)
 
+    @mcp.tool(annotations=READ_ONLY)
+    def search_course(query: str, k: int = 8) -> dict:
+        """Search the private course notes (hybrid keyword + embedding). Returns topic sections first, then supporting lesson passages and claims, each with lesson id, section, video link and a short snippet. Answer in this order: 1) the answer first; 2) the owner's own rules (rules tool); 3) their fills for the question (get_day / get_trade); 4) sources: lesson ids plus video links; 5) what the course does not cover. If the notes are not configured, say so and stop."""
+        return tools.search_course(get(), query, k)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_topic(slug: str) -> dict:
+        """The full topic note for a slug from search_course or course_status (answer, how it works, where lessons disagree, small-account notes, what the course does not cover). Use it to answer: answer first, then the owner's rules (rules), then their fills (get_day / get_trade), then sources (lesson ids + video links), then what the course does not cover."""
+        return tools.get_topic(get(), slug)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_sheet(lesson_id: str) -> dict:
+        """The full lesson sheet for a lesson id such as 11.12: summary, key ideas, setup checklist, common mistakes, and the video link. Cite it as the lesson id plus the video link."""
+        return tools.get_sheet(get(), lesson_id)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def lessons_for(topic: str) -> dict:
+        """The lessons a topic note cites (topic slug or a plain name), with titles, video links and how often each is cited. Use for the sources part of an answer: lesson ids plus video links."""
+        return tools.lessons_for(get(), topic)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def course_status() -> dict:
+        """Whether the course notes folder is set and found, counts by kind (topic, sheet, claim), last index build time and the embedder name."""
+        return tools.course_status(get())
+
     @mcp.tool(annotations=WRITE)
     def import_robinhood(path: str) -> dict:
         """Import fills from a raw-option-orders-*.json inside the export folder. Returns counts only."""
