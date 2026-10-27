@@ -47,9 +47,9 @@ def test_wrong_enter_when_key_is_enter():
 
 
 def test_level_tolerances_full_half_zero():
-    assert _step(_g(LONG, level=100.09), "level")["points"] == 25      # 0.09% <= 0.1%
-    assert _step(_g(LONG, level=100.25), "level")["points"] == 12.5    # 0.25% <= 0.3%
-    assert _step(_g(LONG, level=101.0), "level")["points"] == 0
+    assert _step(_g(LONG, level=100.04), "level")["points"] == 25      # 0.04% <= 0.05%
+    assert _step(_g(LONG, level=100.12), "level")["points"] == 12.5    # 0.12% <= 0.15%
+    assert _step(_g(LONG, level=100.2), "level")["points"] == 0
     assert _step(_g(LONG, level=None), "level")["points"] == 0
 
 
@@ -61,18 +61,44 @@ def test_stop_wrong_side_scores_zero_even_if_close():
     assert _step(r, "stop")["points"] == 0
 
 
-def test_stop_right_side_but_far_gets_half():
-    s = _step(_g(LONG, stop=98.0), "stop")
+def test_stop_tiers_are_relative_to_the_risk():
+    # LONG: level 100, key stop 99.5 -> R = 0.5; full <= 0.175, half <= 0.5 (right side only)
+    assert _step(_g(LONG, stop=99.35), "stop")["ok"] is True
+    s = _step(_g(LONG, stop=99.2), "stop")
     assert (s["points"], s["ok"]) == (12.5, False)
-    assert _step(_g(LONG, stop=99.54), "stop")["ok"] is True  # within 0.1% of 99.5
+    assert _step(_g(LONG, stop=99.0), "stop")["points"] == 12.5     # exactly 1R from the key
+    assert _step(_g(LONG, stop=98.0), "stop")["points"] == 0        # right side but > 1R off
+    # a stop a few cents past the level (too tight vs. a 0.5 key) earns only half, not full
+    assert _step(_g(LONG, stop=99.95), "stop")["points"] == 12.5
+    # the old 0.1%-of-price tolerance (about 0.1) must NOT be enough to discriminate
+    assert _step(_g(LONG, stop=99.2), "stop")["ok"] is False
 
 
-def test_target_sides_and_tolerance():
+def test_tiny_risk_key_is_not_a_free_pass():
+    key = AnswerKey(level=772.0, enter="enter", side="long", stop=771.5, target=773.5)
+    assert _step(_g(key, stop=770.0), "stop")["points"] == 0        # 1.5 off a 0.5 R
+    assert _step(_g(key, stop=771.4), "stop")["ok"] is True
+
+
+def test_target_tiers_are_relative_to_the_risk():
+    # LONG: R = 0.5; full <= 0.25 of 102, half <= 0.75
     assert _step(_g(LONG, target=99.0), "target")["points"] == 0       # below level for a long
-    assert _step(_g(LONG, target=105.0), "target")["points"] == 12.5   # profit side, not at key
-    assert _step(_g(LONG, target=102.1), "target")["ok"] is True       # 0.05% <= 0.15%
-    assert _step(_g(SHORT, target=98.1), "target")["ok"] is True
+    assert _step(_g(LONG, target=102.2), "target")["ok"] is True
+    assert _step(_g(LONG, target=102.6), "target")["points"] == 12.5
+    assert _step(_g(LONG, target=105.0), "target")["points"] == 0      # profit side, far off
+    assert _step(_g(SHORT, target=98.2), "target")["ok"] is True
     assert _step(_g(SHORT, target=101.0), "target")["points"] == 0
+
+
+def test_old_rubric_without_r_fields_still_grades():
+    old = Rubric.model_validate({"level_tol_pct": 0.1, "stop_tol_pct": 0.1,
+                                 "target_tol_pct": 0.15, "rule_refs": {"stop": "3.1.1 § C"}})
+    assert old.stop_tol_r == 0.35 and old.target_tol_r == 0.5
+    r = grade(LONG, old, Answers(level=100.0, enter="enter", side="long", stop=99.5, target=102.0))
+    assert r["score"] == 100
+    key = AnswerKey(level=772.0, enter="enter", side="long", stop=771.98, target=774.0)  # R = 0.02
+    r = grade(key, old, Answers(level=772.0, enter="enter", side="long", stop=771.5, target=774.0))
+    assert _step(r, "stop")["points"] <= 12.5       # no longer full just for being on the right side
 
 
 def test_side_mismatch_zeroes_stop_and_target():

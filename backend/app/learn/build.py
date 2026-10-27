@@ -36,6 +36,7 @@ DEFAULT_DAYS = 10
 PICK = 3
 LOOKAHEAD_MIN = 90          # minutes of bars after the pause revealed with the result
 MIN_SESSION_BARS = 250      # a regular session with fewer cached 1m bars is treated as missing
+WAIT_MIN_STRENGTH = 0.45    # a wait candidate weaker than this is never promoted into the set
 MIN_TOPIC_SCORE = 0.6       # top topic hit weaker than this -> no course support -> drop
 
 # Generic trading phrases used to find the matching course material. "topic" picks the drill's
@@ -68,6 +69,26 @@ SHORT = {"level_touches": "levels", "break_retest": "retest", "patience_candle_a
 
 # ------------------------------------------------------------------- rule lookup
 
+MAX_LESSONS = 4
+
+# Detector -> primary course topic, first one the notes actually have lessons for. Course search
+# is only used to find the supporting rule and lessons INSIDE that topic. When none of them
+# exists (or has lessons) the best topic hit of RULE_QUERIES[...]["topic"] is the fallback.
+PRIMARY_TOPICS: dict[str, tuple[str, ...]] = {
+    "level_touches": ("levels",),
+    "break_retest": ("levels", "strategies"),
+    "patience_candle_at_level": ("patience-candles",),
+}
+# A lesson only belongs in a drill when its title / hit section mentions one of these.
+KEYWORDS: dict[str, tuple[str, ...]] = {
+    "level_touches": ("level", "support", "resistance", "touch", "test", "bounce", "reject", "hold"),
+    "break_retest": ("break", "retest", "level", "support", "resistance", "flip"),
+    "patience_candle_at_level": ("patien", "candle", "pullback", "inside", "level", "hold"),
+}
+STEP_KEYWORDS = {"level": (), "enter": ("entry", "enter", "confirm"), "stop": ("stop",),
+                 "target": ("target", "profit", "exit")}
+
+
 @dataclass
 class RuleInfo:
     topic: str
@@ -76,15 +97,29 @@ class RuleInfo:
     refs: dict[str, str] = field(default_factory=dict)
 
 
-def _hit_ref(res: dict) -> str | None:
-    """'<lesson> § <section>' from the best sheet (or claim) hit, else '<topic> § <section>'."""
+def _hit_ref(res: dict, allowed: set[str] | None = None, kws: tuple[str, ...] = ()) -> str | None:
+    """'<lesson> § <section>' from the best sheet (or claim) hit that is in ``allowed`` and
+    matches ``kws`` (title or section), else None."""
     for item in list(res.get("lessons", [])) + list(res.get("claims", [])):
-        if item.get("lesson"):
-            return f"{item['lesson']} § {item.get('section', '')}".strip(" §")
-    for item in res.get("topics", []):
-        if item.get("slug"):
-            return f"topic {item['slug']} § {item.get('section', '')}".strip(" §")
+        lid = item.get("lesson")
+        if not lid or (allowed is not None and lid not in allowed):
+            continue
+        if kws and not _matches(f"{item.get('title', '')} {item.get('section', '')}", kws):
+            continue
+        return f"{lid} § {item.get('section', '')}".strip(" §")
     return None
+
+
+def _topic_ref(res: dict, slug: str) -> str:
+    for item in res.get("topics", []):
+        if item.get("slug") == slug:
+            return f"topic {slug} § {item.get('section', '')}".strip(" §")
+    return f"topic {slug}"
+
+
+def _matches(text: str, kws: tuple[str, ...]) -> bool:
+    t = (text or "").lower()
+    return any(k in t for k in kws)
 
 
 class RuleBook:
@@ -104,11 +139,15 @@ class RuleBook:
                 self._cache[detector] = None
         return self._cache[detector]
 
-    def _lookup(self, detector: str) -> RuleInfo | None:
-        q = RULE_QUERIES.get(detector)
-        if not q or self.notes is None:
-            return None
+    def _pick_topic(self, detector: str, q: dict) -> tuple[str, float, dict] | None:
+        """(slug, score, topic-query result). Deterministic primary topic, else the search's."""
         res = self.notes.search(q["topic"], k=10)
+        slugs = set(self.notes.topic_slugs())
+        for slug in PRIMARY_TOPICS.get(detector, ()):
+            if slug in slugs and self.notes.lessons_for(slug).get("lessons"):
+                score = max((t.get("score", 0.0) for t in res.get("topics", [])
+                             if t.get("slug") == slug), default=0.0)
+                return slug, score, res
         topics = res.get("topics") or []
         if not topics:
             return None
@@ -117,29 +156,61 @@ class RuleBook:
         score = max((t.get("score", 0.0) for t in topics if t.get("slug") == slug), default=0.0)
         if score < self.min_score:
             return None
-        lessons: list[str] = []
+        return slug, score, res
+
+    def _lookup(self, detector: str) -> RuleInfo | None:
+        q = RULE_QUERIES.get(detector)
+        if not q or self.notes is None:
+            return None
+        picked = self._pick_topic(detector, q)
+        if picked is None:
+            return None
+        slug, score, tres = picked
+        kws = KEYWORDS.get(detector, ()) + tuple(w for w in slug.split("-") if len(w) > 3)
+
+        pool: dict[str, dict] = {}   # lessons the topic itself cites
+        try:
+            for e in self.notes.lessons_for(slug).get("lessons", []):
+                pool[e["lesson"]] = {"title": e.get("title") or "", "cited": e.get("cited", 0),
+                                     "text": e.get("title") or "", "score": 0.0}
+        except Exception:
+            pass
+        if not pool:
+            return None   # a topic that cites no lessons cannot support a drill
+        allowed = set(pool)
+
+        def absorb(res: dict, weight: float) -> None:
+            for rank, item in enumerate(list(res.get("lessons", [])) + list(res.get("claims", []))):
+                lid = item.get("lesson")
+                if lid in pool:
+                    pool[lid]["text"] += f" {item.get('section', '')} {item.get('title', '')}"
+                    pool[lid]["score"] += weight / (1 + rank)
+
+        absorb(tres, 1.0)
         refs: dict[str, str] = {}
-        topic_ref = _hit_ref(res)
         for step in ("level", "enter", "stop", "target"):
             r = self.notes.search(q[step], k=8)
-            refs[step] = _hit_ref(r) or topic_ref or f"topic {slug}"
-            for item in list(r.get("lessons", [])) + list(r.get("claims", [])):
-                lid = item.get("lesson")
-                if lid and lid not in lessons:
-                    lessons.append(lid)
-        for item in list(res.get("lessons", [])) + list(res.get("claims", [])):
-            lid = item.get("lesson")
-            if lid and lid not in lessons:
-                lessons.insert(0, lid)
-        if len(lessons) < 2:
-            try:
-                for e in sorted(self.notes.lessons_for(slug).get("lessons", []),
-                                key=lambda x: -x.get("cited", 0)):
-                    if e["lesson"] not in lessons:
-                        lessons.append(e["lesson"])
-            except Exception:
-                pass
-        return RuleInfo(topic=slug, topic_score=round(score, 3), lessons=lessons[:3], refs=refs)
+            absorb(r, 0.5)
+            refs[step] = (_hit_ref(r, allowed, kws + STEP_KEYWORDS[step]) or _topic_ref(tres, slug))
+
+        forced = []
+        for ref in refs.values():
+            lid = ref.split(" ")[0]
+            if lid in pool and lid not in forced:
+                forced.append(lid)
+
+        def relevance(lid: str) -> float:
+            e = pool[lid]
+            return (3.0 * _matches(e["title"], kws) + 1.5 * _matches(e["text"], kws)
+                    + e["score"] + 0.1 * min(e["cited"], 5))
+
+        rest = [lid for lid in pool if lid not in forced
+                and _matches(pool[lid]["text"], kws)]
+        if not forced and not rest:   # nothing matched: the two most-cited lessons of the topic
+            rest = sorted(pool, key=lambda i: -pool[i]["cited"])[:2]
+        lessons = forced + sorted(rest, key=lambda i: -relevance(i))
+        lessons = sorted(lessons[:MAX_LESSONS], key=lambda i: -relevance(i))
+        return RuleInfo(topic=slug, topic_score=round(score, 3), lessons=lessons, refs=refs)
 
 
 # ------------------------------------------------------------------- explanation
@@ -174,14 +245,25 @@ def explain(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str
                f"recent average range) is sitting on the level.")
         ent_yes = "The patience candle is an inside bar that holds the level, so the entry condition holds."
         ent_no = "The candle is small but is either not an inside bar or does not hold the level, so wait."
+    ent_no = {
+        "closed_through_level": "The setup candle closed through the level instead of holding it, "
+                                "so the entry condition does not hold. Wait.",
+        "single_touch": "The level has only one prior touch, so it is not a tested level yet "
+                        "and the entry condition does not hold. Wait.",
+        "not_inside_bar": "The candle holds the level but is not an inside bar, so the entry "
+                          "condition does not hold. Wait.",
+    }.get(c.wait_reason or "", ent_no)
     lines = [head, "", f"- **Level:** {lvl}{_cite(refs, 'level')}"]
     if key.enter == "enter":
         ext = c.facts.get("setup_low") if key.side == "long" else c.facts.get("setup_high")
         lines += [
             f"- **Enter or wait:** {ent_yes} Direction: {key.side}.{_cite(refs, 'enter')}",
-            f"- **Stop ${key.stop:.2f}:** just past the setup candle's "
-            f"{'low' if key.side == 'long' else 'high'} (${ext:.2f}) and the level, "
-            f"whichever is further.{_cite(refs, 'stop')}",
+            f"- **Stop ${key.stop:.2f}:** past the further of the setup candle's "
+            f"{'low' if key.side == 'long' else 'high'} (${ext:.2f}) and the level "
+            f"(${key.level:.2f}), plus a ${f.get('stop_buffer', 0):.2f} buffer (the larger of "
+            f"{det.ATR_MULT:g} x ATR14 = ${det.ATR_MULT * f.get('atr14', 0):.2f} and "
+            f"{det.BUFFER_PCT * 100:.2f}% of price = ${det.BUFFER_PCT * f.get('entry', 0):.2f}), "
+            f"so the risk is a real number, not a few cents.{_cite(refs, 'stop')}",
             f"- **Target ${key.target:.2f}:** the next level in the trade direction, at least "
             f"{det.MIN_RR:g}x the risk away.{_cite(refs, 'target')}",
         ]
@@ -217,18 +299,28 @@ def draft_drill(c: det.Candidate, info: RuleInfo, for_date: str, review: bool,
 
 def select(drafts: list[tuple[det.Candidate, RuleInfo]], n: int = PICK
            ) -> list[tuple[det.Candidate, RuleInfo]]:
-    """Best n by strength, spread across detector / ticker / date."""
+    """Best n by strength, spread across detector / ticker / date. When the set has room for
+    it (n >= 3) and a credible wait candidate exists, one wait drill replaces the weakest pick;
+    never forced when none exists."""
     pool = sorted(drafts, key=lambda x: -x[0].strength)
+
+    def adj(x, chosen):
+        c = x[0]
+        pen = sum(0.25 * (o.detector == c.detector) + 0.15 * (o.ticker == c.ticker)
+                  + 0.15 * (o.date == c.date) for o, _ in chosen)
+        return c.strength - pen
+
     chosen: list[tuple[det.Candidate, RuleInfo]] = []
     while pool and len(chosen) < n:
-        def adj(x):
-            c = x[0]
-            pen = sum(0.25 * (o.detector == c.detector) + 0.15 * (o.ticker == c.ticker)
-                      + 0.15 * (o.date == c.date) for o, _ in chosen)
-            return c.strength - pen
-        best = max(pool, key=adj)
+        best = max(pool, key=lambda x: adj(x, chosen))
         pool.remove(best)
         chosen.append(best)
+    if n >= 3 and chosen and not any(c.is_wait for c, _ in chosen):
+        waits = [x for x in pool if x[0].is_wait and x[0].strength >= WAIT_MIN_STRENGTH]
+        if waits:
+            drop = min(chosen, key=lambda x: x[0].strength)
+            rest = [x for x in chosen if x is not drop]
+            chosen = rest + [max(waits, key=lambda x: adj(x, rest))]
     return chosen
 
 

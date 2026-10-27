@@ -131,7 +131,7 @@ function LessonRow({ lesson }: { lesson: LearnLesson }) {
     <li className="flex items-center justify-between gap-3 py-2">
       <div className="min-w-0">
         <p className="truncate text-body">{lesson.title}</p>
-        <p className="truncate text-label text-muted-foreground">{lesson.module}</p>
+        {lesson.module ? <p className="truncate text-label text-muted-foreground">Module {lesson.module}</p> : null}
       </div>
       {lesson.video_url ? (
         <a

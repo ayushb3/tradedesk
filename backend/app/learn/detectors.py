@@ -26,8 +26,11 @@ THROUGH = 0.0008       # a push this far past the level is a break, not a touch
 BREAK = 0.0004         # close beyond the level by this = break
 EXTEND = 0.0012        # break must travel this far before the retest
 HOLD = 0.0006          # a retest may undercut the level by at most this
-STOP_BUFFER = 0.02     # "just past" the setup candle extreme, in dollars
+ATR_N = 14             # bars in the ATR used for the stop buffer
+ATR_MULT = 0.25        # stop buffer = max(ATR_MULT x ATR14, BUFFER_PCT x price)
+BUFFER_PCT = 0.0003    # 0.03% of price
 MIN_RR = 1.5           # the next level must pay at least this multiple of the risk
+MAX_RR = 8.0           # a next level further away than this is not a rule-shaped target
 MIN_RISK = 0.0004      # risk (level to stop) as a fraction of price
 MAX_RISK = 0.006
 OR_BARS = 15           # opening-range window
@@ -46,9 +49,14 @@ class Candidate:
     strength: float           # 0..1
     setup_idx: int = -1
     enter: bool = False       # did the entry condition hold by the pause
+    wait_reason: str | None = None   # set when a checklist condition failed (a "wait" drill)
     stop: float | None = None
     target: float | None = None
     facts: dict = field(default_factory=dict)
+
+    @property
+    def is_wait(self) -> bool:
+        return not self.enter
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -132,32 +140,52 @@ def _risk_ok(entry: float, stop: float) -> bool:
     return MIN_RISK <= r <= MAX_RISK
 
 
-def _stop_for(side: str, bar: Candle, level: float) -> float:
-    """Just past the setup candle's extreme (and never on the wrong side of the level)."""
+def _atr(c: Sequence[Candle], j: int, n: int = ATR_N) -> float:
+    """Mean true range of the n bars ending at bar j (never looks past j)."""
+    lo = max(1, j - n + 1)
+    trs = [max(c[i].high - c[i].low, abs(c[i].high - c[i - 1].close),
+               abs(c[i].low - c[i - 1].close)) for i in range(lo, j + 1)]
+    return sum(trs) / len(trs) if trs else c[j].high - c[j].low
+
+
+def stop_buffer(atr: float, price: float) -> float:
+    return max(ATR_MULT * atr, BUFFER_PCT * price)
+
+
+def _stop_for(side: str, bar: Candle, level: float, buffer: float) -> float:
+    """Past the further of the setup candle's extreme and the level, plus a volatility buffer."""
     if side == "long":
-        return round(min(bar.low, level) - STOP_BUFFER, 2)
-    return round(max(bar.high, level) + STOP_BUFFER, 2)
+        return round(min(bar.low, level) - buffer, 2)
+    return round(max(bar.high, level) + buffer, 2)
 
 
 def _build(detector: str, ticker: str, day: str, c, j: int, lv: Level, side: str,
-           enter: bool, strength: float, pivots, levels, facts: dict) -> Candidate | None:
-    """Entry is the setup bar's close (the price at the pause); the stop sits just past the
-    setup candle's extreme; the target is the next level paying >= MIN_RR."""
+           enter: bool, strength: float, pivots, levels, facts: dict,
+           wait_reason: str | None = None) -> Candidate | None:
+    """Entry is the setup bar's close (the price at the pause); the stop sits past the further
+    of the setup candle extreme and the level by a buffer; the target is the next level paying
+    >= MIN_RR of the entry-to-stop risk (else the candidate is rejected)."""
     entry = c[j].close
-    stop = _stop_for(side, c[j], lv.price)
+    atr = _atr(c, j)
+    buf = stop_buffer(atr, entry)
+    stop = _stop_for(side, c[j], lv.price, buf)
     target = None
     if enter:
         if not _risk_ok(entry, stop):
             return None
         target = _next_level(c, levels, pivots, j, side, entry, abs(entry - stop))
-        if target is None:
+        if target is None or abs(target - entry) > MAX_RR * abs(entry - stop):
             return None  # an enter drill needs a rule-shaped target
+    if not enter and not wait_reason:
+        wait_reason = "condition_not_met"
     return Candidate(
         detector=detector, ticker=ticker, date=day, pause_at=_pause(c, j),
         level=round(lv.price, 2), side=side, strength=round(min(max(strength, 0.0), 1.0), 3),
-        setup_idx=j, enter=enter, stop=stop if enter else None, target=target,
+        setup_idx=j, enter=enter, wait_reason=None if enter else wait_reason,
+        stop=stop if enter else None, target=target,
         facts={**facts, "touches": len(lv.touches), "level_source": lv.source,
-               "setup_low": c[j].low, "setup_high": c[j].high},
+               "setup_low": c[j].low, "setup_high": c[j].high, "entry": round(entry, 2),
+               "atr14": round(atr, 4), "stop_buffer": round(buf, 4)},
     )
 
 
@@ -203,7 +231,8 @@ def level_touches(candles: Sequence[Candle], ticker: str, day: str) -> list[Cand
                         + 0.30 * min(depth / (3 * DEPART), 1.0) + (0.10 if hold else 0.0))
             cand = _build("level_touches", ticker, day, c, j, lv, side, hold, strength,
                           piv, levels, {"rejection": hold, "kind": lv.kind,
-                                        "first_touch_idx": lv.touches[0], "last_touch_idx": t})
+                                        "first_touch_idx": lv.touches[0], "last_touch_idx": t},
+                          wait_reason=None if hold else "no_rejection")
             if cand:
                 res.append(cand)
         return res
@@ -253,7 +282,8 @@ def break_retest(candles: Sequence[Candle], ticker: str, day: str) -> list[Candi
                         + 0.25 * min(ext / (3 * EXTEND), 1.0) + (0.10 if enter else 0.0))
             cand = _build("break_retest", ticker, day, c, j, lv, side, enter, strength, piv,
                           levels, {"break_idx": brk, "bars_since_break": j - brk,
-                                   "confirmation": enter, "kind": lv.kind})
+                                   "confirmation": enter, "kind": lv.kind},
+                          wait_reason=None if enter else "no_confirmation")
             if cand:
                 res.append(cand)
         return res
@@ -294,14 +324,18 @@ def patience_candle_at_level(candles: Sequence[Candle], ticker: str, day: str) -
                 hold, side = b.close <= L, "short"
             if not (pulled and here):
                 continue
-            enter = hold and inside
+            tested = len(lv.touches) >= 2 or lv.source == "or"
+            enter = hold and inside and tested
+            reason = (None if enter else "closed_through_level" if not hold
+                      else "single_touch" if not tested else "not_inside_bar")
             strength = (0.40 + 0.15 * min(len(lv.touches) - 1, 2)
                         + 0.25 * min(1.0, 1.0 - rng / (0.6 * avg_range) + 0.4)
                         + (0.10 if inside else 0.0) + (0.10 if enter else 0.0))
             cand = _build("patience_candle_at_level", ticker, day, c, j, lv, side, enter,
                           strength, piv, levels,
                           {"inside_bar": inside, "holds_level": hold,
-                           "range_vs_avg": round(rng / avg_range, 2), "kind": lv.kind})
+                           "range_vs_avg": round(rng / avg_range, 2), "kind": lv.kind},
+                          wait_reason=reason)
             if cand:
                 res.append(cand)
         return res

@@ -184,6 +184,127 @@ def test_explanation_and_key_for_a_wait_setup(rules):
     assert "Wait" in d.explanation or "wait" in d.explanation
 
 
+# ------------------------------------------------------- topics, lessons, waits
+
+def _lesson(lid, title, body):
+    return f"---\ntype: reference\n---\n\n# {lid} {title}\n**Video:** https://example.com/v/{lid}\n\n{body}\n"
+
+
+def _topic(title, answer, lessons):
+    cites = ", ".join(f"[[Notes/module-9/lesson-{i}|{i}]]" for i in lessons)
+    return (f"---\ntype: reference\n---\n\n# {title}\n\n## The answer\n{answer} ({cites})\n\n"
+            f"## How it works\n\n### Basics\n- {answer} ({cites})\n")
+
+
+@pytest.fixture()
+def rich_rules(tmp_path):
+    """Course notes with real-looking 'levels' and 'patience-candles' topics, six cited lessons
+    (two of them weak fits) so topic choice and lesson ranking can be checked."""
+    root = tmp_path / "rich"
+    shutil.copytree(FIX / "course_notes", root)
+    (root / "module-9").mkdir()
+    lessons = {
+        "9.1": ("Patience candle at a level", "A patience candle small range holds the level after a pullback."),
+        "9.2": ("Reading time and sales", "Time and sales prints show size at the level."),
+        "9.3": ("Support and resistance levels", "A level tested twice is a level. Break and retest of a level."),
+        "9.4": ("Break and retest", "Wait for the retest of the broken level to hold."),
+        "9.5": ("Where the stop goes", "Stop past the patience candle low. Target the next level."),
+        "9.6": ("Journaling your day", "Write down the trades."),
+        "9.7": ("Morning coffee", "Hydrate."),
+    }
+    for lid, (t, b) in lessons.items():
+        (root / "module-9" / f"lesson-{lid}.md").write_text(_lesson(lid, t, f"## In one paragraph\n{b}"), encoding="utf-8")
+    (root / "topics" / "levels.md").write_text(
+        _topic("Levels", "A level that was tested twice, support and resistance, break and retest",
+               ["9.3", "9.4", "9.2", "9.6", "9.7", "9.1"]), encoding="utf-8")
+    (root / "topics" / "patience-candles.md").write_text(
+        _topic("Patience candles", "A patience candle small range at a level after a pullback",
+               ["9.1", "9.2", "9.5", "9.6"]), encoding="utf-8")
+    nts = cs.CourseNotes(root, tmp_path / "rcache" / ci.CACHE_NAME, HashingEmbedder())
+    return B.RuleBook(nts)
+
+
+def test_detectors_map_to_their_primary_topic_deterministically(rich_rules):
+    assert rich_rules.lookup("level_touches").topic == "levels"
+    assert rich_rules.lookup("break_retest").topic == "levels"
+    assert rich_rules.lookup("patience_candle_at_level").topic == "patience-candles"
+
+
+def test_break_retest_falls_back_to_strategies_when_levels_has_no_lessons(rich_rules, tmp_path):
+    root = rich_rules.notes.root
+    (root / "topics" / "levels.md").write_text(_topic("Levels", "None.", []), encoding="utf-8")
+    (root / "topics" / "strategies.md").write_text(
+        _topic("Strategies", "Break and retest of a level", ["9.4", "9.3"]), encoding="utf-8")
+    book = B.RuleBook(cs.CourseNotes(root, tmp_path / "c2" / ci.CACHE_NAME, HashingEmbedder()))
+    assert book.lookup("break_retest").topic == "strategies"
+
+
+def test_lessons_are_capped_ranked_relevant_and_include_every_cited_lesson(rich_rules):
+    for det_name in B.RULE_QUERIES:
+        info = rich_rules.lookup(det_name)
+        assert 1 <= len(info.lessons) <= B.MAX_LESSONS
+        assert len(set(info.lessons)) == len(info.lessons)
+        cited = {r.split(" ")[0] for r in info.refs.values() if not r.startswith("topic ")}
+        assert cited <= set(info.lessons)
+    pat = rich_rules.lookup("patience_candle_at_level")
+    assert pat.lessons[0] == "9.1"                       # the on-topic lesson ranks first
+    assert "9.2" not in pat.lessons and "9.6" not in pat.lessons   # weak fits are dropped
+    lev = rich_rules.lookup("level_touches")
+    assert not {"9.6", "9.7", "9.2"} & set(lev.lessons)
+
+
+def test_every_rule_ref_lesson_is_in_the_drills_lessons(rich_rules, tmp_path):
+    res = _run(rich_rules, tmp_path / "learn")
+    assert res["drills"]
+    for d in res["drills"]:
+        assert len(d.lessons) <= B.MAX_LESSONS
+        for ref in d.grading_rubric.rule_refs.values():
+            if not ref.startswith("topic "):
+                assert ref.split(" ")[0] in d.lessons
+
+
+def test_explanation_gives_the_stop_rationale(rules):
+    c = B.det.level_touches(S.resistance_session(date(2026, 10, 14), True), "SPY", "2026-10-14")[0]
+    d = B.draft_drill(c, rules.lookup(c.detector), "2026-10-28", True, "x-1")
+    assert "ATR14" in d.explanation and "buffer" in d.explanation and "further" in d.explanation
+    assert d.grading_rubric.stop_tol_r == 0.35 and d.grading_rubric.target_tol_r == 0.5
+    assert d.grading_rubric.level_tol_pct == 0.05
+
+
+def _cand(det_name, strength, enter, tk="SPY", day="2026-10-14"):
+    now = datetime(2026, 10, 14, 15, tzinfo=timezone.utc)
+    c = B.det.Candidate(det_name, tk, day, now, 600.0, "long", strength, enter=enter,
+                        wait_reason=None if enter else "closed_through_level")
+    return (c, B.RuleInfo("stops", 1.0, ["3.1.1"], {}))
+
+
+def test_select_includes_a_wait_drill_when_one_exists_never_forces_one():
+    enters = [_cand("level_touches", 0.9, True), _cand("break_retest", 0.8, True, "QQQ"),
+              _cand("patience_candle_at_level", 0.7, True, "SPY", "2026-10-13")]
+    wait = _cand("level_touches", 0.5, False, "QQQ", "2026-10-12")
+    picked = B.select(enters + [wait])
+    assert len(picked) == 3 and sum(c.is_wait for c, _ in picked) == 1
+    assert {c.strength for c, _ in picked} == {0.9, 0.8, 0.5}        # weakest enter made room
+    assert all(not c.is_wait for c, _ in B.select(enters))            # none exists: none forced
+    weak = _cand("level_touches", 0.2, False, "QQQ", "2026-10-12")
+    assert all(not c.is_wait for c, _ in B.select(enters + [weak]))   # too weak to promote
+    assert sum(c.is_wait for c, _ in B.select(enters + [wait], n=2)) == 0   # room-less sets untouched
+
+
+def test_build_set_contains_a_wait_drill_when_the_data_has_one(rules, tmp_path):
+    def mixed(tk, day):
+        pick = (day.toordinal() + (0 if tk == "SPY" else 1)) % 3
+        if pick == 0:
+            return S.resistance_session(day, True, tk)
+        if pick == 1:
+            return S.break_retest_session(day, True, tk)
+        return S.patience_session(day, False, tk)           # closes through the level: a wait
+    res = B.build(FOR, 6, ["SPY", "QQQ"], loader=mixed, rules=rules, root=tmp_path / "learn")
+    waits = [d for d in res["drills"] if d.answer_key.enter == "wait"]
+    assert len(res["drills"]) == 3 and len(waits) >= 1
+    assert "Wait" in waits[0].explanation and waits[0].answer_key.stop is None
+
+
 # ----------------------------------------------------------------------- CLI
 
 @pytest.fixture()

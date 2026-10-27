@@ -96,3 +96,68 @@ def test_candidate_dict_shape():
 def test_flat_session_has_no_candidates():
     flat = S.candles([600.0] * 390, DAY)
     assert D.detect_all(flat, "SPY", DS) == []
+
+
+def _stop_buffer_ok(c):
+    ext = c.facts["setup_high"] if c.side == "short" else c.facts["setup_low"]
+    anchor = max(ext, c.level) if c.side == "short" else min(ext, c.level)
+    buf = abs(c.stop - anchor)
+    want = max(D.ATR_MULT * c.facts["atr14"], D.BUFFER_PCT * c.facts["entry"])
+    assert abs(buf - want) < 0.011                      # rounding to cents only
+    assert buf >= D.BUFFER_PCT * c.facts["entry"] - 0.011
+    return buf
+
+
+def test_stop_sits_past_the_further_of_extreme_and_level_plus_a_real_buffer():
+    for c in (D.level_touches(S.resistance_session(DAY, True), "SPY", DS)[0],
+              D.break_retest(S.break_retest_session(DAY, True), "SPY", DS)[0],
+              D.patience_candle_at_level(S.patience_session(DAY, True), "SPY", DS)[0]):
+        assert _stop_buffer_ok(c) > 0.1                 # never "2 cents past the level"
+        assert abs(c.level - c.stop) > 0.1
+
+
+def test_degenerate_stop_regression_extreme_barely_past_the_level():
+    # the setup candle's high is only 2 cents above the level: the stop must still be a buffer away
+    sess = S.resistance_session(DAY, True)
+    b = sess[62]
+    L = D.level_touches(sess, "SPY", DS)[0].level
+    sess[62] = b.model_copy(update={"high": round(L + 0.02, 2), "open": L - 0.1,
+                                    "low": L - 0.9, "close": L - 0.8})
+    c = D.level_touches(sess, "SPY", DS)[0]
+    assert c.enter and c.stop - L >= 0.18
+
+
+def test_candidate_rejected_when_reward_to_risk_after_the_buffer_is_too_small(monkeypatch):
+    assert D.level_touches(S.resistance_session(DAY, True), "SPY", DS)       # baseline: fires
+    monkeypatch.setattr(D, "MIN_RR", 40.0)                                   # no level pays 40R
+    assert D.level_touches(S.resistance_session(DAY, True), "SPY", DS) == []
+    # a wait candidate has no target, so it is not subject to the R/R rule
+    assert D.level_touches(S.resistance_session(DAY, False), "SPY", DS)
+
+
+def test_wait_flag_and_reasons():
+    ok = D.patience_candle_at_level(S.patience_session(DAY, True), "SPY", DS)[0]
+    assert ok.enter and not ok.is_wait and ok.wait_reason is None
+    thru = D.patience_candle_at_level(S.patience_session(DAY, False), "SPY", DS)[0]
+    assert thru.is_wait and thru.wait_reason == "closed_through_level"
+    assert D.level_touches(S.resistance_session(DAY, False), "SPY", DS)[0].wait_reason == "no_rejection"
+    assert D.break_retest(S.break_retest_session(DAY, False), "SPY", DS)[0].wait_reason == "no_confirmation"
+
+
+def test_patience_at_a_single_touch_level_is_a_wait():
+    wp = [(0, 598.0), (6, 593.0), (16, 597.5), (26, 595.2), (36, 599.5), (57, 596.0), (58, 595.5),
+          (59, 595.4), (60, 595.5), (61, 596.0), (80, 600.0), (110, 602.0), (389, 606.0)]
+    over = {59: (595.9, 596.2, 595.05, 595.4), 60: (595.44, 595.55, 595.33, 595.5)}
+    out = D.patience_candle_at_level(S.full_day(wp, DAY, overrides=over), "SPY", DS)
+    assert len(out) == 1
+    c = out[0]
+    assert c.facts["touches"] == 1 and c.facts["holds_level"] and c.facts["inside_bar"]
+    assert c.is_wait and c.wait_reason == "single_touch" and c.stop is None
+
+
+def test_candidate_rejected_when_the_next_level_is_absurdly_far(monkeypatch):
+    c = D.level_touches(S.resistance_session(DAY, True), "SPY", DS)[0]
+    rr = abs(c.target - c.facts["entry"]) / abs(c.facts["entry"] - c.stop)
+    assert D.MIN_RR <= rr <= D.MAX_RR
+    monkeypatch.setattr(D, "MAX_RR", rr - 0.5)
+    assert D.level_touches(S.resistance_session(DAY, True), "SPY", DS) == []

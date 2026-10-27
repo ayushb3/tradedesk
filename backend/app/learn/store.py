@@ -33,7 +33,10 @@ class AnswerKey(BaseModel):
 
 
 class Rubric(BaseModel):
-    level_tol_pct: float = 0.1
+    level_tol_pct: float = 0.05
+    stop_tol_r: float = 0.35      # stop: full within this many R of the key stop (R = |level - key stop|)
+    target_tol_r: float = 0.5     # target: full within this many R of the key target
+    # legacy, kept so old drill files still load; grading no longer reads them
     stop_tol_pct: float = 0.1
     target_tol_pct: float = 0.15
     rule_refs: dict[str, str] = Field(default_factory=dict)

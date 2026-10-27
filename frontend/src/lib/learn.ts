@@ -143,9 +143,9 @@ export function shortDate(ymd: string): string {
   return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`;
 }
 
-/** "Session Oct 14, 06:30 to 07:12 PT" for a drill card. */
-export function drillWhen(d: Pick<DrillPublic, "date" | "bars_from" | "pause_at">): string {
-  return `Session ${shortDate(d.date)}, ${ptWindow(d.bars_from, d.pause_at)}`;
+/** "Session Oct 14 PT · pauses at 07:12 PT" for a drill card. */
+export function drillWhen(d: Pick<DrillPublic, "date" | "pause_at">): string {
+  return `Session ${shortDate(d.date)} PT · pauses at ${ptTime(d.pause_at)}`;
 }
 
 /** "kebab-case-topic" to "Kebab case topic" when no title is available. */

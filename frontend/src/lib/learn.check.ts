@@ -16,6 +16,7 @@ import {
   parsePrice,
   ptTime,
   ptWindow,
+  drillWhen,
   requiredSteps,
   setEnter,
   shortDate,
@@ -103,6 +104,11 @@ eq("step empty", stepIndex(0, 0), 0);
 eq("ptTime winter", ptTime("2026-01-02T14:30:00Z"), "06:30 PT");
 eq("ptTime summer", ptTime("2026-07-02T13:30:00Z"), "06:30 PT");
 eq("ptWindow", ptWindow("2026-01-02T14:30:00Z", "2026-01-02T15:12:00Z"), "06:30 to 07:12 PT");
+eq(
+  "drillWhen",
+  drillWhen({ date: "2026-10-21", pause_at: "2026-10-21T18:59:00Z" }),
+  "Session Oct 21 PT · pauses at 11:59 PT",
+);
 eq("shortDate", shortDate("2026-10-14"), "Oct 14");
 eq("shortDate bad", shortDate("nope"), "nope");
 
