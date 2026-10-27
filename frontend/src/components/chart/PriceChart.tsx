@@ -74,6 +74,8 @@ export interface PaneSpec {
   levels?: { label: string; price: number }[];
   /** Optional EMAs (grey), each keyed by minute. */
   emas?: { label: string; values: Map<number, number> }[];
+  /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
+  marks?: { label: string; price: number; color: string }[];
   badge?: React.ReactNode;
 }
 
@@ -111,6 +113,8 @@ interface Props {
   noDataAfterSec?: number | null;
   /** Replay, Seconds mode: the playhead readout with seconds, e.g. "06:47:12 PT", and fill chips with seconds. */
   playheadLabel?: string;
+  /** Called with the clicked price on the underlying pane (not after a drag-pan). */
+  onPriceClick?: (price: number) => void;
 }
 
 interface Layout {
@@ -204,6 +208,7 @@ export function PriceChart({
   fills,
   noDataAfterSec = null,
   playheadLabel,
+  onPriceClick,
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -250,8 +255,14 @@ export function PriceChart({
   const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx));
 
   // Everything the imperative handlers need, refreshed every render.
-  const live = useRef({ isReplay, playIdx, lastIdx, extras: [] as (number | null)[] });
-  live.current = { isReplay, playIdx, lastIdx: Math.max(0, lastIdx), extras: [stopPrice, avgPrice] };
+  const live = useRef({
+    isReplay,
+    playIdx,
+    lastIdx,
+    extras: [] as (number | null)[],
+    onPriceClick: undefined as ((price: number) => void) | undefined,
+  });
+  live.current = { isReplay, playIdx, lastIdx: Math.max(0, lastIdx), extras: [stopPrice, avgPrice], onPriceClick };
 
   const entrySec = revealedFillTime(fills, "entry", playheadSec);
   const exitSec = revealedFillTime(fills, "exit", playheadSec);
@@ -367,6 +378,16 @@ export function PriceChart({
         }
       });
     }
+
+    // A click on the underlying pane reports its price (lightweight-charts does not fire it after a drag).
+    bottomPane.chart.subscribeClick((param) => {
+      const cb = live.current.onPriceClick;
+      if (!cb || !param.point) return;
+      const raw = bottomPane.series.coordinateToPrice(param.point.y);
+      if (raw == null) return;
+      const price = Math.round(raw * 100) / 100;
+      if (price > 0) cb(price);
+    });
 
     // ---- the visible range: one source of truth, clamped, synced ----------------
     const limits = () => {
@@ -563,6 +584,17 @@ export function PriceChart({
           title: "",
         }),
       );
+      for (const m of spec.marks ?? [])
+        rt.levelLines.push(
+          rt.series.createPriceLine({
+            price: m.price,
+            color: m.color,
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: m.label,
+          }),
+        );
     };
     if (lastWindowKey.current !== windowKey) {
       lastWindowKey.current = windowKey;
