@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # "course notes not configured".
     course_notes_dir: str = ""
 
+    # Optional private folder for the Learn drills + results (TRADEDESK_LEARN_DIR). Holds
+    # drills/<date>/*.json, results.jsonl and builder-state.json; never in the repo.
+    # Empty = every /api/learn endpoint answers "learn folder not configured".
+    learn_dir: str = ""
+
     @field_validator("db_path")
     @classmethod
     def _resolve_db_path(cls, v: str) -> str:

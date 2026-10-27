@@ -1,4 +1,4 @@
-.PHONY: desk-mcp desk-mcp-mock desk-mcp-check help dev backend frontend install install-backend install-frontend test tunnel knowledge-ingest knowledge-concepts knowledge-sheets knowledge-install
+.PHONY: learn-build desk-mcp desk-mcp-mock desk-mcp-check help dev backend frontend install install-backend install-frontend test tunnel knowledge-ingest knowledge-concepts knowledge-sheets knowledge-install
 
 help:
 	@echo "TradeDesk"
@@ -118,3 +118,10 @@ desk-mcp-mock:
 # Mock: TRADEDESK_MODE=mock make desk-mcp-check
 desk-mcp-check:
 	$(DESK_PYTHON) backend/scripts/desk_mcp_check.py
+
+# -- Learn drill builder -------------------------------------------------- #
+# Builds tomorrow's 3 chart drills into TRADEDESK_LEARN_DIR from cached 1m bars + the course
+# notes (TRADEDESK_COURSE_NOTES_DIR). Pass flags via ARGS, e.g.
+#   make learn-build ARGS="--for-date 2026-10-28 --dry-run"
+learn-build:
+	cd backend && $(if $(findstring /,$(DESK_PYTHON)),$(abspath $(DESK_PYTHON)),$(DESK_PYTHON)) -m app.learn.build $(ARGS)
