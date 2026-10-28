@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, FolderOpen, Pause, Play, ServerCrash, StepForward } from "lucide-react";
+import { ArrowLeft, ExternalLink, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepForward } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
 import { Markdown } from "@/components/learn/Markdown";
@@ -27,12 +27,17 @@ import { floorMinute } from "@/lib/stackedReplay";
 import { isoToUtcSeconds } from "@/lib/chart";
 import {
   EMPTY_DRAFT,
+  LEAD_MINUTES,
+  PLAY_SPEEDS,
+  VIEW_MINUTES,
+  barsFor,
   canSubmit,
   chartPickFor,
   currentStep,
   fmtPrice,
   guardBars,
   isNotConfigured,
+  missingText,
   nextUndone,
   parsePrice,
   ptTime,
@@ -41,6 +46,7 @@ import {
   scoreText,
   setEnter,
   shortDate,
+  startIndex,
   stepIndex,
   stepDone,
   toAnswerRequest,
@@ -50,7 +56,7 @@ import {
 import { useLearnAnswer, useLearnBars, useLearnDrill, useLearnResult, useLearnToday } from "@/lib/queries";
 import { isInputFocused } from "@/lib/useReplay";
 
-const TICK_MS = 220;
+const DEFAULT_SPEED = 1; // bars per second
 const COLOR = { level: "#3b82f6", stop: "#f59e0b", target: "#26a69a", key: "#a1a1aa" };
 
 const STEP_TITLE: Record<LearnStepName, string> = {
@@ -81,9 +87,11 @@ function buildMarks(phase: Phase, draft: Draft, grade: GradeResult | null): NonN
     if (k.target != null) marks.push({ label: "Key target", price: k.target, color: COLOR.key });
     return marks;
   }
-  if (draft.level != null) marks.push({ label: "Level", price: draft.level, color: COLOR.level });
-  if (draft.enter === "enter" && draft.stop != null) marks.push({ label: "Stop", price: draft.stop, color: COLOR.stop });
-  if (draft.enter === "enter" && draft.target != null) marks.push({ label: "Target", price: draft.target, color: COLOR.target });
+  if (draft.level != null) marks.push({ label: "Level", price: draft.level, color: COLOR.level, key: "level" });
+  if (draft.enter === "enter" && draft.stop != null)
+    marks.push({ label: "Stop", price: draft.stop, color: COLOR.stop, key: "stop" });
+  if (draft.enter === "enter" && draft.target != null)
+    marks.push({ label: "Target", price: draft.target, color: COLOR.target, key: "target" });
   return marks;
 }
 
@@ -112,7 +120,9 @@ function PriceField({
     <label className="flex flex-col gap-1">
       <span className="flex items-baseline justify-between text-label">
         <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground">{active ? "Click the chart or type" : hint}</span>
+        <span className="text-muted-foreground">
+          {active ? "Click the chart or type" : value != null ? "Drag the line to adjust" : hint}
+        </span>
       </span>
       <Input
         inputMode="decimal"
@@ -244,6 +254,11 @@ function DecisionPanel({
       <Button type="button" disabled={!ready || submitting} onClick={onSubmit}>
         {submitting ? "Submitting..." : "Submit answer"}
       </Button>
+      {!ready && (
+        <p className="text-label text-muted-foreground" data-testid="submit-missing">
+          {missingText(drill.question_steps, draft)}
+        </p>
+      )}
     </div>
   );
 }
@@ -377,6 +392,7 @@ export function LearnDrillPage() {
   const [armed, setArmed] = useState<LearnStepName | null>(null);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const inited = useRef(false);
 
   // A new drill resets everything.
@@ -396,30 +412,49 @@ export function LearnDrillPage() {
   );
   const n = candles.length;
 
-  // First time bars are here: a fresh drill starts at the first bar, a done one at the pause.
+  const timeframe = rawBars?.timeframe ?? drill?.timeframe ?? "1m";
+
+  // First time bars are here: a fresh drill starts LEAD_MINUTES before the pause (the bars
+  // before it are already drawn as context), a done one at the pause.
   useEffect(() => {
     if (inited.current || !drill || n === 0) return;
     inited.current = true;
-    if (answered) {
-      const cut = Date.parse(drill.pause_at);
-      const pre = candles.filter((c) => Date.parse(c.ts) < cut).length;
-      setIdx(Math.max(0, pre - 1));
-    } else setIdx(0);
+    const cut = Date.parse(drill.pause_at);
+    const pre = candles.filter((c) => Date.parse(c.ts) < cut).length;
+    setIdx(answered ? Math.max(0, pre - 1) : startIndex(pre, barsFor(LEAD_MINUTES, timeframe)));
     setPlaying(true);
-  }, [drill, n, answered, candles]);
+  }, [drill, n, answered, candles, timeframe]);
 
-  // Animate: one bar per tick while playing, until the last bar in hand.
+  // Animate: `speed` bars per second while playing, until the last bar in hand.
   useEffect(() => {
     if (!playing || n === 0 || idx >= n - 1) return;
-    const t = setTimeout(() => setIdx((i) => stepIndex(i, n)), TICK_MS);
+    const t = setTimeout(() => setIdx((i) => stepIndex(i, n)), 1000 / speed);
     return () => clearTimeout(t);
-  }, [playing, idx, n]);
+  }, [playing, idx, n, speed]);
 
   const atEnd = n > 0 && idx >= n - 1;
   const fullBarsLoading = answered && barsQ.isPlaceholderData;
   const phase: Phase = !drill || n === 0 ? "loading" : answered ? "reveal" : atEnd ? "decision" : "playing";
 
-  // Keyboard: ArrowRight steps one bar, Space plays or pauses.
+  const skip = () => {
+    setPlaying(false);
+    setIdx(Math.max(0, n - 1));
+  };
+
+  // Play the drill again from the lead start; before the answer this also clears the draft.
+  const restart = () => {
+    if (!drill || n === 0) return;
+    const cut = Date.parse(drill.pause_at);
+    const pre = candles.filter((c) => Date.parse(c.ts) < cut).length;
+    if (!answered) {
+      setDraft(EMPTY_DRAFT);
+      setArmed(null);
+    }
+    setIdx(startIndex(pre, barsFor(LEAD_MINUTES, timeframe)));
+    setPlaying(true);
+  };
+
+  // Keyboard: ArrowRight steps one bar, Space plays or pauses, End skips ahead.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isInputFocused(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -431,6 +466,10 @@ export function LearnDrillPage() {
       } else if (e.key === " ") {
         e.preventDefault();
         setPlaying((p) => !p);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        setPlaying(false);
+        setIdx(Math.max(0, n - 1));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -448,16 +487,25 @@ export function LearnDrillPage() {
     };
   }, [pick]);
 
+  // Drag a line you already set: decision phase only (after the answer the lines are fixed).
+  const onMarkDrag = useMemo(() => {
+    if (phase !== "decision") return undefined;
+    return (key: string, price: number) => {
+      if (key !== "level" && key !== "stop" && key !== "target") return;
+      setDraft((d) => ({ ...d, [key]: roundPrice(price) }));
+    };
+  }, [phase]);
+
   const bottom: PaneSpec | null = useMemo(
     () =>
       drill && n > 0
         ? {
-            label: `${drill.ticker} ${rawBars?.timeframe ?? drill.timeframe}`,
+            label: `${drill.ticker} ${timeframe}`,
             candles,
             marks: buildMarks(phase, draft, grade),
           }
         : null,
-    [drill, n, candles, rawBars, phase, draft, grade],
+    [drill, n, candles, timeframe, phase, draft, grade],
   );
 
   const back = () => navigate("/learn");
@@ -544,6 +592,9 @@ export function LearnDrillPage() {
                 stopPrice={null}
                 fills={[]}
                 onPriceClick={onPriceClick}
+                onMarkDrag={onMarkDrag}
+                tradingView
+                initialBars={barsFor(VIEW_MINUTES, timeframe)}
               />
             ) : (
               <div className="p-4">
@@ -574,11 +625,41 @@ export function LearnDrillPage() {
             >
               <StepForward /> Step
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={phase === "loading" || phase === "decision" || atEnd}
+              onClick={skip}
+            >
+              <FastForward /> Skip
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={phase === "loading"} onClick={restart}>
+              <RotateCcw /> Restart
+            </Button>
+            <div className="flex items-center gap-1" role="group" aria-label="Playback speed">
+              {PLAY_SPEEDS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={speed === s}
+                  onClick={() => setSpeed(s)}
+                  className={
+                    "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
+                    (speed === s ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
+                  }
+                >
+                  {s}/s
+                </button>
+              ))}
+            </div>
             <span className="num text-label text-muted-foreground">
               {n > 0 ? `Bar ${idx + 1} of ${n}, ${ptTime(candles[Math.min(idx, n - 1)].ts)}` : ""}
               {fullBarsLoading ? " · loading the rest" : ""}
             </span>
-            <span className="ml-auto hidden text-label text-muted-foreground md:inline">ArrowRight steps one bar, Space plays or pauses</span>
+            <span className="ml-auto hidden text-label text-muted-foreground md:inline">
+              ArrowRight steps · Space plays or pauses · End skips
+            </span>
           </div>
         </div>
 
@@ -608,7 +689,7 @@ export function LearnDrillPage() {
                 <p className="text-body text-muted-foreground">
                   {phase === "loading"
                     ? "Fetching the session."
-                    : "The bars play up to the pause, then you answer. Step with ArrowRight if you want to go slower."}
+                    : `Playback starts ${LEAD_MINUTES} minutes before the pause; everything earlier is already on the chart. Skip when you've seen enough.`}
                 </p>
               </div>
             )}

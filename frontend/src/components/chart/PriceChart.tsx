@@ -75,7 +75,7 @@ export interface PaneSpec {
   /** Optional EMAs (grey), each keyed by minute. */
   emas?: { label: string; values: Map<number, number> }[];
   /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
-  marks?: { label: string; price: number; color: string }[];
+  marks?: { label: string; price: number; color: string; key?: string }[];
   badge?: React.ReactNode;
 }
 
@@ -115,6 +115,16 @@ interface Props {
   playheadLabel?: string;
   /** Called with the clicked price on the underlying pane (not after a drag-pan). */
   onPriceClick?: (price: number) => void;
+  /** Underlying-pane marks with a `key` get a drag handle; called while dragging (final = false) and on release. */
+  onMarkDrag?: (key: string, price: number, final: boolean) => void;
+  /**
+   * TradingView-style interaction (Learn drills): a plain wheel zooms at the cursor, a sideways
+   * wheel pans, and the crosshair shows both lines with a price label. Off: a plain wheel scrolls
+   * the page. Read once when the chart is created.
+   */
+  tradingView?: boolean;
+  /** Replay: the default view is this many bars wide and slides with the playhead (null: grow from the lead start). */
+  initialBars?: number | null;
 }
 
 interface Layout {
@@ -125,6 +135,7 @@ interface Layout {
   stopY: number | null;
   height: number;
   levelYs: { label: string; price: number; y: number }[];
+  markYs: { key: string; label: string; y: number }[];
   chips: { x: number; text: string; side: "buy" | "sell" }[];
   /** Price at the bottom/top edge of the pane and the visible bar indices (also exposed as data-* for checks). */
   yMin: number | null;
@@ -141,6 +152,7 @@ const EMPTY_LAYOUT: Layout = {
   stopY: null,
   height: 0,
   levelYs: [],
+  markYs: [],
   chips: [],
   yMin: null,
   yMax: null,
@@ -209,6 +221,9 @@ export function PriceChart({
   noDataAfterSec = null,
   playheadLabel,
   onPriceClick,
+  onMarkDrag,
+  tradingView = false,
+  initialBars = null,
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -261,8 +276,18 @@ export function PriceChart({
     lastIdx,
     extras: [] as (number | null)[],
     onPriceClick: undefined as ((price: number) => void) | undefined,
+    tradingView: false,
+    initialBars: null as number | null,
   });
-  live.current = { isReplay, playIdx, lastIdx: Math.max(0, lastIdx), extras: [stopPrice, avgPrice], onPriceClick };
+  live.current = {
+    isReplay,
+    playIdx,
+    lastIdx: Math.max(0, lastIdx),
+    extras: [stopPrice, avgPrice],
+    onPriceClick,
+    tradingView,
+    initialBars,
+  };
 
   const entrySec = revealedFillTime(fills, "entry", playheadSec);
   const exitSec = revealedFillTime(fills, "exit", playheadSec);
@@ -285,11 +310,17 @@ export function PriceChart({
           vertLines: { color: THEME.grid },
           horzLines: { color: THEME.grid },
         },
-        crosshair: {
-          mode: CrosshairMode.Magnet,
-          vertLine: { color: THEME.play, labelBackgroundColor: THEME.play, style: LineStyle.Solid },
-          horzLine: { visible: false, labelVisible: false },
-        },
+        crosshair: live.current.tradingView
+          ? {
+              mode: CrosshairMode.Normal,
+              vertLine: { color: THEME.text, labelBackgroundColor: THEME.play, style: LineStyle.Dashed },
+              horzLine: { color: THEME.text, labelBackgroundColor: THEME.play, style: LineStyle.Dashed },
+            }
+          : {
+              mode: CrosshairMode.Magnet,
+              vertLine: { color: THEME.play, labelBackgroundColor: THEME.play, style: LineStyle.Solid },
+              horzLine: { visible: false, labelVisible: false },
+            },
         // Padding comes from our own autoscale; no extra margins (premium must not dip below 0).
         rightPriceScale: {
           borderColor: THEME.grid,
@@ -435,6 +466,13 @@ export function PriceChart({
     const refit = () => {
       const vs = viewState.current;
       const lim = limits();
+      const init = live.current.isReplay ? live.current.initialBars : null;
+      if (vs.view === null && init) {
+        // A fixed-width window on the playhead that follows it from the start.
+        vs.view = { from: lim.rightLimit - init, to: lim.rightLimit };
+        vs.follow = true;
+        vs.slideWidth = init;
+      }
       let target: IndexRange;
       if (vs.view === null) target = defaultRange(lim);
       else if (live.current.isReplay && vs.follow) {
@@ -490,13 +528,23 @@ export function PriceChart({
     const attach = (el: HTMLDivElement | null, rt: PaneRuntime | null) => {
       if (!el || !rt) return;
       const onWheel = (e: WheelEvent) => {
-        if (!isZoomWheel(e)) return; // plain wheel: the page scrolls
+        if (!live.current.tradingView && !isZoomWheel(e)) return; // plain wheel: the page scrolls
         e.preventDefault();
         const ts = rt.chart.timeScale();
         const r = readRange(ts.getVisibleLogicalRange());
         if (!r) return;
+        if (live.current.tradingView && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          // Sideways wheel (trackpad): pan by a share of the visible bars.
+          const shift = (e.deltaX / Math.max(1, ts.width())) * (r.to - r.from);
+          const next = clampRange({ from: r.from + shift, to: r.to + shift }, limits());
+          apply(next);
+          commit(next);
+          return;
+        }
         const x = e.clientX - el.getBoundingClientRect().left;
-        const anchor = ts.coordinateToLogical(x) ?? (r.from + r.to) / 2;
+        // Replay, following the playhead: zoom about the right edge so the view stays pinned to it.
+        const anchor =
+          live.current.isReplay && viewState.current.follow ? r.to : (ts.coordinateToLogical(x) ?? (r.from + r.to) / 2);
         zoomBy(e.deltaY > 0 ? WHEEL_ZOOM : 1 / WHEEL_ZOOM, anchor);
       };
       const onDbl = () => controls.current?.reset();
@@ -729,6 +777,11 @@ export function PriceChart({
           const y = rt.series.priceToCoordinate(lv.price) as number | null;
           return y === null ? [] : [{ label: lv.label, price: lv.price, y }];
         }),
+        markYs: (spec?.marks ?? []).flatMap((m) => {
+          if (!m.key) return [];
+          const y = rt.series.priceToCoordinate(m.price) as number | null;
+          return y === null ? [] : [{ key: m.key, label: m.label, y }];
+        }),
         playX: x(playheadSec),
         entryX: x(entrySec),
         exitX: x(exitSec),
@@ -794,6 +847,54 @@ export function PriceChart({
       />
     ) : null;
 
+  // ---- dragging a mark on the underlying pane (Learn: your level, stop, target) ----
+  // The drag listens on the window, not the handle: the handle re-renders as the line moves,
+  // and element pointer capture does not survive that.
+  const markDragRef = useRef(onMarkDrag);
+  markDragRef.current = onMarkDrag;
+  const startMarkDrag = (key: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const priceAt = (clientY: number): number | null => {
+      const rt = panes.current?.bottom;
+      const el = bottomEl.current;
+      if (!rt || !el) return null;
+      const raw = rt.series.coordinateToPrice(clientY - el.getBoundingClientRect().top);
+      if (raw == null) return null;
+      const price = Math.round(raw * 100) / 100;
+      return price > 0 ? price : null;
+    };
+    let last: number | null = null;
+    const move = (ev: PointerEvent) => {
+      const price = priceAt(ev.clientY);
+      if (price === null || price === last) return;
+      last = price;
+      markDragRef.current?.(key, price, false);
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (last !== null) markDragRef.current?.(key, last, true);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+  const markHandles = onMarkDrag
+    ? layouts.bottom.markYs.map((m) => (
+        <div
+          key={m.key}
+          role="slider"
+          aria-label={`Drag the ${m.label.toLowerCase()} line`}
+          data-testid={`mark-handle-${m.key}`}
+          className="pointer-events-auto absolute inset-x-0 z-10 h-3 cursor-row-resize touch-none"
+          style={{ top: m.y - 6 }}
+          onPointerDown={(e) => startMarkDrag(m.key, e)}
+        />
+      ))
+    : null;
+
   // Replay reads out the playhead bar; the review reads out only what is hovered.
   const shown = hoverSec ?? (isReplay ? playheadSec : null);
 
@@ -834,7 +935,9 @@ export function PriceChart({
   const controlsNode = (
     <div className="pointer-events-auto ml-auto flex items-center gap-1.5" data-testid="chart-controls">
       <span className="hidden text-label text-muted-foreground xl:inline">
-        Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset
+        {tradingView
+          ? "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset"
+          : "Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset"}
       </span>
       {stopPriceProp != null && (
         <button
@@ -880,7 +983,8 @@ export function PriceChart({
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
+    // No text selection or native drag: a drag on the chart must never pick up a ghost image of it.
+    <div className="flex h-full min-h-0 w-full select-none flex-col" onDragStart={(e) => e.preventDefault()}>
       {top && (
         <Pane
           className="flex-[6]"
@@ -910,6 +1014,7 @@ export function PriceChart({
         playheadLabel={playheadLabel}
         elRef={bottomEl}
         showTicks={!top}
+        overlay={markHandles}
         details={detailFor("bottom", shown)}
         noData={noDataFor(bottom)}
         controls={top ? undefined : controlsNode}
