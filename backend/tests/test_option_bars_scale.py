@@ -136,13 +136,13 @@ def test_v11_purges_synthetic_cache_rows_once(temp_engine):
             ts_utc=datetime(2026, 6, 10, 19, 50), synthetic=True, method="bs_interp", **row))
         conn.execute(cache_t.insert().values(
             ts_utc=datetime(2026, 6, 10, 19, 51), synthetic=False, method="provider", **row))
-    init_db(temp_engine)  # applies the v11 purge
+    init_db(temp_engine, force=True)  # applies the v11 purge
     with temp_engine.begin() as conn:
         left = conn.execute(select(cache_t.c.method)).scalars().all()
         assert left == ["provider"]
         conn.execute(cache_t.insert().values(
             ts_utc=datetime(2026, 6, 10, 19, 52), synthetic=True, method="bs_interp", **row))
-    init_db(temp_engine)  # already at v11: new synthetic rows are kept
+    init_db(temp_engine, force=True)  # already at v11: new synthetic rows are kept
     with temp_engine.connect() as conn:
         assert sorted(conn.execute(select(cache_t.c.method)).scalars().all()) == [
             "bs_interp", "provider"]

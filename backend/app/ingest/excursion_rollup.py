@@ -6,8 +6,16 @@ R is the ledger's (``PositionAnalysis.risk``); nothing is redefined here.
 
 A closed trade is *measured* when option bars cover its hold. Trades without bars
 are skipped (reported as ``n_skipped``) and never counted in any figure.
+
+In "mock" mode the bars are a pure function of the contract, the session day and
+the fills, so each position's fact is memoized per engine under exactly those
+inputs (plus the ledger numbers it reads). A day view then synthesizes premium bars
+once per position per process instead of on every load. "provider" / "cache" facts
+depend on the bar cache's contents and are always recomputed.
 """
 from __future__ import annotations
+
+import weakref
 
 from sqlalchemy.engine import Engine
 
@@ -21,6 +29,27 @@ from app.analytics.excursions import (
 )
 from app.desk.rules import Rules
 from app.ingest.trade_excursions import fetch_bars
+
+_MEMO_MODES = frozenset({"mock"})
+_MEMO_MAX = 20_000
+# engine -> {position key -> fact (None = not measurable)}. Weak so test engines go away.
+_facts: weakref.WeakKeyDictionary[Engine, dict] = weakref.WeakKeyDictionary()
+
+
+def clear_fact_memo() -> None:
+    """Forget memoized facts (for callers that swap the bar source underneath)."""
+    _facts.clear()
+
+
+def _fact_key(day, lp, a, provider, bars_mode: str) -> tuple:
+    """Everything ``fact_for_position`` reads, for a mode whose bars are deterministic."""
+    p = lp.position
+    return (
+        bars_mode, type(provider).__name__, getattr(provider, "cache_source", None),
+        day, lp.trade_id, lp.label, p.ticker, p.type, p.strike, p.expiry,
+        tuple((f.side, f.qty, f.px, f.ts) for f in a.fills),
+        a.closed, a.pnl, a.avg_in, a.qty_in, a.risk,
+    )
 
 
 def fact_for_position(
@@ -57,9 +86,21 @@ def attach_excursions(
     """Fill ``DayData.excursions`` in place for every closed position of ``days``."""
     for d in days:
         eng = engine or d.engine
+        memo = None
+        if bars_mode in _MEMO_MODES and eng is not None:
+            memo = _facts.setdefault(eng, {})
+            if len(memo) > _MEMO_MAX:
+                memo.clear()
         d.excursions = {}
         for lp, a in zip(d.loaded, d.result.positions):
-            fact = fact_for_position(lp, a, provider, eng, bars_mode)
+            if memo is None:
+                fact = fact_for_position(lp, a, provider, eng, bars_mode)
+            else:
+                key = _fact_key(d.result.day, lp, a, provider, bars_mode)
+                if key in memo:
+                    fact = memo[key]
+                else:
+                    fact = memo[key] = fact_for_position(lp, a, provider, eng, bars_mode)
             if fact is not None:
                 d.excursions[lp.trade_id] = fact
         d.excursions_attached = True

@@ -148,8 +148,8 @@ def test_migration_backfills_existing_db_without_changing_ids(temp_engine):
     with temp_engine.begin() as c:  # simulate a pre-#3 local DB
         c.execute(text("DROP INDEX uq_trades_trade_key"))
         c.execute(text("ALTER TABLE trades DROP COLUMN trade_key"))
-    init_db(temp_engine)
-    init_db(temp_engine)  # idempotent
+    init_db(temp_engine, force=True)
+    init_db(temp_engine, force=True)  # idempotent
     assert _ids(temp_engine) == before
     with temp_engine.connect() as c:
         keys = c.execute(select(trades_t.c.trade_key)).scalars().all()

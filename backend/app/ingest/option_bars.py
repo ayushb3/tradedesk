@@ -35,7 +35,11 @@ from sqlalchemy.engine import Engine
 from app.analytics.options import bs_interp_premium_bars
 from app.db.connection import get_engine, init_db
 from app.db.schema import option_bars_cache as cache_t
-from app.ingest.query import get_trade, get_trade_fills, get_trade_option_contract
+from app.ingest.query import (
+    get_trade_fills,
+    get_trade_option_contract,
+    get_trade_session_date,
+)
 from app.models.market import Candle, OptionContract
 from app.providers.webull.errors import WebullError
 
@@ -255,14 +259,13 @@ def get_option_bars_for_trade(
     engine = engine or get_engine()
     init_db(engine)
 
-    trade = get_trade(trade_id, engine=engine)
-    if trade is None:
+    session_day = get_trade_session_date(trade_id, engine=engine)
+    if session_day is None:
         return None
     contract = get_trade_option_contract(trade_id, engine=engine)
     if contract is None:
         return None
 
-    session_day = trade.session_date
     source = cache_source(provider)
     with engine.begin() as conn:
         if use_cache:
@@ -322,8 +325,8 @@ def get_cached_option_bars_for_trade(
     """
     engine = engine or get_engine()
     init_db(engine)
-    trade = get_trade(trade_id, engine=engine)
-    if trade is None:
+    session_day = get_trade_session_date(trade_id, engine=engine)
+    if session_day is None:
         return None
     contract = get_trade_option_contract(trade_id, engine=engine)
     if contract is None:
@@ -335,4 +338,4 @@ def get_cached_option_bars_for_trade(
             provider = get_provider()
         source = cache_source(provider)
     with engine.connect() as conn:
-        return _read_cache(conn, contract.contract_key, timeframe, trade.session_date, source)
+        return _read_cache(conn, contract.contract_key, timeframe, session_day, source)

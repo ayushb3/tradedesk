@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import weakref
 
 from sqlalchemy import Column, Integer, MetaData, Table, Text, create_engine, event, select, text
 from sqlalchemy.engine import Engine
@@ -53,6 +54,11 @@ schema_migrations = Table(
 
 # Cache engines by url so repeated get_engine() calls reuse the same pool.
 _engines: dict[str, Engine] = {}
+
+# Engines `init_db` has already bootstrapped in this process. Every read path calls
+# `init_db` first; without this, one day view re-ran create_all (hundreds of table
+# reflections) ~400 times. Weak so throwaway test engines are not kept alive.
+_initialized: weakref.WeakSet[Engine] = weakref.WeakSet()
 
 
 def _db_url(db_path: str | None = None) -> str:
@@ -235,12 +241,15 @@ def _rename_legacy_tables(engine: Engine) -> None:
                 existing.add(new_name)
 
 
-def init_db(engine: Engine | None = None) -> Engine:
+def init_db(engine: Engine | None = None, force: bool = False) -> Engine:
     """Create all tables if absent, apply column migrations, and stamp the
-    schema version. Idempotent."""
+    schema version. Idempotent; runs once per engine per process unless ``force``
+    (for a DB whose schema changed underneath a live engine)."""
     from datetime import datetime, timezone
 
     engine = engine or get_engine()
+    if engine in _initialized and not force:
+        return engine
 
     _rename_legacy_tables(engine)
     metadata.create_all(engine)
@@ -267,5 +276,6 @@ def init_db(engine: Engine | None = None) -> Engine:
                     applied_at=datetime.now(timezone.utc).isoformat(),
                 )
             )
+    _initialized.add(engine)
     return engine
 

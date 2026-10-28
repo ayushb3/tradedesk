@@ -9,6 +9,7 @@ consistent (fill prices always sit inside their day's real bar range).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -31,6 +32,26 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.astimezone(UTC)
 
 
+@lru_cache(maxsize=256)
+def _session_candles(symbol: str, day: date, timeframe: str, tz: str) -> tuple[Candle, ...]:
+    """One generated session, memoized: generation is a pure function of these args
+    and a day view asks for the same underlying once per option position."""
+    base = generate_candles(symbol, day, timeframe="1m", tz=tz)
+    return tuple(resample_candles(base, timeframe, tz=tz))
+
+
+@lru_cache(maxsize=512)
+def _premium_bars(
+    contract_json: str, day: date, timeframe: str, tz: str
+) -> tuple[Candle, ...]:
+    """Synthesized premium bars for one contract-day, memoized like the candles."""
+    contract = OptionContract.model_validate_json(contract_json)
+    underlying = _session_candles(contract.underlying, day, timeframe, tz)
+    if not underlying:
+        return ()
+    return tuple(synthesize_mock_premium_bars(list(underlying), contract, timeframe))
+
+
 class MockProvider:
     """A fully deterministic, offline data provider for mock mode."""
 
@@ -47,8 +68,7 @@ class MockProvider:
         Bars are generated at 1-minute resolution then aggregated to ``timeframe``
         (5m/15m/1h/1d) so the candle count and shape change like a real feed.
         """
-        base = generate_candles(symbol, day, timeframe="1m", tz=self.tz)
-        return resample_candles(base, timeframe, tz=self.tz)
+        return list(_session_candles(symbol, day, timeframe, self.tz))
 
     def get_candles_range(
         self, symbol: str, start: datetime, end: datetime, timeframe: str = "1m"
@@ -92,10 +112,7 @@ class MockProvider:
         synthetic fallback is exercised by providers (webull) that have no
         option-bar source.
         """
-        underlying = self.get_candles(contract.underlying, day, timeframe)
-        if not underlying:
-            return []
-        return synthesize_mock_premium_bars(underlying, contract, timeframe)
+        return list(_premium_bars(contract.model_dump_json(), day, timeframe, self.tz))
 
     # ------------------------------------------------------------------ #
     # Second bars (Replay "Seconds")
