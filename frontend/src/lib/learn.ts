@@ -122,6 +122,75 @@ export function barsFor(minutes: number, timeframe: string): number {
   return Math.max(1, Math.ceil(minutes / per));
 }
 
+// ---- timeframes: client-side bars from the 1m tape, KCU defaults, hourly levels ----------
+
+/** Selectable bar sizes, minutes. */
+export const TIMEFRAMES = [1, 2, 5, 10, 15, 60] as const;
+export type TfChoice = "auto" | (typeof TIMEFRAMES)[number];
+
+export const tfLabel = (m: number): string => (m >= 60 ? `${m / 60}h` : `${m}m`);
+
+/**
+ * KCU's chart progression, by minutes since the open: the first 30 minutes on the 2m,
+ * the next hour on the 5m, then the 10m.
+ */
+export function kcuTimeframe(minutesSinceOpen: number): 2 | 5 | 10 {
+  if (minutesSinceOpen < 30) return 2;
+  if (minutesSinceOpen < 90) return 5;
+  return 10;
+}
+
+/** Start of the `stepSec` bucket holding `sec`, aligned to the session open (`anchorSec`). */
+export function bucketStart(sec: number, stepSec: number, anchorSec: number): number {
+  return anchorSec + Math.floor((sec - anchorSec) / stepSec) * stepSec;
+}
+
+/**
+ * Bars of `stepMin` minutes built from 1m bars, buckets aligned to the open (`anchorSec`, so the
+ * hourly bar runs 6:30-7:30 PT like TradingView's session-aligned 1h). Pass only revealed bars:
+ * the last bucket is then the bar still forming at the playhead, never one that peeks ahead.
+ */
+export function aggregateBars(candles: readonly Candle[], stepMin: number, anchorSec: number): Candle[] {
+  if (stepMin <= 1) return candles.slice();
+  const step = stepMin * 60;
+  const out: Candle[] = [];
+  let cur: Candle | null = null;
+  let curStart = NaN;
+  for (const c of candles) {
+    const b = bucketStart(Date.parse(c.ts) / 1000, step, anchorSec);
+    if (cur && b === curStart) {
+      cur.high = Math.max(cur.high, c.high);
+      cur.low = Math.min(cur.low, c.low);
+      cur.close = c.close;
+      cur.volume += c.volume;
+      continue;
+    }
+    cur = { ...c, ts: new Date(b * 1000).toISOString(), timeframe: tfLabel(stepMin) };
+    curStart = b;
+    out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * High and low of every hourly bar (open-aligned) that has closed by `playheadSec`; the hour
+ * still forming is left out so a level never moves under you.
+ */
+export function hourlyLevels(
+  candles: readonly Candle[],
+  anchorSec: number,
+  playheadSec: number,
+): { label: string; price: number }[] {
+  const out: { label: string; price: number }[] = [];
+  for (const h of aggregateBars(candles, 60, anchorSec)) {
+    const start = Date.parse(h.ts) / 1000;
+    if (start + 3600 > playheadSec + 60) continue; // not closed yet
+    const at = ptTime(h.ts).replace(/ PT$/, "");
+    out.push({ label: `1h H ${at}`, price: h.high }, { label: `1h L ${at}`, price: h.low });
+  }
+  return out;
+}
+
 /** First playhead index for a fresh drill: `lead` bars before the last pre-pause bar. */
 export function startIndex(prePauseBars: number, lead: number): number {
   return Math.max(0, prePauseBars - 1 - lead);

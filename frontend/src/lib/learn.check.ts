@@ -5,6 +5,10 @@
 import type { Candle, DrillPublic } from "./api";
 import {
   EMPTY_DRAFT,
+  aggregateBars,
+  bucketStart,
+  hourlyLevels,
+  kcuTimeframe,
   barsFor,
   missingText,
   startIndex,
@@ -167,6 +171,27 @@ eq("startIndex short session", startIndex(10, 30), 0);
 eq("missing all", missingText(STEPS, EMPTY_DRAFT), "To submit: set the level, pick Enter or Wait.");
 eq("missing side", missingText(STEPS, { ...EMPTY_DRAFT, level: 1, enter: "enter" }), "To submit: pick Long or Short, set the stop, set the target.");
 eq("missing none (wait)", missingText(STEPS, { ...EMPTY_DRAFT, level: 1, enter: "wait" }), "");
+
+// ---- timeframes ----
+eq("kcu 2m", kcuTimeframe(0), 2);
+eq("kcu 2m edge", kcuTimeframe(29), 2);
+eq("kcu 5m", kcuTimeframe(30), 5);
+eq("kcu 10m", kcuTimeframe(90), 10);
+const OPEN = Date.parse("2026-01-05T14:30:00Z") / 1000;
+eq("bucket aligned to open", bucketStart(OPEN + 61 * 60, 3600, OPEN), OPEN + 3600);
+const bar = (min: number, o: number, h: number, l: number, c: number): Candle => ({
+  symbol: "X", ts: new Date((OPEN + min * 60) * 1000).toISOString(), open: o, high: h, low: l, close: c, volume: 1, timeframe: "1m",
+});
+const tape = [bar(0, 10, 11, 9, 10.5), bar(1, 10.5, 12, 10, 11), bar(2, 11, 11.5, 8, 9), bar(3, 9, 9.5, 8.5, 9.2)];
+const agg = aggregateBars(tape, 2, OPEN);
+eq("agg count", agg.length, 2);
+eq("agg first", [agg[0].open, agg[0].high, agg[0].low, agg[0].close, agg[0].volume], [10, 12, 9, 11, 2]);
+eq("agg forming bar uses only what was passed", aggregateBars(tape.slice(0, 3), 2, OPEN)[1].close, 9);
+eq("agg 1m passthrough", aggregateBars(tape, 1, OPEN).length, 4);
+const hourTape = Array.from({ length: 90 }, (_, i) => bar(i, 100, 100 + (i < 60 ? i / 10 : 1), 100 - (i < 60 ? 1 : 5), 100));
+eq("hourly: none until the first hour closes", hourlyLevels(hourTape.slice(0, 59), OPEN, OPEN + 58 * 60).length, 0);
+const hl = hourlyLevels(hourTape, OPEN, OPEN + 89 * 60);
+eq("hourly: closed hour only", hl.map((x) => x.price), [105.9, 99]);
 
 if (failures) {
   console.error(`${failures} failure(s)`);

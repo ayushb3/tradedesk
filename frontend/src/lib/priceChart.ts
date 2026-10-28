@@ -34,8 +34,8 @@ export function minVisibleBars(plotWidthPx: number): number {
 }
 
 /** Timeline index of a minute (epoch seconds), clamped to [0, lastIdx]. */
-export function indexOfSec(startSec: number, sec: number, lastIdx: number): number {
-  const i = Math.floor((sec - startSec) / MINUTE);
+export function indexOfSec(startSec: number, sec: number, lastIdx: number, stepSec: number = MINUTE): number {
+  const i = Math.floor((sec - startSec) / stepSec);
   return Math.min(lastIdx, Math.max(0, i));
 }
 
