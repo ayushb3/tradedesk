@@ -933,7 +933,7 @@ export function PriceChart({
   };
 
   const controlsNode = (
-    <div className="pointer-events-auto ml-auto flex items-center gap-1.5" data-testid="chart-controls">
+    <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 bg-card pl-2" data-testid="chart-controls">
       <span className="hidden text-label text-muted-foreground xl:inline">
         {tradingView
           ? "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset"
@@ -1070,8 +1070,9 @@ function Pane({
       data-from={layout.from?.toFixed(2)}
       data-to={layout.to?.toFixed(2)}
     >
-      {/* Header + OHLC readout for the hovered (or playhead) minute. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1">
+      {/* Header + OHLC readout for the hovered (or playhead) minute. One fixed-height line: if
+          the readout could wrap, hovering would resize the plot under the cursor and jitter. */}
+      <div className="flex h-8 shrink-0 items-center gap-x-3 overflow-hidden whitespace-nowrap px-3">
         <span className="label-caps text-label font-semibold">{spec.label}</span>
         {spec.badge}
         <span className="num text-label text-muted-foreground">
