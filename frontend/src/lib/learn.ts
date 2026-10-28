@@ -191,6 +191,48 @@ export function hourlyLevels(
   return out;
 }
 
+/** Opening range length, minutes (the course's 15-minute ORB). */
+export const ORB_MINUTES = 15;
+
+/** The opening range high and low, once its last bar has closed by `playheadSec`; else nothing. */
+export function openingRange(
+  candles: readonly Candle[],
+  anchorSec: number,
+  playheadSec: number,
+  minutes: number = ORB_MINUTES,
+): { label: string; price: number }[] {
+  const end = anchorSec + minutes * 60;
+  if (playheadSec + 60 < end) return [];
+  const inRange = candles.filter((c) => {
+    const t = Date.parse(c.ts) / 1000;
+    return t >= anchorSec && t < end;
+  });
+  if (!inRange.length) return [];
+  return [
+    { label: `ORB${minutes} H`, price: Math.max(...inRange.map((c) => c.high)) },
+    { label: `ORB${minutes} L`, price: Math.min(...inRange.map((c) => c.low)) },
+  ];
+}
+
+/**
+ * Session VWAP from the open, causal: keyed by bar open (of `stepMin` bars), each value is the
+ * VWAP as of the last 1m bar passed in that bucket. Typical price (H+L+C)/3 weighted by volume.
+ */
+export function sessionVwap(candles: readonly Candle[], stepMin: number, anchorSec: number): Map<number, number> {
+  const out = new Map<number, number>();
+  let pv = 0;
+  let vol = 0;
+  for (const c of candles) {
+    const t = Date.parse(c.ts) / 1000;
+    if (t < anchorSec) continue;
+    const v = c.volume > 0 ? c.volume : 0;
+    pv += ((c.high + c.low + c.close) / 3) * v;
+    vol += v;
+    if (vol > 0) out.set(bucketStart(t, stepMin * 60, anchorSec), pv / vol);
+  }
+  return out;
+}
+
 /** First playhead index for a fresh drill: `lead` bars before the last pre-pause bar. */
 export function startIndex(prePauseBars: number, lead: number): number {
   return Math.max(0, prePauseBars - 1 - lead);

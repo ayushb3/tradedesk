@@ -44,6 +44,8 @@ import {
   bucketStart,
   hourlyLevels,
   kcuTimeframe,
+  openingRange,
+  sessionVwap,
   tfLabel,
   type TfChoice,
   canSubmit,
@@ -410,6 +412,8 @@ export function LearnDrillPage() {
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [tfChoice, setTfChoice] = useState<TfChoice>("auto");
   const [showHourly, setShowHourly] = useState(true);
+  const [showOrb, setShowOrb] = useState(false);
+  const [showVwap, setShowVwap] = useState(true);
   const inited = useRef(false);
 
   // A new drill resets everything.
@@ -525,8 +529,15 @@ export function LearnDrillPage() {
   const revealed = useMemo(() => candles.slice(0, Math.min(idx, n - 1) + 1), [candles, idx, n]);
   const chartBars = useMemo(() => aggregateBars(revealed, stepMin, anchorSec), [revealed, stepMin, anchorSec]);
   const levels = useMemo(
-    () => (showHourly ? hourlyLevels(revealed, anchorSec, playMinSec) : []),
-    [showHourly, revealed, anchorSec, playMinSec],
+    () => [
+      ...(showOrb ? openingRange(revealed, anchorSec, playMinSec) : []),
+      ...(showHourly ? hourlyLevels(revealed, anchorSec, playMinSec) : []),
+    ],
+    [showOrb, showHourly, revealed, anchorSec, playMinSec],
+  );
+  const vwap = useMemo(
+    () => (showVwap ? sessionVwap(revealed, stepMin, anchorSec) : undefined),
+    [showVwap, revealed, stepMin, anchorSec],
   );
 
   // After the answer: an arrow and IN line on the bar the key enters on (the first bar after the
@@ -555,10 +566,11 @@ export function LearnDrillPage() {
             label: `${drill.ticker} ${tfLabel(stepMin)}${tfChoice === "auto" ? " · auto" : ""}`,
             candles: chartBars,
             levels,
+            vwap,
             marks: buildMarks(phase, draft, grade),
           }
         : null,
-    [drill, n, chartBars, levels, stepMin, tfChoice, phase, draft, grade],
+    [drill, n, chartBars, levels, vwap, stepMin, tfChoice, phase, draft, grade],
   );
 
   const back = () => navigate("/learn");
@@ -708,17 +720,15 @@ export function LearnDrillPage() {
                   {t === "auto" ? "Auto" : tfLabel(t)}
                 </button>
               ))}
-              <button
-                type="button"
-                aria-pressed={showHourly}
-                onClick={() => setShowHourly((v) => !v)}
-                className={
-                  "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
-                  (showHourly ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
-                }
-              >
+              <Chip on={showVwap} onClick={() => setShowVwap((v) => !v)} title="Session VWAP from the open">
+                VWAP
+              </Chip>
+              <Chip on={showOrb} onClick={() => setShowOrb((v) => !v)} title="15-minute opening range high and low">
+                ORB15
+              </Chip>
+              <Chip on={showHourly} onClick={() => setShowHourly((v) => !v)} title="High and low of each closed hourly bar">
                 1h levels
-              </button>
+              </Chip>
             </div>
             <div className="flex items-center gap-1" role="group" aria-label="Playback speed">
               {PLAY_SPEEDS.map((s) => (
@@ -780,6 +790,33 @@ export function LearnDrillPage() {
         </Card>
       </div>
     </PageFrame>
+  );
+}
+
+function Chip({
+  on,
+  onClick,
+  title,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      title={title}
+      className={
+        "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
+        (on ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
+      }
+    >
+      {children}
+    </button>
   );
 }
 
