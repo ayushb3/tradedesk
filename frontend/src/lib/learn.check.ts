@@ -5,6 +5,9 @@
 import type { Candle, DrillPublic } from "./api";
 import {
   EMPTY_DRAFT,
+  barsFor,
+  missingText,
+  startIndex,
   canSubmit,
   chartPickFor,
   currentStep,
@@ -154,6 +157,16 @@ eq("md inline", parseInline("a **b** `c` d"), [
   { text: " d" },
 ]);
 eq("md html stays text", parseInline("<b>x</b>"), [{ text: "<b>x</b>" }]);
+
+// ---- playback window + submit hint ----
+eq("barsFor 1m", barsFor(30, "1m"), 30);
+eq("barsFor 5m", barsFor(30, "5m"), 6);
+eq("barsFor odd", barsFor(60, "day"), 60);
+eq("startIndex lead", startIndex(200, 30), 169);
+eq("startIndex short session", startIndex(10, 30), 0);
+eq("missing all", missingText(STEPS, EMPTY_DRAFT), "To submit: set the level, pick Enter or Wait.");
+eq("missing side", missingText(STEPS, { ...EMPTY_DRAFT, level: 1, enter: "enter" }), "To submit: pick Long or Short, set the stop, set the target.");
+eq("missing none (wait)", missingText(STEPS, { ...EMPTY_DRAFT, level: 1, enter: "wait" }), "");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

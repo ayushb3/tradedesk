@@ -109,6 +109,39 @@ export function guardBars(candles: Candle[], pauseAt: string, answered: boolean)
   return candles.filter((c) => Date.parse(c.ts) < cut);
 }
 
+/** Playback starts this many minutes before the pause; the view shows this many minutes. */
+export const LEAD_MINUTES = 30;
+export const VIEW_MINUTES = 60;
+/** Playback speeds, bars per second. */
+export const PLAY_SPEEDS = [1, 2, 5, 10] as const;
+
+/** Bars covering `minutes` at a timeframe like "1m" or "5m" (unknown: 1-minute bars). */
+export function barsFor(minutes: number, timeframe: string): number {
+  const m = /^(\d+)m$/.exec(timeframe.trim());
+  const per = m ? Math.max(1, Number(m[1])) : 1;
+  return Math.max(1, Math.ceil(minutes / per));
+}
+
+/** First playhead index for a fresh drill: `lead` bars before the last pre-pause bar. */
+export function startIndex(prePauseBars: number, lead: number): number {
+  return Math.max(0, prePauseBars - 1 - lead);
+}
+
+const MISSING: Record<LearnStepName, string> = {
+  level: "set the level",
+  enter: "pick Enter or Wait",
+  stop: "set the stop",
+  target: "set the target",
+};
+
+/** Why Submit is disabled, e.g. "To submit: pick Long or Short." */
+export function missingText(questionSteps: readonly LearnStepName[], d: Draft): string {
+  const todo = requiredSteps(questionSteps, d.enter)
+    .filter((s) => !stepDone(s, d))
+    .map((s) => (s === "enter" && d.enter === "enter" ? "pick Long or Short" : MISSING[s]));
+  return todo.length ? `To submit: ${todo.join(", ")}.` : "";
+}
+
 /** The next playhead index after one step, clamped to the last bar. */
 export function stepIndex(idx: number, total: number): number {
   return Math.max(0, Math.min(total - 1, idx + 1));
