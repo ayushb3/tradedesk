@@ -192,6 +192,7 @@ def rigged(monkeypatch, tmp_path):
     p = first("2026-10-13")
     specs[p["trade_id"]] = _bars(*_span(p), avg=1.20, exit_px=1.50, low=1.19, dd_bars=4,
                                  post_high=1.85)
+    er.clear_fact_memo()  # the rigged bars replace what the loads above memoized
     return ctx
 
 

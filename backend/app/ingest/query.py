@@ -294,6 +294,17 @@ def list_trades(
     return apply_rule_results(trades, engine)
 
 
+def get_trade_session_date(trade_id: int, engine: Engine | None = None) -> date | None:
+    """A trade's session date, or None if it doesn't exist. Plain row read: no
+    hydration and no rule results (``get_trade`` reloads the desk days for R)."""
+    engine = engine or get_engine()
+    init_db(engine)
+    with engine.connect() as conn:
+        return conn.execute(
+            select(trades_t.c.session_date).where(trades_t.c.id == trade_id)
+        ).scalar()
+
+
 def get_trade(trade_id: int, engine: Engine | None = None) -> Trade | None:
     """A single hydrated trade, or None if it doesn't exist."""
     engine = engine or get_engine()
