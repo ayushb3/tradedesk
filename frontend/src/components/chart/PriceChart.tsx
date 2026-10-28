@@ -125,6 +125,11 @@ interface Props {
   tradingView?: boolean;
   /** Replay: the default view is this many bars wide and slides with the playhead (null: grow from the lead start). */
   initialBars?: number | null;
+  /**
+   * Bar size, seconds (default 60). The grid steps by this much; candles, `startSec`, `endSec`
+   * and `playheadSec` must sit on bar opens (Learn aggregates 1m bars on the client).
+   */
+  barSec?: number;
 }
 
 interface Layout {
@@ -224,6 +229,7 @@ export function PriceChart({
   onMarkDrag,
   tradingView = false,
   initialBars = null,
+  barSec = 60,
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -264,10 +270,10 @@ export function PriceChart({
     bottom: EMPTY_LAYOUT,
   });
 
-  const timeline = useMemo(() => buildTimeline(startSec, endSec), [startSec, endSec]);
+  const timeline = useMemo(() => buildTimeline(startSec, endSec, barSec), [startSec, endSec, barSec]);
   const hasTop = top !== null;
   const lastIdx = timeline.length - 1;
-  const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx));
+  const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx), barSec);
 
   // Everything the imperative handlers need, refreshed every render.
   const live = useRef({
@@ -596,7 +602,7 @@ export function PriceChart({
 
   // ---- data: aligned on the shared grid, revealed up to the playhead ---------
   // A new window resets the view; replay keeps the user's pan/zoom while the window grows.
-  const windowKey = isReplay ? `${startSec}:${hasTop}` : `${startSec}:${endSec}:${hasTop}`;
+  const windowKey = isReplay ? `${startSec}:${hasTop}:${barSec}` : `${startSec}:${endSec}:${hasTop}:${barSec}`;
   const lastWindowKey = useRef<string | null>(null);
   useEffect(() => {
     const p = panes.current;

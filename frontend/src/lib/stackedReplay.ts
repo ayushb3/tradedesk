@@ -18,9 +18,9 @@ export const INITIAL_WINDOW_MIN = 90;
 export const floorMinute = (sec: number): number => Math.floor(sec / MINUTE) * MINUTE;
 
 /** Every minute from `startSec` to `endSec` inclusive, as UTC epoch seconds. */
-export function buildTimeline(startSec: number, endSec: number): UTCTimestamp[] {
+export function buildTimeline(startSec: number, endSec: number, stepSec: number = MINUTE): UTCTimestamp[] {
   const out: UTCTimestamp[] = [];
-  for (let t = floorMinute(startSec); t <= endSec; t += MINUTE) out.push(t as UTCTimestamp);
+  for (let t = floorMinute(startSec); t <= endSec; t += stepSec) out.push(t as UTCTimestamp);
   return out;
 }
 

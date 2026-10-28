@@ -22,15 +22,30 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError, type Candle, type DrillPublic, type GradeResult, type LearnStepName, type LessonRef } from "@/lib/api";
+import {
+  ApiError,
+  type Candle,
+  type DrillPublic,
+  type GradeResult,
+  type LearnStepName,
+  type LessonRef,
+  type ReplayFill,
+} from "@/lib/api";
 import { floorMinute } from "@/lib/stackedReplay";
 import { isoToUtcSeconds } from "@/lib/chart";
 import {
   EMPTY_DRAFT,
   LEAD_MINUTES,
   PLAY_SPEEDS,
+  TIMEFRAMES,
   VIEW_MINUTES,
+  aggregateBars,
   barsFor,
+  bucketStart,
+  hourlyLevels,
+  kcuTimeframe,
+  tfLabel,
+  type TfChoice,
   canSubmit,
   chartPickFor,
   currentStep,
@@ -393,6 +408,8 @@ export function LearnDrillPage() {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [tfChoice, setTfChoice] = useState<TfChoice>("auto");
+  const [showHourly, setShowHourly] = useState(true);
   const inited = useRef(false);
 
   // A new drill resets everything.
@@ -463,6 +480,10 @@ export function LearnDrillPage() {
         e.preventDefault();
         setPlaying(false);
         setIdx((i) => stepIndex(i, n));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setPlaying(false);
+        setIdx((i) => Math.max(0, i - 1));
       } else if (e.key === " ") {
         e.preventDefault();
         setPlaying((p) => !p);
@@ -496,16 +517,48 @@ export function LearnDrillPage() {
     };
   }, [phase]);
 
+  // The chart's bars: the revealed 1m tape (up to the playhead) rolled up into the chosen bar
+  // size, buckets aligned to the open. Auto follows KCU: 2m, then 5m, then 10m.
+  const anchorSec = drill ? floorMinute(Date.parse(drill.bars_from) / 1000) : 0;
+  const playMinSec = n > 0 ? floorMinute(isoToUtcSeconds(candles[Math.min(idx, n - 1)].ts)) : 0;
+  const stepMin = tfChoice === "auto" ? kcuTimeframe((playMinSec - anchorSec) / 60) : tfChoice;
+  const revealed = useMemo(() => candles.slice(0, Math.min(idx, n - 1) + 1), [candles, idx, n]);
+  const chartBars = useMemo(() => aggregateBars(revealed, stepMin, anchorSec), [revealed, stepMin, anchorSec]);
+  const levels = useMemo(
+    () => (showHourly ? hourlyLevels(revealed, anchorSec, playMinSec) : []),
+    [showHourly, revealed, anchorSec, playMinSec],
+  );
+
+  // After the answer: an arrow and IN line on the bar the key enters on (the first bar after the
+  // pause), so the reveal shows where the trade was taken. Nothing for a "wait" key.
+  const keyEntry: ReplayFill[] = useMemo(() => {
+    const k = grade?.answer_key;
+    if (!drill || !answered || !k || k.enter !== "enter") return [];
+    const at = bucketStart(floorMinute(Date.parse(drill.pause_at) / 1000), stepMin * 60, anchorSec);
+    return [
+      {
+        seq: 1,
+        role: "entry",
+        side: k.side === "short" ? "sell" : "buy",
+        qty: 0,
+        price: k.level ?? 0,
+        ts: new Date(at * 1000).toISOString(),
+        time_pt: ptTime(drill.pause_at),
+      },
+    ];
+  }, [drill, answered, grade, stepMin, anchorSec]);
+
   const bottom: PaneSpec | null = useMemo(
     () =>
       drill && n > 0
         ? {
-            label: `${drill.ticker} ${timeframe}`,
-            candles,
+            label: `${drill.ticker} ${tfLabel(stepMin)}${tfChoice === "auto" ? " · auto" : ""}`,
+            candles: chartBars,
+            levels,
             marks: buildMarks(phase, draft, grade),
           }
         : null,
-    [drill, n, candles, timeframe, phase, draft, grade],
+    [drill, n, chartBars, levels, stepMin, tfChoice, phase, draft, grade],
   );
 
   const back = () => navigate("/learn");
@@ -538,9 +591,10 @@ export function LearnDrillPage() {
 
   const todayDrills = today.data && !isNotConfigured(today.data) ? today.data.drills : [];
   const next = nextUndone(todayDrills, drill.id);
-  const playheadSec = n > 0 ? floorMinute(isoToUtcSeconds(candles[Math.min(idx, n - 1)].ts)) : 0;
-  const startSec = n > 0 ? floorMinute(isoToUtcSeconds(candles[0].ts)) : 0;
-  const endSec = n > 0 ? floorMinute(isoToUtcSeconds(candles[n - 1].ts)) : 0;
+  const stepSec = stepMin * 60;
+  const playheadSec = n > 0 ? bucketStart(playMinSec, stepSec, anchorSec) : 0;
+  const startSec = n > 0 ? bucketStart(isoToUtcSeconds(candles[0].ts), stepSec, anchorSec) : 0;
+  const endSec = n > 0 ? bucketStart(isoToUtcSeconds(candles[n - 1].ts), stepSec, anchorSec) : 0;
   const phaseLabel =
     phase === "loading" ? "Loading" : phase === "playing" ? "Watching" : phase === "decision" ? "Your call" : atEnd ? "Review" : "Playing the rest";
 
@@ -590,11 +644,12 @@ export function LearnDrillPage() {
                 playheadSec={playheadSec}
                 mode={{ kind: "replay" }}
                 stopPrice={null}
-                fills={[]}
+                fills={keyEntry}
                 onPriceClick={onPriceClick}
                 onMarkDrag={onMarkDrag}
                 tradingView
-                initialBars={barsFor(VIEW_MINUTES, timeframe)}
+                barSec={stepSec}
+                initialBars={Math.max(24, barsFor(VIEW_MINUTES, tfLabel(stepMin)))}
               />
             ) : (
               <div className="p-4">
@@ -635,8 +690,36 @@ export function LearnDrillPage() {
               <FastForward /> Skip
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={phase === "loading"} onClick={restart}>
-              <RotateCcw /> Restart
+              <RotateCcw /> {answered ? "Rewind" : "Restart"}
             </Button>
+            <div className="flex items-center gap-1" role="group" aria-label="Timeframe">
+              {(["auto", ...TIMEFRAMES] as TfChoice[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={tfChoice === t}
+                  onClick={() => setTfChoice(t)}
+                  title={t === "auto" ? "KCU: 2m for the first 30 min, 5m for the next hour, then 10m" : undefined}
+                  className={
+                    "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
+                    (tfChoice === t ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
+                  }
+                >
+                  {t === "auto" ? "Auto" : tfLabel(t)}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={showHourly}
+                onClick={() => setShowHourly((v) => !v)}
+                className={
+                  "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
+                  (showHourly ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
+                }
+              >
+                1h levels
+              </button>
+            </div>
             <div className="flex items-center gap-1" role="group" aria-label="Playback speed">
               {PLAY_SPEEDS.map((s) => (
                 <button
@@ -658,7 +741,7 @@ export function LearnDrillPage() {
               {fullBarsLoading ? " · loading the rest" : ""}
             </span>
             <span className="ml-auto hidden text-label text-muted-foreground md:inline">
-              ArrowRight steps · Space plays or pauses · End skips
+              ArrowLeft / ArrowRight step · Space plays or pauses · End skips
             </span>
           </div>
         </div>
