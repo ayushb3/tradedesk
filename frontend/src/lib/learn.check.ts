@@ -9,6 +9,9 @@ import {
   bucketStart,
   hourlyLevels,
   kcuTimeframe,
+  openingRange,
+  sessionVwap,
+  snapPrice,
   barsFor,
   missingText,
   startIndex,
@@ -192,6 +195,19 @@ const hourTape = Array.from({ length: 90 }, (_, i) => bar(i, 100, 100 + (i < 60 
 eq("hourly: none until the first hour closes", hourlyLevels(hourTape.slice(0, 59), OPEN, OPEN + 58 * 60).length, 0);
 const hl = hourlyLevels(hourTape, OPEN, OPEN + 89 * 60);
 eq("hourly: closed hour only", hl.map((x) => x.price), [105.9, 99]);
+
+// ---- ORB + VWAP ----
+eq("orb: hidden until 15 min closed", openingRange(hourTape, OPEN, OPEN + 13 * 60).length, 0);
+eq("orb: high/low of first 15", openingRange(hourTape, OPEN, OPEN + 14 * 60).map((x) => x.price), [101.4, 99]);
+const vw = sessionVwap([bar(0, 10, 12, 8, 10), bar(1, 10, 13, 11, 12)], 1, OPEN);
+eq("vwap first", vw.get(OPEN), 10);
+eq("vwap second", vw.get(OPEN + 60), 11);
+eq("vwap bucketed keeps latest", sessionVwap([bar(0, 10, 12, 8, 10), bar(1, 10, 13, 11, 12)], 2, OPEN).get(OPEN), 11);
+
+// ---- snap ----
+eq("snap to near level", snapPrice(740.35, [740.33, 742]), 740.33);
+eq("no snap when far", snapPrice(740.8, [740.33]), 740.8);
+eq("snap picks nearest", snapPrice(740.4, [740.3, 740.45]), 740.45);
 
 if (failures) {
   console.error(`${failures} failure(s)`);
