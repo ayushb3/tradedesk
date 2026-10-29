@@ -191,6 +191,23 @@ export function hourlyLevels(
   return out;
 }
 
+/** Snap distance: a click within this share of price of a drawn level lands on it (0.03%, ~22c on 740). */
+export const SNAP_FRAC = 0.0003;
+
+/** The nearest of `levels` within SNAP_FRAC of `price`, else `price` (TradingView's magnet). */
+export function snapPrice(price: number, levels: readonly number[], frac: number = SNAP_FRAC): number {
+  let best = price;
+  let bestD = price * frac;
+  for (const l of levels) {
+    const d = Math.abs(l - price);
+    if (d <= bestD) {
+      best = l;
+      bestD = d;
+    }
+  }
+  return roundPrice(best);
+}
+
 /** Opening range length, minutes (the course's 15-minute ORB). */
 export const ORB_MINUTES = 15;
 

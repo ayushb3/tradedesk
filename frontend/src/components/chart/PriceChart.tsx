@@ -72,6 +72,8 @@ export interface PaneSpec {
   vwap?: Map<number, number>;
   /** Causal level values at the playhead, drawn as thin lines with in-pane labels. */
   levels?: { label: string; price: number }[];
+  /** Tag levels on the price axis (TradingView-style) instead of in-pane labels over the bars. */
+  levelsOnAxis?: boolean;
   /** Optional EMAs (grey), each keyed by minute. */
   emas?: { label: string; values: Map<number, number> }[];
   /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
@@ -417,14 +419,50 @@ export function PriceChart({
     }
 
     // A click on the underlying pane reports its price (lightweight-charts does not fire it after a drag).
-    bottomPane.chart.subscribeClick((param) => {
+    // A click on the underlying pane reports its price. Our own handler, not subscribeClick:
+    // lightweight-charts swallows a quick second click as a double-click. A click is held
+    // 250 ms; a second click on the same spot is a double-click (view reset, no price), a
+    // second click elsewhere is its own click. Drags and clicks on the price axis never count.
+    const CLICK_HOLD_MS = 250;
+    const SAME_SPOT_PX = 6;
+    let downAt: { x: number; y: number } | null = null;
+    let pending: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null;
+    const firePrice = (y: number) => {
       const cb = live.current.onPriceClick;
-      if (!cb || !param.point) return;
-      const raw = bottomPane.series.coordinateToPrice(param.point.y);
+      if (!cb) return;
+      const raw = bottomPane.series.coordinateToPrice(y);
       if (raw == null) return;
       const price = Math.round(raw * 100) / 100;
       if (price > 0) cb(price);
-    });
+    };
+    const flush = () => {
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      const y = pending.y;
+      pending = null;
+      firePrice(y);
+    };
+    const onDown = (e: PointerEvent) => (downAt = { x: e.clientX, y: e.clientY });
+    const onClick = (e: MouseEvent) => {
+      if (!live.current.onPriceClick) return;
+      if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4) return; // a drag-pan
+      const rect = bottomNode.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (x > bottomPane.chart.timeScale().width()) return; // the price axis
+      if (pending) {
+        const same = Math.hypot(pending.x - x, pending.y - y) < SAME_SPOT_PX;
+        if (same) {
+          clearTimeout(pending.timer);
+          pending = null;
+          return;
+        }
+        flush();
+      }
+      pending = { timer: setTimeout(flush, CLICK_HOLD_MS), x, y };
+    };
+    bottomNode.addEventListener("pointerdown", onDown);
+    bottomNode.addEventListener("click", onClick);
 
     // ---- the visible range: one source of truth, clamped, synced ----------------
     const limits = () => {
@@ -584,6 +622,9 @@ export function PriceChart({
     ro.observe(bottomNode);
 
     return () => {
+      bottomNode.removeEventListener("pointerdown", onDown);
+      bottomNode.removeEventListener("click", onClick);
+      if (pending) clearTimeout(pending.timer);
       wheelCleanups.forEach((fn) => fn());
       window.removeEventListener("pointerup", gestureEnd);
       window.removeEventListener("pointercancel", gestureEnd);
@@ -634,7 +675,8 @@ export function PriceChart({
           color: LEVEL_COLOR,
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: false,
+          axisLabelVisible: Boolean(spec.levelsOnAxis),
+          axisLabelColor: LEVEL_COLOR,
           title: "",
         }),
       );
@@ -779,7 +821,7 @@ export function PriceChart({
         to: vr ? vr.to : null,
         width,
         height: (rt === p.top ? topEl.current : bottomEl.current)?.clientHeight ?? 0,
-        levelYs: (spec?.levels ?? []).flatMap((lv) => {
+        levelYs: (spec?.levelsOnAxis ? [] : (spec?.levels ?? [])).flatMap((lv) => {
           const y = rt.series.priceToCoordinate(lv.price) as number | null;
           return y === null ? [] : [{ label: lv.label, price: lv.price, y }];
         }),
@@ -1020,6 +1062,7 @@ export function PriceChart({
         playheadLabel={playheadLabel}
         elRef={bottomEl}
         showTicks={!top}
+        tickTop={!top}
         overlay={markHandles}
         details={detailFor("bottom", shown)}
         noData={noDataFor(bottom)}
@@ -1040,6 +1083,7 @@ function Pane({
   playheadLabel,
   elRef,
   showTicks,
+  tickTop = false,
   overlay,
   details,
   noData,
@@ -1055,6 +1099,7 @@ function Pane({
   playheadLabel?: string;
   elRef: React.RefObject<HTMLDivElement>;
   showTicks: boolean;
+  tickTop?: boolean;
   overlay?: React.ReactNode;
   details: string[];
   noData: string | null;
@@ -1078,7 +1123,9 @@ function Pane({
     >
       {/* Header + OHLC readout for the hovered (or playhead) minute. One fixed-height line: if
           the readout could wrap, hovering would resize the plot under the cursor and jitter. */}
-      <div className="flex h-8 shrink-0 items-center gap-x-3 overflow-hidden whitespace-nowrap px-3">
+      <div className="flex h-8 shrink-0 items-center gap-x-3 whitespace-nowrap px-3">
+        {/* The readout clips; the controls never move. */}
+        <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden">
         <span className="label-caps text-label font-semibold">{spec.label}</span>
         {spec.badge}
         <span className="num text-label text-muted-foreground">
@@ -1106,6 +1153,7 @@ function Pane({
             {d}
           </span>
         ))}
+        </div>
         {controls}
       </div>
       {/* Fill time chips, above the candles so they never cover a bar. */}
@@ -1148,12 +1196,12 @@ function Pane({
           )}
           {entryX !== null && (
             <div className="absolute inset-y-0 w-px bg-foreground/50" style={{ left: entryX }}>
-              {showTicks && <TickLabel>IN</TickLabel>}
+              {showTicks && <TickLabel top={tickTop}>IN</TickLabel>}
             </div>
           )}
           {exitX !== null && (
             <div className="absolute inset-y-0 w-px bg-foreground/50" style={{ left: exitX }}>
-              {showTicks && <TickLabel>OUT</TickLabel>}
+              {showTicks && <TickLabel top={tickTop}>OUT</TickLabel>}
             </div>
           )}
           {isReplay && playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
@@ -1183,9 +1231,10 @@ function Pane({
   );
 }
 
-function TickLabel({ children }: { children: React.ReactNode }) {
+/** IN/OUT tag on a vertical line; `top` when the pane's own time axis sits at the bottom. */
+function TickLabel({ children, top = false }: { children: React.ReactNode; top?: boolean }) {
   return (
-    <span className="num absolute bottom-1 left-1 rounded bg-card/80 px-1 text-label text-foreground">
+    <span className={`num absolute ${top ? "top-1" : "bottom-1"} left-1 rounded bg-card/80 px-1 text-label text-foreground`}>
       {children}
     </span>
   );

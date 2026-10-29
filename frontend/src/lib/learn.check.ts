@@ -11,6 +11,7 @@ import {
   kcuTimeframe,
   openingRange,
   sessionVwap,
+  snapPrice,
   barsFor,
   missingText,
   startIndex,
@@ -202,6 +203,11 @@ const vw = sessionVwap([bar(0, 10, 12, 8, 10), bar(1, 10, 13, 11, 12)], 1, OPEN)
 eq("vwap first", vw.get(OPEN), 10);
 eq("vwap second", vw.get(OPEN + 60), 11);
 eq("vwap bucketed keeps latest", sessionVwap([bar(0, 10, 12, 8, 10), bar(1, 10, 13, 11, 12)], 2, OPEN).get(OPEN), 11);
+
+// ---- snap ----
+eq("snap to near level", snapPrice(740.35, [740.33, 742]), 740.33);
+eq("no snap when far", snapPrice(740.8, [740.33]), 740.8);
+eq("snap picks nearest", snapPrice(740.4, [740.3, 740.45]), 740.45);
 
 if (failures) {
   console.error(`${failures} failure(s)`);

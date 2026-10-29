@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepForward } from "lucide-react";
+import { ArrowLeft, ExternalLink, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
 import { Markdown } from "@/components/learn/Markdown";
@@ -59,10 +59,10 @@ import {
   parsePrice,
   ptTime,
   requiredSteps,
-  roundPrice,
   scoreText,
   setEnter,
   shortDate,
+  snapPrice,
   startIndex,
   stepIndex,
   stepDone,
@@ -138,7 +138,7 @@ function PriceField({
       <span className="flex items-baseline justify-between text-label">
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground">
-          {active ? "Click the chart or type" : value != null ? "Drag the line to adjust" : hint}
+          {value != null ? "Drag the line or type" : active ? "Click the chart or type" : hint}
         </span>
       </span>
       <Input
@@ -193,7 +193,7 @@ function DecisionPanel({
       <div>
         <h2 className="text-value font-semibold">Your call</h2>
         <p className="text-label text-muted-foreground">
-          The chart stops at {ptTime(drill.pause_at)}. Answer in order; nothing after this point is shown until you submit.
+          The chart stops after the {ptTime(new Date(Date.parse(drill.pause_at) - 60_000).toISOString())} bar. Answer in order; nothing after it is shown until you submit. ArrowLeft looks back.
         </p>
       </div>
       {steps.map((s, i) => {
@@ -475,11 +475,18 @@ export function LearnDrillPage() {
     setPlaying(true);
   };
 
-  // Keyboard: ArrowRight steps one bar, Space plays or pauses, End skips ahead.
+  const stepBack = () => {
+    setPlaying(false);
+    setIdx((i) => Math.max(0, i - 1));
+  };
+
+  // Keyboard: ArrowLeft/ArrowRight step, Space plays or pauses, End skips ahead. ArrowLeft also
+  // works at the decision point, to look back at the last bars (your answer is kept).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isInputFocused(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (phase === "decision" || phase === "loading") return;
+      if (phase === "loading") return;
+      if (phase === "decision" && e.key !== "ArrowLeft") return;
       if (e.key === "ArrowRight") {
         e.preventDefault();
         setPlaying(false);
@@ -503,10 +510,12 @@ export function LearnDrillPage() {
 
   const pick = phase === "decision" ? chartPickFor(armed && requiredSteps(drill?.question_steps ?? [], draft.enter).includes(armed) ? armed : currentStep(drill?.question_steps ?? [], draft)) : null;
 
+  // Clicks and drags snap to a drawn level (hourly, ORB) when they land within SNAP_FRAC of it.
+  const snapTo = useRef<number[]>([]);
   const onPriceClick = useMemo(() => {
     if (!pick) return undefined;
     return (price: number) => {
-      const p = roundPrice(price);
+      const p = snapPrice(price, snapTo.current);
       setDraft((d) => ({ ...d, [pick]: p }));
       setArmed(null);
     };
@@ -517,7 +526,7 @@ export function LearnDrillPage() {
     if (phase !== "decision") return undefined;
     return (key: string, price: number) => {
       if (key !== "level" && key !== "stop" && key !== "target") return;
-      setDraft((d) => ({ ...d, [key]: roundPrice(price) }));
+      setDraft((d) => ({ ...d, [key]: snapPrice(price, snapTo.current) }));
     };
   }, [phase]);
 
@@ -539,6 +548,7 @@ export function LearnDrillPage() {
     () => (showVwap ? sessionVwap(revealed, stepMin, anchorSec) : undefined),
     [showVwap, revealed, stepMin, anchorSec],
   );
+  snapTo.current = levels.map((l) => l.price);
 
   // After the answer: an arrow and IN line on the bar the key enters on (the first bar after the
   // pause), so the reveal shows where the trade was taken. Nothing for a "wait" key.
@@ -566,6 +576,7 @@ export function LearnDrillPage() {
             label: `${drill.ticker} ${tfLabel(stepMin)}${tfChoice === "auto" ? " · auto" : ""}`,
             candles: chartBars,
             levels,
+            levelsOnAxis: true,
             vwap,
             marks: buildMarks(phase, draft, grade),
           }
@@ -608,7 +619,19 @@ export function LearnDrillPage() {
   const startSec = n > 0 ? bucketStart(isoToUtcSeconds(candles[0].ts), stepSec, anchorSec) : 0;
   const endSec = n > 0 ? bucketStart(isoToUtcSeconds(candles[n - 1].ts), stepSec, anchorSec) : 0;
   const phaseLabel =
-    phase === "loading" ? "Loading" : phase === "playing" ? "Watching" : phase === "decision" ? "Your call" : atEnd ? "Review" : "Playing the rest";
+    phase === "loading"
+      ? "Loading"
+      : phase === "playing"
+        ? "Watching"
+        : phase === "decision"
+          ? "Your call"
+          : atEnd
+            ? "Review"
+            : playMinSec * 1000 < Date.parse(drill.pause_at)
+              ? "Replaying"
+              : "Playing the rest";
+    // The last bar you see before answering opens one minute before pause_at.
+    const lastSeen = new Date(Date.parse(drill.pause_at) - 60_000).toISOString();
 
   const onSubmit = () => {
     answer.mutate(toAnswerRequest(draft), {
@@ -636,10 +659,14 @@ export function LearnDrillPage() {
             <span className="num">{drill.ticker}</span>
             <span className="text-muted-foreground"> · {topicName(drill.topic)}</span>
           </h1>
-          {drill.review && <Badge variant="outline">Review</Badge>}
+          {drill.review && (
+            <Badge variant="outline" title="A topic you've drilled before, brought back for another rep">
+              Repeat
+            </Badge>
+          )}
         </div>
         <p className="text-label text-muted-foreground">
-          Session {shortDate(drill.date)} · pauses at {ptTime(drill.pause_at)} · {phaseLabel}
+          Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}
           {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
         </p>
       </div>
@@ -691,6 +718,17 @@ export function LearnDrillPage() {
               }}
             >
               <StepForward /> Step
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={phase === "loading" || idx === 0}
+              onClick={stepBack}
+              aria-label="Step back one bar"
+              title="Step back one bar (ArrowLeft)"
+            >
+              <StepBack />
             </Button>
             <Button
               type="button"
