@@ -258,3 +258,30 @@ def test_bars_come_from_the_cache_the_drill_was_built_on(client, tmp_path):
     b = client.get(f"/api/learn/drills/{D1}/bars").json()
     assert b["candles"] and {c["close"] for c in b["candles"]} == {777.25}
     assert all(c["ts"] < "2026-10-14T14:33:00Z" for c in b["candles"])
+
+
+def test_answer_and_result_carry_both_plans_outcomes(client, tmp_path):
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    from app.db.connection import get_engine, init_db
+
+    d = client.get(f"/api/learn/drills/{D1}").json()
+    init_db(get_engine())
+    con = sqlite3.connect(tmp_path / "api.db")
+    t0 = datetime(2026, 10, 14, 13, 30)
+    # flat bars: neither plan's stop nor target is touched
+    con.executemany(
+        "INSERT INTO candles_cache (symbol, timeframe, ts_utc, open, high, low, close, volume, provider)"
+        " VALUES ('SPY', '1m', ?, 599.8, 599.85, 599.75, 599.8, 10, 'fake')",
+        [((t0 + timedelta(minutes=i)).isoformat(sep=" "),) for i in range(240)],
+    )
+    con.commit()
+    con.close()
+    g = client.post(f"/api/learn/drills/{D1}/answer", json=GOOD).json()
+    assert set(g["outcomes"]) == {"key", "yours"}
+    for o in g["outcomes"].values():
+        assert o is None or o["result"] in {"target", "stop", "open", "invalid"}
+    r = client.get(f"/api/learn/drills/{D1}/result").json()
+    assert r["outcomes"] == g["outcomes"]
+    assert d["id"] == D1

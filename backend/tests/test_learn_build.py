@@ -375,3 +375,20 @@ def test_cli_without_learn_dir_refuses_to_write(cli_env, monkeypatch, capsys):
     get_settings.cache_clear()
     assert B.main(["--for-date", "2026-10-28", "--days", "6"]) == 2
     assert B.main(["--for-date", "2026-10-28", "--days", "6", "--dry-run"]) == 0
+
+
+def test_a_setup_already_served_in_another_set_is_never_served_again(rules, tmp_path):
+    root = tmp_path / "learn"
+    first = _run(rules, root)
+    nxt = _run(rules, root, for_date=FOR + timedelta(days=1))
+    key = lambda d: (d.ticker, d.date, d.pause_at)   # noqa: E731
+    assert not {key(d) for d in first["drills"]} & {key(d) for d in nxt["drills"]}
+    assert nxt["skipped_already_served"] >= 1
+    again = _run(rules, root)   # rebuilding the same date may reuse its own drills
+    assert {key(d) for d in again["drills"]} == {key(d) for d in first["drills"]}
+
+
+def test_break_retest_explanation_names_the_flipped_level(rules, tmp_path):
+    res = _run(rules, tmp_path / "learn")
+    br = [d for d in res["drills"] if d.detector == "break_retest"]
+    assert br and "former " in br[0].explanation and ", now " in br[0].explanation

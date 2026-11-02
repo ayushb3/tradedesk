@@ -1203,8 +1203,19 @@ export interface LearnAnswerKey {
   target: number | null;
 }
 
+/** What a plan did after the pause, on the drill's own 1m bars (stop checked before target). */
+export interface TradeOutcome {
+  result: "target" | "stop" | "open" | "invalid";
+  at: string | null;
+  entry: number | null;
+  exit: number | null;
+  r: number | null;
+}
+
 export interface GradeResult {
   drill_id: string;
+  /** The key's and your plan's results; null when that side had no trade (a wait). Older servers omit it. */
+  outcomes?: { key: TradeOutcome | null; yours: TradeOutcome | null };
   score: number;
   steps: LearnStepResult[];
   answer_key: LearnAnswerKey;

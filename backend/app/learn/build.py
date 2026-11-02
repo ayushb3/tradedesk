@@ -26,13 +26,14 @@ from app.models.market import Candle
 
 from . import detectors as det
 from . import store
+from .outcome import play_out
 
 ET = ZoneInfo("America/New_York")
 PT = ZoneInfo("America/Los_Angeles")
 UTC = timezone.utc
 
 DEFAULT_TICKERS = ("SPY", "QQQ")
-DEFAULT_DAYS = 10
+DEFAULT_DAYS = 20       # enter setups whose key holds up are rare; look further back
 PICK = 3
 LOOKAHEAD_MIN = 90          # minutes of bars after the pause revealed with the result
 MIN_SESSION_BARS = 250      # a regular session with fewer cached 1m bars is treated as missing
@@ -227,6 +228,8 @@ def _cite(refs: dict[str, str], step: str) -> str:
 def explain(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str:
     f = c.facts
     kind = "resistance" if f.get("kind") == "res" else "support"
+    if c.detector == "break_retest":   # a broken level flips: support below becomes resistance
+        kind = f"former {kind}, now {'support' if kind == 'resistance' else 'resistance'}"
     where = f"${key.level:.2f}"
     head = (f"**{c.ticker} on {c.date}, paused at {_pt_label(c.pause_at)}.** "
             f"The level in play is {where} ({kind}), touched {f.get('touches', 1)} time(s) so far.")
@@ -406,6 +409,25 @@ def recent_weekdays(for_date: date, n: int) -> list[date]:
     return out
 
 
+def key_holds_up(c: det.Candidate, bars: list[Candle]) -> bool:
+    """An enter candidate's key must reach its target before its stop inside the lookahead
+    the drill reveals. A wait candidate always passes (waiting is never the losing call)."""
+    if not c.enter:
+        return True
+    day = date.fromisoformat(c.date)
+    until = min(c.pause_at + timedelta(minutes=LOOKAHEAD_MIN), rth_window(day)[1])
+    return play_out(bars, c.pause_at, until, c.side, c.stop, c.target).result == "target"
+
+
+def served_elsewhere(root: Path | None, for_date: str) -> set[tuple[str, str, str]]:
+    """(ticker, session date, pause_at) of every drill already in another set, so a setup
+    is only ever served once."""
+    if root is None:
+        return set()
+    return {(d.ticker, d.date, d.pause_at.astimezone(UTC).isoformat())
+            for d in store.all_drills(root) if d.set_date != for_date}
+
+
 def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[str, date], list[Candle]],
           rules: RuleBook, root: Path | None, dry_run: bool = False,
           candidates_only: bool = False) -> dict:
@@ -418,7 +440,8 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
     review = store.review_for_night(night)
 
     counts = {k: 0 for k in det.DETECTORS}
-    sessions = skipped = dropped = 0
+    sessions = skipped = dropped = failed = repeats = 0
+    seen = served_elsewhere(root, fd)
     drafts: list[tuple[det.Candidate, RuleInfo]] = []
     for tk in tickers:
         for day in recent_weekdays(for_date, days):
@@ -434,6 +457,12 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
                     if info is None:
                         dropped += 1
                         continue
+                    if (cand.ticker, cand.date, cand.pause_at.astimezone(UTC).isoformat()) in seen:
+                        repeats += 1
+                        continue
+                    if not key_holds_up(cand, bars):
+                        failed += 1
+                        continue
                     drafts.append((cand, info))
 
     chosen = select(drafts, 8 if candidates_only else PICK)
@@ -441,6 +470,7 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
               for i, (c, info) in enumerate(chosen, 1)]
     out = {"for_date": fd, "night": night, "review": review, "sessions": sessions,
            "sessions_skipped": skipped, "candidates": counts, "dropped_no_course_support": dropped,
+           "dropped_key_stopped_out": failed, "skipped_already_served": repeats,
            "drills": drills, "written": []}
     if candidates_only:
         out["candidates_detail"] = [c.to_dict() for c, _ in chosen]
