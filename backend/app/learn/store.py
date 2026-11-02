@@ -30,6 +30,7 @@ class AnswerKey(BaseModel):
     side: Literal["long", "short"] | None = None
     stop: float | None = None
     target: float | None = None
+    entry: float | None = None    # stop-order trigger (enter on the break); None = at the pause
 
 
 class Rubric(BaseModel):
@@ -61,6 +62,8 @@ class Drill(BaseModel):
     explanation: str = ""
     detector: str = ""
     review: bool = False
+    # levels known before the open (prior day, premarket): safe to draw from the first bar
+    key_levels: dict[str, float] = Field(default_factory=dict)
 
 
 class LessonRef(BaseModel):
@@ -83,6 +86,7 @@ class DrillPublic(BaseModel):
     pause_at: UtcDatetime
     question_steps: list[str]
     review: bool
+    key_levels: dict[str, float] = Field(default_factory=dict)
     status: Literal["new", "done"] = "new"
     score: int | None = None
 

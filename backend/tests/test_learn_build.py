@@ -31,13 +31,14 @@ def rules(notes):
 
 
 def loader(ticker: str, day: date):
-    """A different synthetic setup on each weekday so all three detectors fire."""
+    """A different synthetic setup on each weekday: the touch detectors' wait setups (they only
+    ever make wait drills) and an LTP pullback (the enter drills)."""
     pick = (day.toordinal() + (0 if ticker == "SPY" else 1)) % 3
     if pick == 0:
-        return S.resistance_session(day, True, ticker)
+        return S.resistance_session(day, False, ticker)
     if pick == 1:
-        return S.break_retest_session(day, True, ticker)
-    return S.patience_session(day, True, ticker)
+        return S.break_retest_session(day, False, ticker)
+    return S.ltp_session(day, True, ticker)
 
 
 def _run(rules, root, for_date=FOR, days=6, **kw):
@@ -49,7 +50,8 @@ def test_build_writes_three_diverse_valid_drills(rules, tmp_path):
     res = _run(rules, root)
     assert len(res["drills"]) == 3
     assert sum(res["candidates"].values()) >= 6
-    assert len({d.detector for d in res["drills"]}) == 3        # diversity of detector
+    assert len({d.detector for d in res["drills"]}) == 2        # LTP enters + one touch wait
+    assert sum(d.answer_key.enter == "enter" for d in res["drills"]) == 2
     files = sorted((root / "drills" / "2026-10-28").glob("*.json"))
     assert len(files) == 3
     for f in files:
@@ -68,12 +70,15 @@ def test_build_writes_three_diverse_valid_drills(rules, tmp_path):
         assert any(ref in d.explanation for ref in refs.values())
         k = d.answer_key
         if k.enter == "enter":
+            assert d.detector == "ltp_pullback" and k.entry is not None
             if k.side == "long":
-                assert k.stop < k.level < k.target
+                assert k.stop < k.entry < k.target
             else:
-                assert k.stop > k.level > k.target
+                assert k.stop > k.entry > k.target
         else:
-            assert (k.side, k.stop, k.target) == (None, None, None)
+            assert (k.side, k.stop, k.target, k.entry) == (None, None, None, None)
+        assert {"Prior day high", "Prior day low", "Prior close"} <= set(d.key_levels)
+    assert any(d.answer_key.enter == "enter" for d in res["drills"])
 
 
 def notes_topics():
@@ -140,8 +145,8 @@ def test_weak_topic_score_drops_everything_and_writes_nothing(rules, tmp_path):
 
 
 def test_fewer_than_three_is_fine(rules, tmp_path, monkeypatch):
-    monkeypatch.setattr(B.det, "DETECTORS", {"level_touches": B.det.level_touches})
-    only_one = lambda t, d: S.resistance_session(d, True, t) if (t, d) == ("SPY", date(2026, 10, 27)) else []
+    monkeypatch.setattr(B, "DETECTORS", {"level_touches": B._legacy(B.det.level_touches)})
+    only_one = lambda t, d: S.resistance_session(d, False, t) if (t, d) == ("SPY", date(2026, 10, 27)) else []
     res = B.build(FOR, 3, ["SPY"], loader=only_one, rules=rules, root=tmp_path / "learn")
     assert len(res["drills"]) == 1 and res["sessions"] == 1 and res["sessions_skipped"] == 2
 
@@ -392,3 +397,25 @@ def test_break_retest_explanation_names_the_flipped_level(rules, tmp_path):
     res = _run(rules, tmp_path / "learn")
     br = [d for d in res["drills"] if d.detector == "break_retest"]
     assert br and "former " in br[0].explanation and ", now " in br[0].explanation
+
+
+def test_touch_detectors_never_make_enter_drills(rules, tmp_path, monkeypatch):
+    """Their enter rule (touch-bar close, no trend, no candle break) is not the course rule."""
+    monkeypatch.setattr(B, "DETECTORS", {"level_touches": B._legacy(B.det.level_touches)})
+    rejects = lambda t, d: S.resistance_session(d, True, t)
+    assert any(c.enter for c in B.det.level_touches(rejects("SPY", FOR), "SPY", "x"))
+    res = B.build(FOR, 3, ["SPY"], loader=rejects, rules=rules, root=None)
+    assert all(d.answer_key.enter == "wait" for d in res["drills"])
+
+
+def test_ltp_drill_explains_the_candle_break_and_keys_the_trigger(rules, tmp_path):
+    res = _run(rules, tmp_path / "learn")
+    d = next(d for d in res["drills"] if d.detector == "ltp_pullback")
+    assert "patience candle" in d.explanation and f"${d.answer_key.entry:.2f}" in d.explanation
+    assert d.topic in notes_topics() | {"patience-candles", "strategy-setups"}
+
+
+def test_premarket_levels_reach_the_drill(rules, tmp_path):
+    pm = lambda t, d: S.full_day([(0, 601.0), (60, 599.0)], d, t, n=120)
+    res = B.build(FOR, 6, ["SPY", "QQQ"], loader=loader, rules=rules, root=None, premarket=pm)
+    assert all({"Premarket high", "Premarket low"} <= set(d.key_levels) for d in res["drills"])

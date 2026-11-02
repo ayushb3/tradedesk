@@ -50,7 +50,7 @@ def _public(drill: store.Drill, notes, results: dict[str, dict]) -> dict:
         id=drill.id, set_date=drill.set_date, topic=drill.topic,
         lessons=ls.lesson_refs(notes, drill.lessons), ticker=drill.ticker, date=drill.date,
         timeframe=drill.timeframe, bars_from=drill.bars_from, pause_at=drill.pause_at,
-        question_steps=drill.question_steps, review=drill.review,
+        question_steps=drill.question_steps, review=drill.review, key_levels=drill.key_levels,
         status="done" if res else "new", score=score,
     )
     return pub.model_dump(mode="json")
@@ -75,17 +75,20 @@ def _session_bars(settings: Settings, drill: store.Drill) -> list:
 
 def _outcomes(bars: list, drill: store.Drill, answers: dict | None) -> dict:
     """What the key's plan and your plan did after the pause (None when there was no trade)."""
-    def run(side, stop, target):
+    def run(side, stop, target, trigger=None):
         if not bars:
             return None
-        return play_out(bars, drill.pause_at, drill.bars_until, side, stop, target
+        return play_out(bars, drill.pause_at, drill.bars_until, side, stop, target, trigger
                         ).model_dump(mode="json")
 
     k = drill.answer_key
     a = answers or {}
+    # your plan takes the key's entry trigger when you picked the key's direction (you cannot
+    # type an entry; the drill is about the same candle), else it enters at the pause
+    yours_trigger = k.entry if a.get("side") == k.side else None
     return {
-        "key": run(k.side, k.stop, k.target) if k.enter == "enter" else None,
-        "yours": (run(a.get("side"), a.get("stop"), a.get("target"))
+        "key": run(k.side, k.stop, k.target, k.entry) if k.enter == "enter" else None,
+        "yours": (run(a.get("side"), a.get("stop"), a.get("target"), yours_trigger)
                   if a.get("enter") == "enter" else None),
     }
 

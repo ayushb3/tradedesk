@@ -13,6 +13,8 @@ import {
   sessionVwap,
   snapPrice,
   outcomeText,
+  barEma,
+  keyLevelLines,
   barsFor,
   missingText,
   startIndex,
@@ -222,3 +224,13 @@ if (failures) {
   process.exit(1);
 }
 console.log("learn.check: all ok");
+
+eq("no fill text", outcomeText({ result: "no_fill", at: null, entry: 1, exit: null, r: null }).tone, "flat");
+{
+  const bars = [1, 2, 3].map((c, i) => ({ ts: new Date(Date.UTC(2026, 9, 27, 14, i)).toISOString(), open: c, high: c, low: c, close: c, volume: 1 })) as never[];
+  const e = barEma(bars, 2);
+  eq("ema first = close", e.get(Date.UTC(2026, 9, 27, 14, 0) / 1000), 1);
+  eq("ema causal", Math.round((e.get(Date.UTC(2026, 9, 27, 14, 2) / 1000) ?? 0) * 1000) / 1000, 2.556);
+}
+eq("key levels", keyLevelLines({ "Prior day high": 5 })[0].label, "Prior day high");
+eq("no key levels", keyLevelLines(undefined).length, 0);

@@ -118,3 +118,16 @@ def test_notes_cite_rule_refs():
 def test_score_is_an_int_and_bounded():
     r = _g(LONG, level=50, enter="wait", side=None, stop=None, target=None)
     assert isinstance(r["score"], int) and 0 <= r["score"] <= 100
+
+
+def test_entry_trigger_key_measures_stop_and_target_from_the_entry():
+    # pullback level 601.80 sits below the candle; the key stop (602.04) is above the level
+    key = AnswerKey(level=601.80, enter="enter", side="long", stop=602.04, target=603.05,
+                    entry=602.27)
+    g = grade(key, Rubric(), Answers(level=601.80, enter="enter", side="long", stop=602.04,
+                                     target=603.05))
+    assert g["score"] == 100
+    off = grade(key, Rubric(), Answers(level=601.80, enter="enter", side="long", stop=602.30,
+                                       target=603.05))
+    stop = next(s for s in off["steps"] if s["step"] == "stop")
+    assert stop["points"] == 0 and "entry" in stop["note"]
