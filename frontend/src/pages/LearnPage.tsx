@@ -45,7 +45,6 @@ function DrillCard({ drill }: { drill: DrillPublic }) {
           <div className="flex items-start justify-between gap-2">
             <span className="label-caps text-label text-muted-foreground">{topicName(drill.topic)}</span>
             <div className="flex shrink-0 items-center gap-1">
-              {drill.review && <Badge variant="outline">Review</Badge>}
               <Badge variant={done ? "default" : "muted"}>{done ? `Done, ${scoreText(drill.score)}` : "New"}</Badge>
             </div>
           </div>

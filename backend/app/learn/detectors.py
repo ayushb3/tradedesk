@@ -20,7 +20,8 @@ from app.models.market import Candle
 PIVOT_K = 3            # bars each side that must be lower/higher for a pivot
 TOUCH_TOL = 0.0004     # pivots this close belong to one level
 MIN_TOUCH_GAP = 6      # bars between two touches of a level
-APPROACH = 0.0006      # "at the level" band
+APPROACH = 0.0006      # "near the level" band (quiet / clean checks)
+TOUCH = 0.0003         # the setup bar must reach within this of the level (~21c on 700)
 DEPART = 0.0015        # price must have left the level by at least this
 THROUGH = 0.0008       # a push this far past the level is a break, not a touch
 BREAK = 0.0004         # close beyond the level by this = break
@@ -216,13 +217,13 @@ def level_touches(candles: Sequence[Candle], ticker: str, day: str) -> list[Cand
             if lv.kind == "res":
                 left = min(x.low for x in c[t + 1:j]) <= L * (1 - DEPART)
                 quiet = all(x.high < L * (1 - APPROACH) for x in c[t + 3:j])
-                here = L * (1 - APPROACH) <= b.high <= L * (1 + THROUGH)
+                here = L * (1 - TOUCH) <= b.high <= L * (1 + THROUGH)
                 side, hold = "short", b.close < L and b.close < b.open
                 depth = (L - min(x.low for x in c[t + 1:j])) / L
             else:
                 left = max(x.high for x in c[t + 1:j]) >= L * (1 + DEPART)
                 quiet = all(x.low > L * (1 + APPROACH) for x in c[t + 3:j])
-                here = L * (1 - THROUGH) <= b.low <= L * (1 + APPROACH)
+                here = L * (1 - THROUGH) <= b.low <= L * (1 + TOUCH)
                 side, hold = "long", b.close > L and b.close > b.open
                 depth = (max(x.high for x in c[t + 1:j]) - L) / L
             if not (left and quiet and here):
@@ -264,7 +265,7 @@ def break_retest(candles: Sequence[Candle], ticker: str, day: str) -> list[Candi
                 travelled = max(x.high for x in c[brk:j]) >= L * (1 + EXTEND)
                 stayed = all(x.close >= L for x in seg)
                 clean = all(x.low > L * (1 + APPROACH) for x in c[brk + 2:j])
-                here = L * (1 - HOLD) <= b.low <= L * (1 + APPROACH)
+                here = L * (1 - HOLD) <= b.low <= L * (1 + TOUCH)
                 enter = b.close >= L and b.close > b.open
                 side, held = "long", b.close >= L
                 ext = (max(x.high for x in c[brk:j]) - L) / L
@@ -272,7 +273,7 @@ def break_retest(candles: Sequence[Candle], ticker: str, day: str) -> list[Candi
                 travelled = min(x.low for x in c[brk:j]) <= L * (1 - EXTEND)
                 stayed = all(x.close <= L for x in seg)
                 clean = all(x.high < L * (1 - APPROACH) for x in c[brk + 2:j])
-                here = L * (1 - APPROACH) <= b.high <= L * (1 + HOLD)
+                here = L * (1 - TOUCH) <= b.high <= L * (1 + HOLD)
                 enter = b.close <= L and b.close < b.open
                 side, held = "short", b.close <= L
                 ext = (L - min(x.low for x in c[brk:j])) / L

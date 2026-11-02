@@ -12,6 +12,7 @@ import {
   openingRange,
   sessionVwap,
   snapPrice,
+  outcomeText,
   barsFor,
   missingText,
   startIndex,
@@ -208,6 +209,13 @@ eq("vwap bucketed keeps latest", sessionVwap([bar(0, 10, 12, 8, 10), bar(1, 10, 
 eq("snap to near level", snapPrice(740.35, [740.33, 742]), 740.33);
 eq("no snap when far", snapPrice(740.8, [740.33]), 740.8);
 eq("snap picks nearest", snapPrice(740.4, [740.3, 740.45]), 740.45);
+
+// ---- outcomes ----
+eq("no trade", outcomeText(null).text, "No trade (wait)");
+eq("target tone", outcomeText({ result: "target", at: null, entry: 1, exit: 2, r: 2.1 }).tone, "good");
+eq("target r", outcomeText({ result: "target", at: null, entry: 1, exit: 2, r: 2.1 }).text, "Target hit (+2.1R)");
+eq("stop tone", outcomeText({ result: "stop", at: null, entry: 1, exit: 0, r: -1 }).text, "Stopped (-1R)");
+eq("open", outcomeText({ result: "open", at: null, entry: 1, exit: 1.2, r: 0.2 }).tone, "flat");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

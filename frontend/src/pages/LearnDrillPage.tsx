@@ -52,6 +52,7 @@ import {
   chartPickFor,
   currentStep,
   fmtPrice,
+  outcomeText,
   guardBars,
   isNotConfigured,
   missingText,
@@ -315,6 +316,27 @@ function LessonLinks({ lessons }: { lessons: LessonRef[] }) {
   );
 }
 
+/** How the key's plan and yours actually played out after the pause. The score grades your read
+ * against the course rules; this shows the market's verdict next to it. */
+function Outcomes({ outcomes }: { outcomes: NonNullable<GradeResult["outcomes"]> }) {
+  const tone = { good: "text-gain", bad: "text-loss", flat: "text-muted-foreground" } as const;
+  const rows = [
+    ["Key", outcomeText(outcomes.key)],
+    ["Yours", outcomeText(outcomes.yours)],
+  ] as const;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border px-3 py-2" data-testid="outcomes">
+      <span className="label-caps text-label font-semibold">What happened</span>
+      {rows.map(([who, o]) => (
+        <div key={who} className="flex gap-2 text-body">
+          <span className="w-12 text-label text-muted-foreground">{who}</span>
+          <span className={`num ${tone[o.tone]}`}>{o.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RevealPanel({
   grade,
   drillLessons,
@@ -341,6 +363,7 @@ function RevealPanel({
         <Skeleton className="h-24 w-full" />
       ) : (
         <>
+          {grade.outcomes && <Outcomes outcomes={grade.outcomes} />}
           <ul className="flex flex-col divide-y divide-border">
             {grade.steps.map((s) => {
               const v = verdict(s.points, s.max, s.graded);
@@ -659,11 +682,6 @@ export function LearnDrillPage() {
             <span className="num">{drill.ticker}</span>
             <span className="text-muted-foreground"> · {topicName(drill.topic)}</span>
           </h1>
-          {drill.review && (
-            <Badge variant="outline" title="A topic you've drilled before, brought back for another rep">
-              Repeat
-            </Badge>
-          )}
         </div>
         <p className="text-label text-muted-foreground">
           Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}

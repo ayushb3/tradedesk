@@ -3,7 +3,7 @@
  * guard, PT formatting and a tiny markdown parser. No React, no network.
  * Checked by learn.check.ts (npm run check:sim).
  */
-import type { Candle, DrillPublic, LearnNotConfigured, LearnStepName } from "./api";
+import type { Candle, DrillPublic, LearnNotConfigured, LearnStepName, TradeOutcome } from "./api";
 import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "./format";
 
 // ---- not-configured responses --------------------------------------------------
@@ -289,6 +289,22 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function ptTime(iso: string): string {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? `${ptClock.format(ms)} ${DISPLAY_TZ_LABEL}` : "";
+}
+
+/** One line for a plan's result on the reveal: "Target 10:00 PT (+2.1R)", "Stopped 9:58 PT (-1R)". */
+export function outcomeText(o: TradeOutcome | null | undefined): { text: string; tone: "good" | "bad" | "flat" } {
+  if (!o) return { text: "No trade (wait)", tone: "flat" };
+  const r = o.r == null ? "" : ` (${o.r > 0 ? "+" : ""}${o.r}R)`;
+  switch (o.result) {
+    case "target":
+      return { text: `Target hit ${o.at ? ptTime(o.at) : ""}${r}`.replace("  ", " "), tone: "good" };
+    case "stop":
+      return { text: `Stopped ${o.at ? ptTime(o.at) : ""}${r}`.replace("  ", " "), tone: "bad" };
+    case "open":
+      return { text: `Neither hit by the end${r}`, tone: "flat" };
+    default:
+      return { text: "Plan doesn't fit the price (stop or target on the wrong side)", tone: "flat" };
+  }
 }
 
 /** "06:30 to 07:12 PT" for the replay window of a drill. */

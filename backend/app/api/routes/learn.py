@@ -18,6 +18,7 @@ from app.config import Settings
 from app.learn import lessons as ls
 from app.learn import store
 from app.learn.grading import Answers, grade
+from app.learn.outcome import play_out
 from app.models.market import Candle
 from app.providers.base import DataProvider
 
@@ -62,8 +63,36 @@ def _drill_or_404(root, drill_id: str) -> store.Drill:
     return d
 
 
-def _grade_result(drill: store.Drill, g: dict, notes) -> dict:
+def _session_bars(settings: Settings, drill: store.Drill) -> list:
+    """The cached session bars the drill was built and keyed on (empty if unavailable)."""
+    from app.learn.build import read_cached
+
+    try:
+        return read_cached(settings.db_path, drill.ticker, date_cls.fromisoformat(drill.date))
+    except Exception:
+        return []
+
+
+def _outcomes(bars: list, drill: store.Drill, answers: dict | None) -> dict:
+    """What the key's plan and your plan did after the pause (None when there was no trade)."""
+    def run(side, stop, target):
+        if not bars:
+            return None
+        return play_out(bars, drill.pause_at, drill.bars_until, side, stop, target
+                        ).model_dump(mode="json")
+
+    k = drill.answer_key
+    a = answers or {}
     return {
+        "key": run(k.side, k.stop, k.target) if k.enter == "enter" else None,
+        "yours": (run(a.get("side"), a.get("stop"), a.get("target"))
+                  if a.get("enter") == "enter" else None),
+    }
+
+
+def _grade_result(drill: store.Drill, g: dict, notes, outcomes: dict | None = None) -> dict:
+    return {
+        "outcomes": outcomes or {"key": None, "yours": None},
         "drill_id": drill.id,
         "score": g["score"],
         "steps": g["steps"],
@@ -193,7 +222,8 @@ def learn_answer(drill_id: str, body: AnswerIn, settings: Settings = Depends(set
         "drill_id": drill.id, "set_date": drill.set_date, "topic": drill.topic,
         "answered_at": store.now_utc_iso(), "answers": body.model_dump(), "grade": g,
     })
-    return _grade_result(drill, g, ls.open_course_notes(settings.db_path))
+    return _grade_result(drill, g, ls.open_course_notes(settings.db_path),
+                         _outcomes(_session_bars(settings, drill), drill, body.model_dump()))
 
 
 @router.get("/learn/drills/{drill_id}/result")
@@ -205,4 +235,5 @@ def learn_result(drill_id: str, settings: Settings = Depends(settings_dep)):
     row = store.latest_results(root).get(drill_id)
     if not row or not isinstance(row.get("grade"), dict):
         raise HTTPException(status_code=404, detail="no result yet")
-    return _grade_result(drill, row["grade"], ls.open_course_notes(settings.db_path))
+    return _grade_result(drill, row["grade"], ls.open_course_notes(settings.db_path),
+                         _outcomes(_session_bars(settings, drill), drill, row.get("answers")))
