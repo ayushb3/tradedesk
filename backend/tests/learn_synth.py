@@ -87,3 +87,14 @@ def patience_session(day: date, holds: bool, symbol: str = "SPY"):
     else:
         over[50] = (595.25, 595.35, 595.08, 595.1)   # closes through the level
     return full_day(wp, day, symbol, overrides=over)
+
+
+# LTP: flat open at 600, trend leg 600 -> 603 (5m bars), a shallow pullback to ~602.1 where a
+# small 5m candle (60-65) stays under the prior bar's high, then the break and a run to 605.
+# ``deep``: the pullback goes to ~601.3 instead, past the 0.5 Fibonacci of the leg (a wait).
+def ltp_session(day: date, fills: bool = True, symbol: str = "SPY", deep: bool = False):
+    low = 601.3 if deep else 602.1
+    after = [(66, low + 0.3), (90, 605.0)] if fills else [(66, low - 0.4), (90, 599.0)]
+    wp = [(0, 600.0), (30, 600.0), (50, 603.0), (52, 603.0), (60, low), (65, low)] + after + \
+        [(389, after[-1][1])]
+    return full_day(wp, day, symbol)

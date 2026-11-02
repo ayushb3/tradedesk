@@ -53,6 +53,7 @@ class Candidate:
     wait_reason: str | None = None   # set when a checklist condition failed (a "wait" drill)
     stop: float | None = None
     target: float | None = None
+    entry: float | None = None       # stop-order trigger; None = enter at the setup bar's close
     facts: dict = field(default_factory=dict)
 
     @property

@@ -53,6 +53,8 @@ import {
   currentStep,
   fmtPrice,
   outcomeText,
+  barEma,
+  keyLevelLines,
   guardBars,
   isNotConfigured,
   missingText,
@@ -101,6 +103,7 @@ function buildMarks(phase: Phase, draft: Draft, grade: GradeResult | null): NonN
     if (mine.target != null) marks.push({ label: "Your target", price: mine.target, color: COLOR.target });
     const k = grade.answer_key;
     if (k.level != null) marks.push({ label: "Key level", price: k.level, color: COLOR.key });
+    if (k.entry != null) marks.push({ label: "Key entry (break)", price: k.entry, color: COLOR.key });
     if (k.stop != null) marks.push({ label: "Key stop", price: k.stop, color: COLOR.key });
     if (k.target != null) marks.push({ label: "Key target", price: k.target, color: COLOR.key });
     return marks;
@@ -437,6 +440,8 @@ export function LearnDrillPage() {
   const [showHourly, setShowHourly] = useState(true);
   const [showOrb, setShowOrb] = useState(false);
   const [showVwap, setShowVwap] = useState(true);
+  const [showKey, setShowKey] = useState(true);
+  const [showEma, setShowEma] = useState(true);
   const inited = useRef(false);
 
   // A new drill resets everything.
@@ -562,10 +567,15 @@ export function LearnDrillPage() {
   const chartBars = useMemo(() => aggregateBars(revealed, stepMin, anchorSec), [revealed, stepMin, anchorSec]);
   const levels = useMemo(
     () => [
+      ...(showKey ? keyLevelLines(drill?.key_levels) : []),
       ...(showOrb ? openingRange(revealed, anchorSec, playMinSec) : []),
       ...(showHourly ? hourlyLevels(revealed, anchorSec, playMinSec) : []),
     ],
-    [showOrb, showHourly, revealed, anchorSec, playMinSec],
+    [showKey, drill, showOrb, showHourly, revealed, anchorSec, playMinSec],
+  );
+  const emas = useMemo(
+    () => (showEma ? [{ label: "EMA8", values: barEma(chartBars, 8) }, { label: "EMA21", values: barEma(chartBars, 21) }] : undefined),
+    [showEma, chartBars],
   );
   const vwap = useMemo(
     () => (showVwap ? sessionVwap(revealed, stepMin, anchorSec) : undefined),
@@ -585,7 +595,7 @@ export function LearnDrillPage() {
         role: "entry",
         side: k.side === "short" ? "sell" : "buy",
         qty: 0,
-        price: k.level ?? 0,
+        price: k.entry ?? k.level ?? 0,
         ts: new Date(at * 1000).toISOString(),
         time_pt: ptTime(drill.pause_at),
       },
@@ -601,10 +611,11 @@ export function LearnDrillPage() {
             levels,
             levelsOnAxis: true,
             vwap,
+            emas,
             marks: buildMarks(phase, draft, grade),
           }
         : null,
-    [drill, n, chartBars, levels, vwap, stepMin, tfChoice, phase, draft, grade],
+    [drill, n, chartBars, levels, vwap, emas, stepMin, tfChoice, phase, draft, grade],
   );
 
   const back = () => navigate("/learn");
@@ -779,6 +790,14 @@ export function LearnDrillPage() {
               <Chip on={showVwap} onClick={() => setShowVwap((v) => !v)} title="Session VWAP from the open">
                 VWAP
               </Chip>
+              <Chip on={showEma} onClick={() => setShowEma((v) => !v)} title="EMA 8 and 21 of the bars shown">
+                EMA 8/21
+              </Chip>
+              {drill?.key_levels && Object.keys(drill.key_levels).length > 0 && (
+                <Chip on={showKey} onClick={() => setShowKey((v) => !v)} title="Prior-day high, low, close and premarket high, low (known before the open)">
+                  Day levels
+                </Chip>
+              )}
               <Chip on={showOrb} onClick={() => setShowOrb((v) => !v)} title="15-minute opening range high and low">
                 ORB15
               </Chip>

@@ -24,7 +24,9 @@ from zoneinfo import ZoneInfo
 
 from app.models.market import Candle
 
+from . import callouts as calls
 from . import detectors as det
+from . import ltp
 from . import store
 from .outcome import play_out
 
@@ -65,7 +67,22 @@ RULE_QUERIES: dict[str, dict[str, str]] = {
         "target": "target the next level",
     },
 }
-SHORT = {"level_touches": "levels", "break_retest": "retest", "patience_candle_at_level": "patience"}
+RULE_QUERIES["ltp_pullback"] = {
+    "topic": "levels trend patience candle entry",
+    "level": "pullback to a level VWAP EMA hourly level confluence",
+    "enter": "enter on the break of the patience candle high in a trend",
+    "stop": "stop on the other side of the patience candle",
+    "target": "target the next intraday or hourly level",
+}
+RULE_QUERIES["somesh_call"] = {
+    "topic": "levels trend patience candle entry",
+    "level": "levels support resistance VWAP hourly level",
+    "enter": "enter in the direction of the trend at a level",
+    "stop": "stop on the other side of the candle",
+    "target": "target the next intraday or hourly level",
+}
+SHORT = {"level_touches": "levels", "break_retest": "retest", "patience_candle_at_level": "patience",
+         "ltp_pullback": "ltp", "somesh_call": "call"}
 
 
 # ------------------------------------------------------------------- rule lookup
@@ -79,12 +96,16 @@ PRIMARY_TOPICS: dict[str, tuple[str, ...]] = {
     "level_touches": ("levels",),
     "break_retest": ("levels", "strategies"),
     "patience_candle_at_level": ("patience-candles",),
+    "ltp_pullback": ("patience-candles", "strategy-setups"),
+    "somesh_call": ("strategy-setups", "levels"),
 }
 # A lesson only belongs in a drill when its title / hit section mentions one of these.
 KEYWORDS: dict[str, tuple[str, ...]] = {
     "level_touches": ("level", "support", "resistance", "touch", "test", "bounce", "reject", "hold"),
     "break_retest": ("break", "retest", "level", "support", "resistance", "flip"),
     "patience_candle_at_level": ("patien", "candle", "pullback", "inside", "level", "hold"),
+    "ltp_pullback": ("patien", "candle", "pullback", "trend", "level", "vwap", "fib", "break"),
+    "somesh_call": ("level", "trend", "candle", "entry", "vwap", "hourly"),
 }
 STEP_KEYWORDS = {"level": (), "enter": ("entry", "enter", "confirm"), "stop": ("stop",),
                  "target": ("target", "profit", "exit")}
@@ -216,6 +237,23 @@ class RuleBook:
 
 # ------------------------------------------------------------------- explanation
 
+# ---------------------------------------------------------------------- detectors
+
+def _legacy(fn):
+    """The touch detectors only ever produce wait drills: their enter rule (enter on the touch
+    bar's close, no trend, no patience-candle break) replayed at about 0R over 25 sessions, so a
+    winning key from them is luck, not the course rule. Enter drills come from ltp_pullback."""
+    def run(bars, ticker, day, ctx=None):
+        return [c for c in fn(bars, ticker, day) if not c.enter]
+    return run
+
+
+DETECTORS: dict[str, Callable] = {
+    **{name: _legacy(fn) for name, fn in det.DETECTORS.items()},
+    "ltp_pullback": ltp.ltp_pullback,
+}
+
+
 def _pt_label(ts: datetime) -> str:
     t = ts.astimezone(PT)
     return t.strftime("%I:%M %p PT").lstrip("0")
@@ -225,7 +263,73 @@ def _cite(refs: dict[str, str], step: str) -> str:
     return f" (rule: {refs[step]})" if refs.get(step) else ""
 
 
+def _explain_ltp(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str:
+    f = c.facts
+    long_ = c.side == "long"
+    tf = f"{f.get('bar_minutes', 5)}m"
+    candle_at = _pt_label(datetime.fromisoformat(f["candle_time"]))
+    conf = ", ".join(f.get("confluence", [])) or f.get("level_name", "a level")
+    head = (f"**{c.ticker} on {c.date}, paused at {_pt_label(c.pause_at)}** (auto chart: {tf} "
+            f"bars here).")
+    trend = (f"{'Up' if long_ else 'Down'}trend: EMA8 {'above' if long_ else 'below'} EMA21, "
+             f"price {'above' if long_ else 'below'} VWAP (${f.get('vwap', 0):.2f}), and a new "
+             f"{'high' if long_ else 'low'} of day at ${f.get('leg_to', 0):.2f} off "
+             f"${f.get('leg_from', 0):.2f}.")
+    pull = (f"The pullback came back {f.get('retracement', 0) * 100:.0f}% of that leg, into "
+            f"${key.level:.2f} ({conf}).")
+    lines = [head, "", f"- **Level:** {trend} {pull}{_cite(refs, 'level')}"]
+    if key.enter == "enter":
+        hi_lo = "high" if long_ else "low"
+        lines += [
+            f"- **Enter or wait:** the {candle_at} {tf} candle is a patience candle: small, and "
+            f"no new {hi_lo} past the candle before it. Enter {c.side} on a break of its {hi_lo}: "
+            f"a stop order at ${key.entry:.2f}. If the other side breaks first, there is no trade."
+            f"{_cite(refs, 'enter')}",
+            f"- **Stop ${key.stop:.2f}:** one cent past the other side of the patience candle "
+            f"(${f.get('candle_low' if long_ else 'candle_high', 0):.2f}).{_cite(refs, 'stop')}",
+            f"- **Target ${key.target:.2f}:** the next level ({f.get('target_name', 'level')}), "
+            f"{f.get('rr', 0):.1f}x the risk from the entry.{_cite(refs, 'target')}",
+        ]
+    else:
+        lines.append(
+            f"- **Enter or wait:** wait. The pullback reached the 0.5 Fibonacci of the leg "
+            f"({f.get('retracement', 0) * 100:.0f}%), which takes the setup off even with a "
+            f"patience candle at a level; the chart has to reset with a new "
+            f"{'high' if long_ else 'low'} of day first.{_cite(refs, 'enter')}")
+    return "\n".join(lines)
+
+
+def _explain_call(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str:
+    f = c.facts
+    long_ = c.side == "long"
+    called = f.get("called", c.ticker)
+    proxy = f" (charted on {c.ticker})" if called != c.ticker else ""
+    at = _pt_label(datetime.fromisoformat(f["called_at"]))
+    mgmt = ""
+    if f.get("exits"):
+        mgmt = (" He took profit or exited at "
+                + ", ".join(_pt_label(datetime.fromisoformat(e)) for e in f["exits"]) + ".")
+    lines = [
+        f"**{called}{proxy} on {c.date}: Somesh called {'calls' if long_ else 'puts'} at {at} "
+        f"on the live call.** The drill pauses at the minute of the call: could you see it?",
+        "",
+        f"- **Level:** price was leaning on ${key.level:.2f} ({f.get('level_name', 'level')}); "
+        f"VWAP was ${f.get('vwap', 0):.2f}.{_cite(refs, 'level')}",
+        f"- **Enter or wait:** enter, {c.side}: the caller's direction, taken at the price on the "
+        f"chart (${f.get('entry', 0):.2f}).{mgmt}{_cite(refs, 'enter')}",
+        f"- **Stop ${key.stop:.2f}:** by the course rule, not the call: one cent past the last "
+        f"closed {f.get('bar_minutes', 5)}m candle.{_cite(refs, 'stop')}",
+        f"- **Target ${key.target:.2f}:** the next level the chart shows "
+        f"({f.get('target_name', 'level')}), {f.get('rr', 0):.1f}x the risk.{_cite(refs, 'target')}",
+    ]
+    return "\n".join(lines)
+
+
 def explain(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str:
+    if c.detector == "ltp_pullback":
+        return _explain_ltp(c, key, refs)
+    if c.detector == "somesh_call":
+        return _explain_call(c, key, refs)
     f = c.facts
     kind = "resistance" if f.get("kind") == "res" else "support"
     if c.detector == "break_retest":   # a broken level flips: support below becomes resistance
@@ -285,6 +389,7 @@ def draft_drill(c: det.Candidate, info: RuleInfo, for_date: str, review: bool,
         side=c.side if enter else None,
         stop=c.stop if enter else None,
         target=c.target if enter else None,
+        entry=c.entry if enter else None,
     )
     day = date.fromisoformat(c.date)
     start = datetime.combine(day, time(9, 30), ET).astimezone(UTC)
@@ -297,6 +402,7 @@ def draft_drill(c: det.Candidate, info: RuleInfo, for_date: str, review: bool,
         bars_until=until, question_steps=list(store.STEPS), answer_key=key,
         grading_rubric=rub, explanation=explain(c, key, info.refs),
         detector=c.detector, review=review,
+        key_levels=dict(c.facts.get("session_levels", {})),
     )
 
 
@@ -304,7 +410,7 @@ def select(drafts: list[tuple[det.Candidate, RuleInfo]], n: int = PICK
            ) -> list[tuple[det.Candidate, RuleInfo]]:
     """Best n by strength, spread across detector / ticker / date. When the set has room for
     it (n >= 3) and a credible wait candidate exists, one wait drill replaces the weakest pick;
-    never forced when none exists."""
+    never forced when none exists. Beyond that one wait, enter candidates replace waits."""
     pool = sorted(drafts, key=lambda x: -x[0].strength)
 
     def adj(x, chosen):
@@ -324,6 +430,15 @@ def select(drafts: list[tuple[det.Candidate, RuleInfo]], n: int = PICK
             drop = min(chosen, key=lambda x: x[0].strength)
             rest = [x for x in chosen if x is not drop]
             chosen = rest + [max(waits, key=lambda x: adj(x, rest))]
+    # enter drills are the practice that matters: keep one wait, fill the rest with enters
+    while n >= 3 and sum(not c.is_wait for c, _ in chosen) < n - 1:
+        enters = [x for x in pool if not x[0].is_wait and x not in chosen]
+        waits_in = [x for x in chosen if x[0].is_wait]
+        if not enters or len(waits_in) < 2:
+            break
+        drop = min(waits_in, key=lambda x: x[0].strength)
+        rest = [x for x in chosen if x is not drop]
+        chosen = rest + [max(enters, key=lambda x: adj(x, rest))]
     return chosen
 
 
@@ -334,11 +449,18 @@ def rth_window(day: date) -> tuple[datetime, datetime]:
             datetime.combine(day, time(16, 0), ET).astimezone(UTC))
 
 
-def read_cached(db_path: str, ticker: str, day: date) -> list[Candle]:
-    """Regular-session 1m bars straight from candles_cache (read-only; never creates a DB)."""
+def premarket_window(day: date) -> tuple[datetime, datetime]:
+    return (datetime.combine(day, time(4, 0), ET).astimezone(UTC),
+            datetime.combine(day, time(9, 30), ET).astimezone(UTC))
+
+
+def read_cached(db_path: str, ticker: str, day: date,
+                window: tuple[datetime, datetime] | None = None) -> list[Candle]:
+    """1m bars straight from candles_cache (read-only; never creates a DB). Default window: the
+    regular session."""
     if not db_path or not Path(db_path).is_file():
         return []
-    start, end = rth_window(day)
+    start, end = window or rth_window(day)
     try:
         con = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
     except sqlite3.Error:
@@ -409,6 +531,28 @@ def recent_weekdays(for_date: date, n: int) -> list[date]:
     return out
 
 
+def session_context(ticker: str, day: date, loader: Callable[[str, date], list[Candle]],
+                    premarket: Callable[[str, date], list[Candle]] | None) -> ltp.SessionContext:
+    """Levels known before the open: prior session high/low/close and the premarket high/low."""
+    lv: dict[str, float] = {}
+    d = day
+    for _ in range(5):          # step over holidays
+        d -= timedelta(days=1)
+        if d.weekday() >= 5:
+            continue
+        prev = loader(ticker, d)
+        if len(prev) >= MIN_SESSION_BARS:
+            lv.update({"Prior day high": max(b.high for b in prev),
+                       "Prior day low": min(b.low for b in prev),
+                       "Prior close": prev[-1].close})
+            break
+    pm = premarket(ticker, day) if premarket else []
+    if pm:
+        lv.update({"Premarket high": max(b.high for b in pm),
+                   "Premarket low": min(b.low for b in pm)})
+    return ltp.SessionContext({k: round(v, 2) for k, v in lv.items()})
+
+
 def key_holds_up(c: det.Candidate, bars: list[Candle]) -> bool:
     """An enter candidate's key must reach its target before its stop inside the lookahead
     the drill reveals. A wait candidate always passes (waiting is never the losing call)."""
@@ -416,7 +560,7 @@ def key_holds_up(c: det.Candidate, bars: list[Candle]) -> bool:
         return True
     day = date.fromisoformat(c.date)
     until = min(c.pause_at + timedelta(minutes=LOOKAHEAD_MIN), rth_window(day)[1])
-    return play_out(bars, c.pause_at, until, c.side, c.stop, c.target).result == "target"
+    return play_out(bars, c.pause_at, until, c.side, c.stop, c.target, c.entry).result == "target"
 
 
 def served_elsewhere(root: Path | None, for_date: str) -> set[tuple[str, str, str]]:
@@ -430,19 +574,57 @@ def served_elsewhere(root: Path | None, for_date: str) -> set[tuple[str, str, st
 
 def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[str, date], list[Candle]],
           rules: RuleBook, root: Path | None, dry_run: bool = False,
-          candidates_only: bool = False) -> dict:
+          candidates_only: bool = False,
+          premarket: Callable[[str, date], list[Candle]] | None = None,
+          callouts_root: Path | None = None) -> dict:
     """Run the pipeline. Writes only when ``root`` is set and neither dry_run nor
     candidates_only. Returns a summary dict (drills are Drill models)."""
     fd = for_date.isoformat()
+    memo: dict[tuple[str, date], list[Candle]] = {}
+    raw_loader = loader
+
+    def loader(tk: str, day: date) -> list[Candle]:   # each session is read (or fetched) once
+        if (tk, day) not in memo:
+            memo[(tk, day)] = raw_loader(tk, day)
+        return memo[(tk, day)]
+
     state = store.read_state(root) if root else {"nights_built": 0, "last_built_for": None,
                                                  "built_dates": []}
     night = store.night_number(state, fd)
     review = store.review_for_night(night)
 
-    counts = {k: 0 for k in det.DETECTORS}
+    counts = {k: 0 for k in DETECTORS}
+    counts["somesh_call"] = 0
     sessions = skipped = dropped = failed = repeats = 0
     seen = served_elsewhere(root, fd)
     drafts: list[tuple[det.Candidate, RuleInfo]] = []
+
+    def consider(cand: det.Candidate, bars: list[Candle]) -> None:
+        nonlocal dropped, repeats, failed
+        info = rules.lookup(cand.detector)
+        if info is None:
+            dropped += 1
+        elif (cand.ticker, cand.date, cand.pause_at.astimezone(UTC).isoformat()) in seen:
+            repeats += 1
+        elif not key_holds_up(cand, bars):
+            failed += 1
+        else:
+            drafts.append((cand, info))
+
+    # real calls first: any ticker the caller named (its bars are loaded on demand)
+    for day in recent_weekdays(for_date, days):
+        for call in calls.load_calls(callouts_root, day):
+            bars = loader(call.ticker, day)
+            if len(bars) < MIN_SESSION_BARS:
+                continue
+            ctx = session_context(call.ticker, day, loader, premarket)
+            cand = calls.call_candidate(call, bars, day.isoformat(), ctx)
+            if cand is None:
+                continue
+            cand.facts["session_levels"] = ctx.levels
+            counts["somesh_call"] += 1
+            consider(cand, bars)
+
     for tk in tickers:
         for day in recent_weekdays(for_date, days):
             bars = loader(tk, day)
@@ -450,20 +632,12 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
                 skipped += 1
                 continue
             sessions += 1
-            for name, fn in det.DETECTORS.items():
-                for cand in fn(bars, tk, day.isoformat()):
+            ctx = session_context(tk, day, loader, premarket)
+            for name, fn in DETECTORS.items():
+                for cand in fn(bars, tk, day.isoformat(), ctx):
+                    cand.facts["session_levels"] = ctx.levels
                     counts[name] += 1
-                    info = rules.lookup(cand.detector)
-                    if info is None:
-                        dropped += 1
-                        continue
-                    if (cand.ticker, cand.date, cand.pause_at.astimezone(UTC).isoformat()) in seen:
-                        repeats += 1
-                        continue
-                    if not key_holds_up(cand, bars):
-                        failed += 1
-                        continue
-                    drafts.append((cand, info))
+                    consider(cand, bars)
 
     chosen = select(drafts, 8 if candidates_only else PICK)
     drills = [draft_drill(c, info, fd, review, f"{fd}-{c.ticker.lower()}-{SHORT[c.detector]}-{i}")
@@ -511,7 +685,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     res = build(for_date, a.days, tickers, loader=make_loader(settings),
                 rules=RuleBook(notes), root=root, dry_run=a.dry_run,
-                candidates_only=a.candidates_only)
+                candidates_only=a.candidates_only,
+                premarket=lambda t, d: read_cached(settings.db_path, t, d, premarket_window(d)),
+                callouts_root=(Path(os.environ["TRADEDESK_CALLOUTS_DIR"])
+                               if os.environ.get("TRADEDESK_CALLOUTS_DIR") else calls.default_dir()))
     drills = [d.model_dump(mode="json") for d in res["drills"]]
     summary = {k: v for k, v in res.items() if k != "drills"}  # incl. candidates_detail
     if read_only:

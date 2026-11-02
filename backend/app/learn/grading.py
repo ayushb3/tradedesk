@@ -11,6 +11,9 @@ the key is "wait" only level and enter are graded (the score is rescaled over th
     target  must sit on the profit side; full within target_tol_r (0.5R) of the key target,
             half within 1.5R, else 0
 
+A key with an ``entry`` (a stop order on the patience candle's break) measures from the entry
+instead of the level: R = |key entry - key stop|, and the wrong-side checks use the entry.
+
 R comes from the answer key, so drill files written before stop_tol_r / target_tol_r existed
 still grade (the rubric defaults fill the gaps).
 
@@ -52,9 +55,14 @@ TARGET_HALF_R = 1.5
 _EPS = 1e-9
 
 
+def _anchor(key: AnswerKey) -> float:
+    """Where the key's risk is measured from: its entry trigger when it has one, else the level."""
+    return key.entry if key.entry is not None else key.level
+
+
 def _risk(key: AnswerKey) -> float:
-    """R: the key's risk, level to key stop (floored so a degenerate old key cannot divide by 0)."""
-    r = abs(key.level - key.stop) if key.stop is not None else 0.0
+    """R: the key's risk, anchor to key stop (floored so a degenerate old key cannot divide by 0)."""
+    r = abs(_anchor(key) - key.stop) if key.stop is not None else 0.0
     return max(r, 0.0001 * abs(key.level), 0.01)
 
 
@@ -96,9 +104,11 @@ def _step_stop(key: AnswerKey, a: Answers, rub: Rubric) -> tuple[float, str]:
         return 0.0, "No stop given."
     if not _side_ok(key, a):
         return 0.0, f"Direction differs from the key ({key.side})."
-    wrong_side = a.stop >= key.level if key.side == "long" else a.stop <= key.level
+    ref = _anchor(key)
+    wrong_side = a.stop >= ref if key.side == "long" else a.stop <= ref
     if wrong_side:
-        return 0.0, "Stop is on the wrong side of the level."
+        return 0.0, ("Stop is on the wrong side of the entry." if key.entry is not None
+                     else "Stop is on the wrong side of the level.")
     frac = _tier_r(a.stop, key.stop, _risk(key), rub.stop_tol_r, STOP_HALF_R)
     if frac == 1.0:
         return 1.0, "Stop matches."
@@ -112,9 +122,11 @@ def _step_target(key: AnswerKey, a: Answers, rub: Rubric) -> tuple[float, str]:
         return 0.0, "No target given."
     if not _side_ok(key, a):
         return 0.0, f"Direction differs from the key ({key.side})."
-    wrong_side = a.target <= key.level if key.side == "long" else a.target >= key.level
+    ref = _anchor(key)
+    wrong_side = a.target <= ref if key.side == "long" else a.target >= ref
     if wrong_side:
-        return 0.0, "Target is on the wrong side of the level."
+        return 0.0, ("Target is on the wrong side of the entry." if key.entry is not None
+                     else "Target is on the wrong side of the level.")
     frac = _tier_r(a.target, key.target, _risk(key), rub.target_tol_r, TARGET_HALF_R)
     if frac == 1.0:
         return 1.0, "Target matches."

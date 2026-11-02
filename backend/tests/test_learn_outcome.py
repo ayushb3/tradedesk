@@ -82,3 +82,29 @@ def test_retest_must_actually_reach_the_level():
                                    "close": max(b.close, L + gap + 0.01)})
     moved = base[:j] + [bar] + base[j + 1:]
     assert not [x for x in D.break_retest(moved, "SPY", day.isoformat()) if x.setup_idx == j]
+
+
+def test_trigger_entry_fills_on_the_break_and_measures_r_from_it():
+    from tests import learn_synth as S
+    from app.learn import ltp
+    from datetime import date as _d
+
+    day = _d(2026, 10, 27)
+    c = ltp.ltp_pullback(S.ltp_session(day), "SPY", day.isoformat())[0]
+    o = play_out(S.ltp_session(day), c.pause_at, c.pause_at + timedelta(minutes=90), "long",
+                 c.stop, c.target, c.entry)
+    assert o.result == "target" and o.entry == c.entry
+    assert o.r == round((c.target - c.entry) / (c.entry - c.stop), 2)
+
+
+def test_trigger_not_crossed_in_time_is_no_fill():
+    from tests import learn_synth as S
+    from app.learn import ltp
+    from datetime import date as _d
+
+    day = _d(2026, 10, 27)
+    c = ltp.ltp_pullback(S.ltp_session(day), "SPY", day.isoformat())[0]
+    far = c.entry + 50   # never reached
+    o = play_out(S.ltp_session(day), c.pause_at, c.pause_at + timedelta(minutes=90), "long",
+                 c.stop, far + 10, far)
+    assert o.result == "no_fill"

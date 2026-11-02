@@ -1157,6 +1157,8 @@ export interface DrillPublic {
   pause_at: string;
   question_steps: LearnStepName[];
   review: boolean;
+  /** Levels known before the open (prior day, premarket). Older servers omit it. */
+  key_levels?: Record<string, number>;
   status: "new" | "done";
   score: number | null;
 }
@@ -1201,11 +1203,13 @@ export interface LearnAnswerKey {
   side: "long" | "short" | null;
   stop: number | null;
   target: number | null;
+  /** Stop-order entry (enter on the patience candle's break); absent = at the pause. */
+  entry?: number | null;
 }
 
 /** What a plan did after the pause, on the drill's own 1m bars (stop checked before target). */
 export interface TradeOutcome {
-  result: "target" | "stop" | "open" | "invalid";
+  result: "target" | "stop" | "open" | "no_fill" | "invalid";
   at: string | null;
   entry: number | null;
   exit: number | null;

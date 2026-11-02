@@ -250,6 +250,23 @@ export function sessionVwap(candles: readonly Candle[], stepMin: number, anchorS
   return out;
 }
 
+/** EMA of the chart bars' closes, keyed by bar open (epoch seconds); causal over what is passed. */
+export function barEma(bars: readonly Candle[], n: number): Map<number, number> {
+  const out = new Map<number, number>();
+  const k = 2 / (n + 1);
+  let e: number | null = null;
+  for (const b of bars) {
+    e = e == null ? b.close : e + k * (b.close - e);
+    out.set(Date.parse(b.ts) / 1000, e);
+  }
+  return out;
+}
+
+/** The drill's before-the-open levels (prior day, premarket) as chart level lines. */
+export function keyLevelLines(levels: Record<string, number> | undefined): { label: string; price: number }[] {
+  return Object.entries(levels ?? {}).map(([label, price]) => ({ label, price }));
+}
+
 /** First playhead index for a fresh drill: `lead` bars before the last pre-pause bar. */
 export function startIndex(prePauseBars: number, lead: number): number {
   return Math.max(0, prePauseBars - 1 - lead);
@@ -302,6 +319,8 @@ export function outcomeText(o: TradeOutcome | null | undefined): { text: string;
       return { text: `Stopped ${o.at ? ptTime(o.at) : ""}${r}`.replace("  ", " "), tone: "bad" };
     case "open":
       return { text: `Neither hit by the end${r}`, tone: "flat" };
+    case "no_fill":
+      return { text: "No fill: the candle broke the other way first", tone: "flat" };
     default:
       return { text: "Plan doesn't fit the price (stop or target on the wrong side)", tone: "flat" };
   }
