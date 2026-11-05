@@ -159,6 +159,7 @@ def _full_to_public(full: ScenarioFull, blind: bool) -> ScenarioPublic:
         blind_default=full.blind_default,
         active=full.active,
         created_at=full.created_at,
+        source_trade_id=None if blind else full.source_trade_id,
     )
 
 

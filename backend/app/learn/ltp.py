@@ -219,6 +219,11 @@ def _setup(c, bars: list[_Bar], j: int, side: str, e8, e21, vw, levels: dict[str
         return None
     tname = next((n for n, p in levels.items() if round(p, 2) == target),
                  "high of day" if long_ else "low of day")
-    facts.update(target_name=tname, rr=round(abs(target - entry) / risk, 2), entry=entry)
+    # the levels past the target, nearest first: where a runner would aim (drills from trades)
+    beyond = sorted({(n, round(p, 2)) for n, p in [*levels.items(), ("high of day" if long_
+                     else "low of day", b_px)] if (p > target if long_ else p < target)},
+                    key=lambda x: (abs(x[1] - target), x[0]))
+    facts.update(target_name=tname, rr=round(abs(target - entry) / risk, 2), entry=entry,
+                 next_levels=[[n, p] for n, p in beyond[:4]])
     return Candidate(**base, strength=round(min(strength + 0.1, 1.0), 3), enter=True,
                      entry=entry, stop=stop, target=target, facts=facts)

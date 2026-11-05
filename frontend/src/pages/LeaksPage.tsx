@@ -1,5 +1,5 @@
 /**
- * LeaksPage — /training/leaks
+ * LeaksPage — /learn/leaks (old /training/leaks redirects here)
  *
  * Consumes GET /api/training/leaks and renders each detected behavioral leak
  * as a card with:
@@ -32,6 +32,7 @@ import { ApiError } from "@/lib/api";
 import { useAgentStatus } from "@/lib/queries";
 import { useLeaks, useScenario } from "@/lib/drills";
 import type { Leak, LeakEvidence } from "@/lib/trainingTypes";
+import { practicePath } from "@/lib/learnRoutes";
 
 // --------------------------------------------------------------------------- //
 // Severity dot indicator
@@ -161,7 +162,7 @@ export function LeakCard({ leak }: { leak: Leak }) {
     const params = new URLSearchParams();
     if (rest.length > 0) params.set("playlist", rest.join(","));
     const qs = params.toString();
-    navigate(`/training/drills/${first}${qs ? `?${qs}` : ""}`);
+    navigate(practicePath(first, qs));
   }
 
   return (

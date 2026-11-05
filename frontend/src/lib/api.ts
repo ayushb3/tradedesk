@@ -1209,6 +1209,17 @@ export interface LessonRef {
   id: string;
   title: string | null;
   video_url: string | null;
+  /** The in-app reader's lesson id (/knowledge/lessons/:id); null when not ingested. Older servers omit it. */
+  reader_id?: number | null;
+}
+
+/** Why a nightly drill is in the set: one of your own trades broke a rule. */
+export interface DrillBecause {
+  trade_id: number;
+  /** The trade's session date, YYYY-MM-DD. */
+  date: string;
+  /** exited_early | countertrend | before_cutoff */
+  rule: string;
 }
 
 export type LearnStepName = "level" | "enter" | "stop" | "target";
@@ -1228,6 +1239,8 @@ export interface DrillPublic {
   review: boolean;
   /** Levels known before the open (prior day, premarket). Older servers omit it. */
   key_levels?: Record<string, number>;
+  /** Set when the drill was picked because of one of your trades. Older servers omit it. */
+  because?: DrillBecause | null;
   status: "new" | "done";
   score: number | null;
 }
@@ -1311,6 +1324,24 @@ export interface LearnLesson {
   module: string;
   video_url: string | null;
   topics: string[];
+  /** The in-app reader's lesson id; null when the lesson is not ingested. */
+  reader_id?: number | null;
+}
+
+/** GET /api/learn/topics/{slug}: one topic's drills (every set, newest first) and lessons. */
+export interface LearnTopicDetail {
+  configured: true;
+  slug: string;
+  title: string;
+  drills: DrillPublic[];
+  lessons: LearnLesson[];
+}
+
+/** GET /api/knowledge/lessons/{id}/trades: your trades whose setup tags match the lesson. */
+export interface LessonTrades {
+  lesson_id: number;
+  tags: string[];
+  trades: { trade_id: number; session_date: string; symbol: string; label: string | null; tags: string[] }[];
 }
 
 /** GET /api/days/{date}: only the fields the Trade review day tally reads. */
@@ -1546,6 +1577,9 @@ export const api = {
     const qs = toQuery({ q });
     return request<LearnLesson[] | LearnNotConfigured>(`/learn/lessons${qs ? `?${qs}` : ""}`);
   },
+  learnTopic(slug: string): Promise<LearnTopicDetail | LearnNotConfigured> {
+    return request<LearnTopicDetail | LearnNotConfigured>(`/learn/topics/${encodeURIComponent(slug)}`);
+  },
 
   // M8b — knowledge base: modules tree + lesson reader + progress
   knowledgeModules(): Promise<KnowledgeModulesResponse> {
@@ -1554,6 +1588,10 @@ export const api = {
 
   knowledgeLesson(id: number | string): Promise<KnowledgeLessonResponse> {
     return request<KnowledgeLessonResponse>(`/knowledge/lessons/${id}`);
+  },
+
+  knowledgeLessonTrades(id: number | string): Promise<LessonTrades> {
+    return request<LessonTrades>(`/knowledge/lessons/${id}/trades`);
   },
 
   knowledgeSetLessonProgress(

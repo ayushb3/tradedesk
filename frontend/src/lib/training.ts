@@ -185,6 +185,8 @@ export interface ScenarioPublic {
   blind_default: boolean;
   active: boolean;
   created_at: string; // ISO 8601
+  /** The trade a Critique/Debrief drill was authored from (null when blind). Older servers omit it. */
+  source_trade_id?: number | null;
 }
 
 export interface ScenarioListParams {
