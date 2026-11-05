@@ -1,5 +1,7 @@
 import type { ReviewFill } from "@/lib/api";
-import { formatClock } from "@/lib/format";
+import { fillValueText, orderTypeLabel } from "@/lib/priceChart";
+import { formatClockSeconds } from "@/lib/secondsReplay";
+import { isoToUtcSeconds } from "@/lib/chart";
 import { cn } from "@/lib/utils";
 
 interface FillTableProps {
@@ -30,11 +32,13 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-background/40 text-label uppercase tracking-wide text-muted-foreground">
-            <th className="px-3 py-2 text-left font-medium">Time</th>
+            <th className="px-3 py-2 text-left font-medium">Time (PT)</th>
             <th className="px-3 py-2 text-left font-medium">Side</th>
             <th className="px-3 py-2 text-left font-medium">Role</th>
             <th className="px-3 py-2 text-right font-medium">Qty</th>
             <th className="px-3 py-2 text-right font-medium">Price</th>
+            <th className="px-3 py-2 text-right font-medium">Value</th>
+            <th className="px-3 py-2 text-left font-medium">Type</th>
             <th className="px-3 py-2 text-right font-medium">Fees</th>
           </tr>
         </thead>
@@ -53,7 +57,7 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
                 )}
               >
                 <td className="tabular px-3 py-1.5 text-muted-foreground">
-                  {formatClock(f.ts)}
+                  {formatClockSeconds(isoToUtcSeconds(f.ts))}
                 </td>
                 <td className="px-3 py-1.5">
                   <span
@@ -73,6 +77,12 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
                 <td className="tabular px-3 py-1.5 text-right">{f.qty}</td>
                 <td className="tabular px-3 py-1.5 text-right">
                   {f.price.toFixed(2)}
+                </td>
+                <td className="tabular px-3 py-1.5 text-right">
+                  {fillValueText(Math.round(f.qty * f.price * f.multiplier * 100) / 100)}
+                </td>
+                <td className="px-3 py-1.5 text-xs text-muted-foreground">
+                  {orderTypeLabel(f.order_type) || "—"}
                 </td>
                 <td className="tabular px-3 py-1.5 text-right text-muted-foreground">
                   {f.fees.toFixed(2)}

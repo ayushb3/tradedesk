@@ -11,13 +11,14 @@ export const LEADS = [5, 15, 30] as const;
 const TRADE_SPEEDS: readonly Speed[] = [1, 2, 4];
 
 const segment = (on: boolean) =>
-  `num h-8 px-3 text-label first:rounded-l-md last:rounded-r-md border border-border -ml-px first:ml-0 ${
+  `num h-7 px-2.5 text-label first:rounded-l-md last:rounded-r-md border border-border -ml-px first:ml-0 ${
     on ? "bg-play/15 text-play border-play/50 relative z-10" : "text-muted-foreground hover:bg-accent"
   }`;
 
 /**
- * Slim top bar for a trade replay: contract and date, lead, the big PT clock,
- * transport, speed and Exit. Everything else lives in the chart and the rails.
+ * Slim top bar for a trade replay: contract and date, lead, the PT clock,
+ * transport, speed, the collapsed day-so-far summary and Exit. One short row so
+ * the charts keep the height; everything else lives in the chart and the rail.
  */
 export function TradeReplayBar({
   contract,
@@ -29,6 +30,7 @@ export function TradeReplayBar({
   disabled,
   onExit,
   seconds,
+  daySoFar,
 }: {
   contract: string;
   date: string;
@@ -41,13 +43,14 @@ export function TradeReplayBar({
   onExit: () => void;
   /** The Seconds playback toggle; omitted when the trade has no second-level data source. */
   seconds?: { on: boolean; available: boolean; checking: boolean; reason: string | null; onToggle: () => void };
+  /** The collapsed rule bar (day so far, cutoff, call source). */
+  daySoFar?: React.ReactNode;
 }) {
   const sOn = seconds?.on === true;
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-border px-4 py-2">
-      <div className="min-w-0">
-        <div className="num truncate text-value">{contract}</div>
-        <div className="num text-label text-muted-foreground">{date}</div>
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1">
+      <div className="min-w-0" title={date ? `Session ${date}` : undefined}>
+        <span className="num truncate text-value">{contract}</span>
       </div>
 
       <div className="flex items-center gap-2">
@@ -61,7 +64,7 @@ export function TradeReplayBar({
               className={segment(lead === m)}
               onClick={() => onLeadChange(m)}
             >
-              {m} min
+              {m}m
             </button>
           ))}
         </div>
@@ -87,7 +90,7 @@ export function TradeReplayBar({
       )}
 
       <div className="flex items-baseline gap-2" aria-live="off">
-        <span className="num text-key">{clock ?? "--:--"}</span>
+        <span className="num text-value font-semibold">{clock ?? "--:--"}</span>
         <span className="label-caps text-label text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
       </div>
 
@@ -95,6 +98,7 @@ export function TradeReplayBar({
         <Button
           size="icon"
           variant="ghost"
+          className="h-8 w-8"
           disabled={disabled || replay.atStart}
           onClick={replay.stepBack}
           aria-label={sOn ? "Step back 1 second (←)" : "Step back (←)"}
@@ -107,7 +111,7 @@ export function TradeReplayBar({
           variant={replay.isPlaying ? "default" : "outline"}
           disabled={disabled}
           onClick={replay.toggle}
-          className="h-9 w-9"
+          className="h-8 w-8"
           aria-label={replay.isPlaying ? "Pause (Space)" : "Play (Space)"}
           title={replay.isPlaying ? "Pause (Space)" : "Play (Space)"}
         >
@@ -116,6 +120,7 @@ export function TradeReplayBar({
         <Button
           size="icon"
           variant="ghost"
+          className="h-8 w-8"
           disabled={disabled || replay.atEnd}
           onClick={replay.stepForward}
           aria-label={sOn ? "Step forward 1 second (→)" : "Step forward (→)"}
@@ -140,7 +145,9 @@ export function TradeReplayBar({
         ))}
       </div>
 
-      <Button variant="ghost" className="ml-auto text-muted-foreground" onClick={onExit}>
+      {daySoFar}
+
+      <Button variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={onExit}>
         Exit replay
       </Button>
     </div>
@@ -162,7 +169,7 @@ export function TradeScrubber({
   onIndicatorsChange: (v: StackIndicators) => void;
 }) {
   return (
-    <div className="pointer-events-auto absolute inset-x-3 bottom-2 z-10 flex items-center gap-3 rounded-md border border-border/50 bg-card/85 px-3 py-2 backdrop-blur">
+    <div className="pointer-events-auto absolute inset-x-3 bottom-1 z-10 flex items-center gap-3 rounded-md border border-border/50 bg-card/85 px-3 py-0.5 backdrop-blur">
       <div className="relative flex h-5 flex-1 items-center">
         <ScrubberMarks marks={marks} total={replay.total} current={replay.currentIndex} />
         <input
@@ -193,7 +200,7 @@ function IndicatorsMenu({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="ghost" className="gap-2 text-label" aria-label="Indicators">
+        <Button size="sm" variant="ghost" className="h-7 gap-2 text-label" aria-label="Indicators">
           <SlidersHorizontal className="h-4 w-4" />
           Indicators
         </Button>

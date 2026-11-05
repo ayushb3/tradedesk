@@ -33,6 +33,8 @@ class ReviewFill(BaseModel):
     ts: UtcDatetime  # UTC
     fees: float = 0.0
     role: str  # "entry" | "exit"
+    order_type: str | None = None  # "market" | "limit" | "stop" (raw_json, as the day API)
+    multiplier: float = 1.0  # contract multiplier: 100 for equity options, 1 for shares
 
 
 class ReviewOption(BaseModel):

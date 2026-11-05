@@ -1,3 +1,6 @@
+import { ChevronDown } from "lucide-react";
+
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DISPLAY_TZ_LABEL, formatPnl } from "@/lib/format";
 import { meterGeometry, type RuleBarState } from "@/lib/ruleBar";
 
@@ -66,5 +69,44 @@ export function RuleBar({ state, loading }: { state: RuleBarState; loading: bool
         <div className="text-value">{caller ?? "—"}</div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The rule bar collapsed to one line for the replay's top bar: day so far, the cutoff (red,
+ * with "entry after", only when the entry broke it) and the call source. Click for the full bar (meter, stop and target) in a popover. Same
+ * state, same "—" for missing values; it only takes less room so the chart gets the height.
+ */
+export function RuleSummary({ state, loading }: { state: RuleBarState; loading: boolean }) {
+  const { dayNet, cutoff, entry, caller } = state;
+  const netTone = dayNet === null || dayNet === 0 ? "text-foreground" : dayNet > 0 ? "text-gain" : "text-loss";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Day so far: show the rule bar"
+          className="num flex h-7 min-w-0 items-center gap-2 whitespace-nowrap rounded-md border border-border px-2 text-label text-muted-foreground hover:bg-accent"
+        >
+          <span className="label-caps">Day</span>
+          <span className={netTone}>{loading ? "…" : dayNet === null ? "—" : formatPnl(dayNet)}</span>
+          <span aria-hidden>·</span>
+          <span className={entry === "after" ? "text-loss" : undefined}>
+            {cutoff ? `cutoff ${cutoff}` : "cutoff —"}
+            {entry === "after" ? " · entry after" : ""}
+          </span>
+          {caller && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="max-w-[6rem] truncate text-foreground">{caller}</span>
+            </>
+          )}
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto max-w-[36rem] p-0" align="start" sideOffset={6}>
+        <RuleBar state={state} loading={loading} />
+      </PopoverContent>
+    </Popover>
   );
 }

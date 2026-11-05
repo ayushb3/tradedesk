@@ -64,6 +64,8 @@ class ReplayFill(BaseModel):
     price: float
     ts: UtcDatetime
     time_pt: str  # e.g. "06:47:12 PT" (display zone, labelled)
+    order_type: str | None = None  # "market" | "limit" | "stop"; None when the broker didn't say
+    value: float  # gross dollars: qty x price x multiplier (x100 for options), before fees
 
 
 class ReplayFillsResponse(BaseModel):

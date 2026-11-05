@@ -5,7 +5,7 @@ import { AlertCircle, ServerCrash } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
-import { RuleBar } from "@/components/replay/RuleBar";
+import { RuleSummary } from "@/components/replay/RuleBar";
 import { TradePicker } from "@/components/replay/TradePicker";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import {
@@ -346,6 +346,22 @@ export function ReplayPage() {
     [fillsQuery.data, playheadSec, useSeconds, secs.playSec],
   );
 
+  // Fills list: clicking a row puts the playhead where that fill is first revealed, so the
+  // clicked fill stays in view: its second in Seconds mode, otherwise the first bar at or
+  // after it (the server reveals a fill once the playhead is at or past its second, so a
+  // 06:47:06 fill shows from the 06:48 bar). Only revealed fills are listed: this moves back.
+  const seekToFill = (f: { ts: string }) => {
+    if (!data) return;
+    const sec = Math.ceil(isoToUtcSeconds(f.ts));
+    replay.pause();
+    if (useSeconds) {
+      secs.seek(sec);
+      return;
+    }
+    const i = data.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= sec);
+    if (i >= 0) replay.setIndex(i);
+  };
+
   // Scrubber marks: only what the playhead has reached.
   const marks = useMemo(() => {
     if (!inTrade || !data) return undefined;
@@ -459,8 +475,8 @@ export function ReplayPage() {
               reason: secondsProbe.data?.reason ?? (secondsProbe.isError ? "request failed" : null),
               onToggle: toggleSeconds,
             }}
+            daySoFar={<RuleSummary state={bar} loading={daySoFar.isLoading} />}
           />
-          <RuleBar state={bar} loading={daySoFar.isLoading} />
         </>
       ) : (
         <ReplayToolbar
@@ -502,7 +518,7 @@ export function ReplayPage() {
             <EmptyState symbol={symbol} date={date} />
           )}
           {ready && inTrade && windowed && spyPane && (
-            <div className="absolute inset-x-0 bottom-16 top-0">
+            <div className="absolute inset-x-0 bottom-10 top-0">
               <PriceChart
                 top={
                   windowed.contractCandles
@@ -525,6 +541,8 @@ export function ReplayPage() {
                 onStopChange={sim.onSetStop}
                 fills={windowed.contractCandles ? revealedFills : []}
                 playheadLabel={useSeconds ? formatClockSecondsPt(secs.playSec) : undefined}
+                mainPane="bottom"
+                fillLabels="arrows"
               />
             </div>
           )}
@@ -563,7 +581,9 @@ export function ReplayPage() {
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border md:block">
+        <aside
+          className={`hidden shrink-0 overflow-y-auto border-l border-border md:block ${inTrade ? "w-72" : "w-80"}`}
+        >
           {tradeId !== null && (
             <RealTradeCard
               fills={revealedFills}
@@ -579,6 +599,7 @@ export function ReplayPage() {
                     : "option premium"
                   : spyLabel
               }
+              onSeekFill={ready ? seekToFill : undefined}
             />
           )}
           {inTrade ? (

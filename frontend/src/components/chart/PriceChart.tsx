@@ -21,6 +21,7 @@ import {
   clampRange,
   defaultRange,
   fillChipText,
+  fillDetailText,
   indexOfSec,
   minVisibleBars,
   paddedRange,
@@ -128,6 +129,17 @@ interface Props {
   /** Replay: the default view is this many bars wide and slides with the playhead (null: grow from the lead start). */
   initialBars?: number | null;
   /**
+   * Which pane gets most of the height when both are shown. "top" (default): the contract pane
+   * 60 / underlying 40. "bottom": underlying 70 / contract 30 (Replay: you trade the ticker).
+   */
+  mainPane?: "top" | "bottom";
+  /**
+   * How real fills are labelled. "chips" (default): a time chip per fill above the candles.
+   * "arrows": the arrows only; a fill's side, qty, price, second and order type show in a small
+   * box over the plot while its minute is hovered (or under the playhead), one line per fill.
+   */
+  fillLabels?: "chips" | "arrows";
+  /**
    * Bar size, seconds (default 60). The grid steps by this much; candles, `startSec`, `endSec`
    * and `playheadSec` must sit on bar opens (Learn aggregates 1m bars on the client).
    */
@@ -232,6 +244,8 @@ export function PriceChart({
   tradingView = false,
   initialBars = null,
   barSec = 60,
+  mainPane = "top",
+  fillLabels = "chips",
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -793,7 +807,7 @@ export function PriceChart({
   // ---- overlay geometry (px) for the shaded future / hold / chips ------------
   const chipSources = useMemo(
     () =>
-      fills
+      (fillLabels === "arrows" ? [] : fills)
         .map((f) => ({ sec: floorMinute(isoToUtcSeconds(f.ts)), exact: isoToUtcSeconds(f.ts), side: f.side }))
         .filter((f) => f.sec <= playheadSec)
         .map((f) => ({
@@ -801,7 +815,7 @@ export function PriceChart({
           side: f.side,
           text: fillChipText(f.side, playheadLabel ? ptClockSec(f.exact) : ptClock(f.sec)),
         })),
-    [fills, playheadSec, playheadLabel],
+    [fills, playheadSec, playheadLabel, fillLabels],
   );
   useEffect(() => {
     const p = panes.current;
@@ -946,18 +960,18 @@ export function PriceChart({
   // Replay reads out the playhead bar; the review reads out only what is hovered.
   const shown = hoverSec ?? (isReplay ? playheadSec : null);
 
-  // Fill details for the hovered minute (the markers themselves stay short).
+  // Fill details for the hovered minute (the markers themselves stay short; the full per-fill
+  // list lives beside the chart on Replay and under it on the trade page).
   const detailFor = (which: "top" | "bottom", minute: number | null): string[] => {
     if (minute === null) return [];
     const out: string[] = [];
     for (const f of fills) {
       const t = floorMinute(isoToUtcSeconds(f.ts));
       if (t !== minute || t > playheadSec) continue;
-      out.push(
-        which === "top"
-          ? `${f.side === "buy" ? "B" : "S"} ${f.qty} @ ${f.price.toFixed(2)} ${ptClock(t)}`
-          : fillChipText(f.side, ptClock(t)),
-      );
+      // Every fill in the minute gets its own chip with its exact second and order type. The
+      // underlying pane leaves out the option price (it is not a price on that axis), unless it
+      // is the only pane (a share trade: the bottom pane is the traded instrument).
+      out.push(fillDetailText(f, ptClockSec(isoToUtcSeconds(f.ts)), { price: which === "top" || !hasTop }));
     }
     if (which === "top") {
       for (const f of simFills) {
@@ -1035,7 +1049,7 @@ export function PriceChart({
     <div className="flex h-full min-h-0 w-full min-w-0 select-none flex-col" onDragStart={(e) => e.preventDefault()}>
       {top && (
         <Pane
-          className="flex-[6]"
+          className={mainPane === "bottom" ? "flex-[3]" : "flex-[6]"}
           spec={top}
           layout={layouts.top}
           shown={shown}
@@ -1047,12 +1061,15 @@ export function PriceChart({
           showTicks
           overlay={stopHandle}
           details={detailFor("top", shown)}
+          detailsAsBox={fillLabels === "arrows"}
           noData={noDataFor(top)}
           controls={controlsNode}
         />
       )}
       <Pane
-        className={top ? "flex-[4] border-t border-border" : "flex-1"}
+        className={
+          top ? (mainPane === "bottom" ? "flex-[7] border-t border-border" : "flex-[4] border-t border-border") : "flex-1"
+        }
         spec={bottom}
         layout={layouts.bottom}
         shown={shown}
@@ -1065,6 +1082,7 @@ export function PriceChart({
         tickTop={!top}
         overlay={markHandles}
         details={detailFor("bottom", shown)}
+        detailsAsBox={fillLabels === "arrows"}
         noData={noDataFor(bottom)}
         controls={top ? undefined : controlsNode}
       />
@@ -1086,6 +1104,7 @@ function Pane({
   tickTop = false,
   overlay,
   details,
+  detailsAsBox = false,
   noData,
   controls,
 }: {
@@ -1102,6 +1121,8 @@ function Pane({
   tickTop?: boolean;
   overlay?: React.ReactNode;
   details: string[];
+  /** Show `details` as a stacked box over the plot (one line per fill) instead of in the header. */
+  detailsAsBox?: boolean;
   noData: string | null;
   controls?: React.ReactNode;
 }) {
@@ -1151,16 +1172,20 @@ function Pane({
         ) : (
           <span className="num text-label text-muted-foreground">no bar</span>
         )}
-        {details.map((d) => (
-          <span key={d} className="num rounded border border-border px-1.5 text-label text-foreground">
-            {d}
-          </span>
-        ))}
+        {!detailsAsBox &&
+          details.map((d, i) => (
+            <span key={`${i}:${d}`} className="num rounded border border-border px-1.5 text-label text-foreground">
+              {d}
+            </span>
+          ))}
         </div>
         {controls}
       </div>
-      {/* Fill time chips, above the candles so they never cover a bar. */}
-      <div className="relative shrink-0 overflow-hidden" style={{ height: lanes * CHIP_LANE_PX }}>
+      {/* Fill time chips, above the candles so they never cover a bar. None in arrows mode. */}
+      <div
+        className="relative shrink-0 overflow-hidden"
+        style={{ height: layout.chips.length === 0 ? 0 : lanes * CHIP_LANE_PX }}
+      >
         <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
           {layout.chips.map((c, i) => (
             <span
@@ -1217,6 +1242,18 @@ function Pane({
               {lv.label} {lv.price.toFixed(2)}
             </span>
           ))}
+          {detailsAsBox && details.length > 0 && (
+            <div
+              className="num absolute left-1 top-1 z-10 flex flex-col rounded border border-border bg-card/90 px-1.5 py-0.5 text-label text-foreground"
+              data-testid="fill-details"
+            >
+              {details.map((d, i) => (
+                <span key={`${i}:${d}`} className={d.startsWith("B ") ? "text-gain" : d.startsWith("S ") ? "text-loss" : undefined}>
+                  {d}
+                </span>
+              ))}
+            </div>
+          )}
           {noData && (
             <span className="num absolute right-1 top-1 rounded bg-card/90 px-1 text-label text-muted-foreground">
               {noData}

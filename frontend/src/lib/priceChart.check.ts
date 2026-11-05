@@ -9,6 +9,10 @@ import {
   clampRange,
   defaultRange,
   fillChipText,
+  fillDetailText,
+  fillValueText,
+  fillsInTimeOrder,
+  orderTypeLabel,
   fitWindow,
   indexOfSec,
   indexRange,
@@ -116,6 +120,35 @@ truth("chip at the left edge stays inside", leftEdge[0].left >= 0);
 const many = placeChips([{ x: 50, w }, { x: 60, w }, { x: 70, w }], 800);
 const overlap = (a: number, b: number) => Math.abs(many[a].left - many[b].left) < w && many[a].lane === many[b].lane;
 truth("no two chips overlap", !overlap(0, 1) && !overlap(0, 2) && !overlap(1, 2), JSON.stringify(many));
+
+// ---- fill details: list rows and the hover readout ------------------------------
+eq("orderTypeLabel limit", orderTypeLabel("limit"), "LMT");
+eq("orderTypeLabel market", orderTypeLabel("market"), "MKT");
+eq("orderTypeLabel stop", orderTypeLabel("stop"), "STOP");
+eq("orderTypeLabel unknown", orderTypeLabel(null), "");
+eq("fillValueText whole", fillValueText(250), "$250");
+eq("fillValueText cents", fillValueText(1000.5), "$1,000.50");
+eq("fillValueText missing (older backend)", fillValueText(undefined), "—");
+eq(
+  "fillDetailText with type",
+  fillDetailText({ side: "buy", qty: 2, price: 1.25, order_type: "limit" }, "07:30:05 PT"),
+  "B 2 @ 1.25 07:30:05 PT LMT",
+);
+eq(
+  "fillDetailText no price, no type",
+  fillDetailText({ side: "sell", qty: 3, price: 0.9, order_type: null }, "07:45:00 PT", { price: false }),
+  "S 3 07:45:00 PT",
+);
+eq(
+  "fillsInTimeOrder: same-minute fills stay separate, by time then seq",
+  fillsInTimeOrder([
+    { seq: 3, ts: "2026-06-10T14:45:00Z" },
+    { seq: 2, ts: "2026-06-10T14:30:41Z" },
+    { seq: 1, ts: "2026-06-10T14:30:05Z" },
+    { seq: 0, ts: "2026-06-10T14:30:41Z" },
+  ]).map((f) => f.seq),
+  [1, 0, 2, 3],
+);
 
 if (failures) {
   console.error(`${failures} failure(s)`);

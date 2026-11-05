@@ -440,6 +440,7 @@ def test_fill_inside_a_second_reveals_at_that_second(monkeypatch):
     fill = SimpleNamespace(
         seq=1, role="entry", side="buy", qty=1.0, price=1.0,
         ts=datetime(2026, 10, 13, 13, 45, 50, 800000, tzinfo=UTC),
+        order_type=None, multiplier=1.0,
     )
     monkeypatch.setattr(query, "get_trade_fills", lambda trade_id, engine=None: [fill])
     at = datetime(2026, 10, 13, 13, 45, 50, tzinfo=UTC)

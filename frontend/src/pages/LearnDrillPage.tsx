@@ -598,6 +598,8 @@ export function LearnDrillPage() {
         price: k.entry ?? k.level ?? 0,
         ts: new Date(at * 1000).toISOString(),
         time_pt: ptTime(drill.pause_at),
+        order_type: null,
+        value: 0,
       },
     ];
   }, [drill, answered, grade, stepMin, anchorSec]);
