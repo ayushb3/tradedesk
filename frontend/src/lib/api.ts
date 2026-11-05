@@ -236,12 +236,21 @@ export interface ReplayFills {
 }
 
 /** Full replay payload: GET /api/replay/session?symbol=&date= */
+/** A level a caller posted for the day (Somesh's morning charts). */
+export interface CallerLevel {
+  price: number;
+  kind: "level" | "ray" | "ema200_1h";
+  source: string;
+}
+
 export interface ReplaySession {
   symbol: string;
   session_date: string;
   candles: Candle[];
   indicators: IndicatorSeriesMap;
   levels: LevelSeriesMap;
+  /** Caller-posted levels for the day; absent or empty when none were saved. */
+  caller_levels?: CallerLevel[];
   meta: ReplaySessionMeta;
 }
 

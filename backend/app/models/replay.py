@@ -17,6 +17,13 @@ from app.models.trades import Side
 from app.models.utc import UtcDatetime
 
 
+class CallerLevel(BaseModel):
+    """A level a caller posted for the day (data/levels/YYYY-MM-DD.json)."""
+    price: float
+    kind: str = "level"  # level | ray | ema200_1h
+    source: str = "somesh"
+
+
 class ReplaySessionResponse(BaseModel):
     symbol: str
     session_date: date
@@ -32,6 +39,8 @@ class ReplaySessionResponse(BaseModel):
     # (pdh/pdl/pmh/pml are constant across the session but still returned as
     #  aligned arrays for uniform, testable causality.)
     levels: dict[str, list[float | None]] = Field(default_factory=dict)
+    # Caller-posted levels for the day (constant; empty when none were saved).
+    caller_levels: list[CallerLevel] = Field(default_factory=list)
 
     meta: dict = Field(default_factory=dict)  # {"or_minutes": int, "tz": str, "timeframe": str}
 
