@@ -285,3 +285,13 @@ export function dayNavKey(e: { key: string; altKey: boolean; ctrlKey: boolean; m
   if (e.altKey && e.key === "ArrowRight") return 1;
   return null;
 }
+
+/** "2m 05s after the call" / "40s before the call" / "at the call". */
+export function calloutGap(gapS: number): string {
+  const a = Math.abs(gapS);
+  if (a < 5) return "at the call";
+  const m = Math.floor(a / 60);
+  const s = a % 60;
+  const t = m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
+  return `${t} ${gapS > 0 ? "after" : "before"} the call`;
+}

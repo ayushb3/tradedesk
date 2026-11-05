@@ -1,5 +1,6 @@
 """Desk routes: GET /api/rules, /api/days, /api/days/{date}, /api/patterns, /api/line;
-GET/PUT /api/days/{date}/fields (the day journal)."""
+GET/PUT /api/days/{date}/fields (the day journal); GET /api/days/{date}/callouts (post-close
+fill <-> callout report)."""
 from __future__ import annotations
 
 from datetime import date as date_type
@@ -7,6 +8,7 @@ from datetime import date as date_type
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
+from app.desk import callout_report
 from app.desk import day_fields as desk_day_fields
 from app.desk import days as desk_days
 from app.desk import serialize
@@ -14,6 +16,7 @@ from app.config import get_settings
 from app.ingest.excursion_rollup import attach_excursions
 from app.desk.rules import TZ_NAME, Rules, load_rules
 from app.models.desk import (
+    DayCalloutReport,
     DayDetail,
     DayFields,
     DaysResponse,
@@ -65,6 +68,23 @@ def get_day(day: date_type) -> DayDetail:
         raise HTTPException(status_code=404, detail=f"no trades or day fields for {day}")
     mode = _excursions([d], rules)
     return serialize.day_detail(day, d, rules, desk_days.as_of(), mode)
+
+
+@router.get("/days/{day}/callouts", response_model=DayCalloutReport)
+def get_day_callouts(day: date_type) -> DayCalloutReport:
+    """Each fill next to the nearest captured callout. Report only: read after the close."""
+    from app.learn import callouts as calls
+
+    rules = _rules()
+    d = desk_days.get_day(day, rules)
+    fills = []
+    if d is not None:
+        detail = serialize.day_detail(day, d, rules, desk_days.as_of(), None)
+        fills = callout_report.fills_from_positions(detail.positions)
+    root = calls.root_dir()
+    found = root is not None and (root / "callouts" / f"callouts-{day.isoformat()}.jsonl").is_file()
+    events = calls.load_events(root, day) if found else None
+    return DayCalloutReport(**callout_report.build(day, fills, events))
 
 
 class DayFieldsPatch(BaseModel):

@@ -72,7 +72,28 @@ def _wall(d: dict) -> datetime | None:
         return None
 
 
-def load_calls(root: Path | None, day: date) -> list[Call]:
+@dataclass
+class Event:
+    """One kept callout of any type (entry / trim / exit / ...)."""
+    type: str
+    ticker: str          # chart ticker (after PROXY)
+    called: str          # ticker as called
+    side: str | None     # "long" | "short" for a call / put direction, else None
+    at: datetime         # wall clock, UTC
+
+
+def root_dir() -> Path | None:
+    """``TRADEDESK_CALLOUTS_DIR`` when set, else the listener's default data dir."""
+    env = os.environ.get("TRADEDESK_CALLOUTS_DIR")
+    if env:
+        p = Path(env)
+        return p if p.is_dir() else None
+    return default_dir()
+
+
+def load_events(root: Path | None, day: date) -> list[Event]:
+    """The day's callouts that count, in file order. On a labelled day only rows marked
+    real, with the labeller's ticker fix; otherwise confident calls with no flags."""
     if root is None:
         return []
     f = root / "callouts" / f"callouts-{day.isoformat()}.jsonl"
@@ -98,22 +119,28 @@ def load_calls(root: Path | None, day: date) -> list[Call]:
             return True, (lab.get("correct_ticker") or "").strip().upper() or None
         return (float(d.get("confidence") or 0) >= MIN_CONFIDENCE and not d.get("flags")), None
 
-    events = []
+    out = []
     for d in rows:
         ok, fix = keep(d)
-        if ok:
-            tk = fix or (d.get("ticker") or "").upper()
-            if tk:
-                events.append((d, tk, _wall(d)))
-    calls = []
-    for d, tk, w in events:
-        if d["type"] != "entry" or d.get("direction") not in ("call", "put"):
+        if not ok:
             continue
-        chart = PROXY.get(tk, tk)
-        exits = [w2 for d2, tk2, w2 in events if d2["type"] in ("trim", "exit") and w2 > w
-                 and PROXY.get(tk2, tk2) == chart]
-        calls.append(Call(chart, tk, "long" if d["direction"] == "call" else "short", w,
-                          sorted(exits)))
+        tk = fix or (d.get("ticker") or "").upper()
+        if not tk:
+            continue
+        side = {"call": "long", "put": "short"}.get(d.get("direction") or "")
+        out.append(Event(d.get("type") or "", PROXY.get(tk, tk), tk, side, _wall(d)))
+    return out
+
+
+def load_calls(root: Path | None, day: date) -> list[Call]:
+    events = load_events(root, day)
+    calls = []
+    for e in events:
+        if e.type != "entry" or e.side is None:
+            continue
+        exits = [e2.at for e2 in events if e2.type in ("trim", "exit") and e2.at > e.at
+                 and e2.ticker == e.ticker]
+        calls.append(Call(e.ticker, e.called, e.side, e.at, sorted(exits)))
     return calls
 
 
