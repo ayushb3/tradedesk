@@ -38,7 +38,8 @@ def _root(settings: Settings):
     return store.learn_root(settings.learn_dir)
 
 
-def _public(drill: store.Drill, notes, results: dict[str, dict]) -> dict:
+def _public(drill: store.Drill, notes, results: dict[str, dict],
+            db_path: str | None = None) -> dict:
     res = results.get(drill.id)
     score = None
     if res:
@@ -48,10 +49,11 @@ def _public(drill: store.Drill, notes, results: dict[str, dict]) -> dict:
             score = None
     pub = store.DrillPublic(
         id=drill.id, set_date=drill.set_date, topic=drill.topic,
-        lessons=ls.lesson_refs(notes, drill.lessons), ticker=drill.ticker, date=drill.date,
+        lessons=ls.with_readers(ls.lesson_refs(notes, drill.lessons), db_path),
+        ticker=drill.ticker, date=drill.date,
         timeframe=drill.timeframe, bars_from=drill.bars_from, pause_at=drill.pause_at,
         question_steps=drill.question_steps, review=drill.review, key_levels=drill.key_levels,
-        status="done" if res else "new", score=score,
+        because=drill.because, status="done" if res else "new", score=score,
     )
     return pub.model_dump(mode="json")
 
@@ -93,7 +95,8 @@ def _outcomes(bars: list, drill: store.Drill, answers: dict | None) -> dict:
     }
 
 
-def _grade_result(drill: store.Drill, g: dict, notes, outcomes: dict | None = None) -> dict:
+def _grade_result(drill: store.Drill, g: dict, notes, outcomes: dict | None = None,
+                  db_path: str | None = None) -> dict:
     return {
         "outcomes": outcomes or {"key": None, "yours": None},
         "drill_id": drill.id,
@@ -101,7 +104,8 @@ def _grade_result(drill: store.Drill, g: dict, notes, outcomes: dict | None = No
         "steps": g["steps"],
         "answer_key": drill.answer_key.model_dump(mode="json"),
         "explanation": drill.explanation,
-        "lessons": [x.model_dump(mode="json") for x in ls.lesson_refs(notes, drill.lessons)],
+        "lessons": [x.model_dump(mode="json")
+                    for x in ls.with_readers(ls.lesson_refs(notes, drill.lessons), db_path)],
         "rule_refs": g["rule_refs"],
     }
 
@@ -122,7 +126,7 @@ def learn_today(settings: Settings = Depends(settings_dep)):
     return {
         "configured": True,
         "set_date": set_date,
-        "drills": [_public(d, notes, results) for d in drills],
+        "drills": [_public(d, notes, results, settings.db_path) for d in drills],
         "review_pending": any(d.review for d in drills),
     }
 
@@ -158,11 +162,40 @@ def learn_topics(settings: Settings = Depends(settings_dep)):
     return out
 
 
+def _lesson_rows(rows: list[dict], db_path: str | None) -> list[dict]:
+    found = ls.reader_ids([r["id"] for r in rows], db_path)
+    return [{**r, "reader_id": found.get(r["id"])} for r in rows]
+
+
 @router.get("/learn/lessons")
 def learn_lessons(q: str = Query(""), settings: Settings = Depends(settings_dep)):
     if _root(settings) is None:
         return store.NOT_CONFIGURED
-    return ls.list_lessons(ls.open_course_notes(settings.db_path), q)
+    return _lesson_rows(ls.list_lessons(ls.open_course_notes(settings.db_path), q),
+                        settings.db_path)
+
+
+@router.get("/learn/topics/{slug}")
+def learn_topic(slug: str, settings: Settings = Depends(settings_dep)):
+    """One topic: its drills (every set, newest first) and the lessons it covers."""
+    root = _root(settings)
+    if root is None:
+        return store.NOT_CONFIGURED
+    notes = ls.open_course_notes(settings.db_path)
+    titles = {t["slug"]: t["title"] for t in ls.course_topics(notes)}
+    drills = sorted((d for d in store.all_drills(root) if d.topic == slug),
+                    key=lambda d: (d.set_date, d.id), reverse=True)
+    if slug not in titles and not drills:
+        raise HTTPException(status_code=404, detail="topic not found")
+    results = store.latest_results(root)
+    lessons = [r for r in ls.list_lessons(notes) if slug in (r.get("topics") or [])]
+    return {
+        "configured": True,
+        "slug": slug,
+        "title": titles.get(slug, slug),
+        "drills": [_public(d, notes, results, settings.db_path) for d in drills],
+        "lessons": _lesson_rows(lessons, settings.db_path),
+    }
 
 
 @router.get("/learn/drills/{drill_id}")
@@ -171,7 +204,8 @@ def learn_drill(drill_id: str, settings: Settings = Depends(settings_dep)):
     if root is None:
         return store.NOT_CONFIGURED
     drill = _drill_or_404(root, drill_id)
-    return _public(drill, ls.open_course_notes(settings.db_path), store.latest_results(root))
+    return _public(drill, ls.open_course_notes(settings.db_path), store.latest_results(root),
+                   settings.db_path)
 
 
 def _utc(ts: datetime) -> datetime:
@@ -226,7 +260,8 @@ def learn_answer(drill_id: str, body: AnswerIn, settings: Settings = Depends(set
         "answered_at": store.now_utc_iso(), "answers": body.model_dump(), "grade": g,
     })
     return _grade_result(drill, g, ls.open_course_notes(settings.db_path),
-                         _outcomes(_session_bars(settings, drill), drill, body.model_dump()))
+                         _outcomes(_session_bars(settings, drill), drill, body.model_dump()),
+                         settings.db_path)
 
 
 @router.get("/learn/drills/{drill_id}/result")
@@ -239,4 +274,5 @@ def learn_result(drill_id: str, settings: Settings = Depends(settings_dep)):
     if not row or not isinstance(row.get("grade"), dict):
         raise HTTPException(status_code=404, detail="no result yet")
     return _grade_result(drill, row["grade"], ls.open_course_notes(settings.db_path),
-                         _outcomes(_session_bars(settings, drill), drill, row.get("answers")))
+                         _outcomes(_session_bars(settings, drill), drill, row.get("answers")),
+                         settings.db_path)

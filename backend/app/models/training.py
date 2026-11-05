@@ -150,6 +150,8 @@ class ScenarioPublic(BaseModel):
     blind_default: bool = False
     active: bool = True
     created_at: UtcDatetime
+    # the trade a Critique/Debrief drill was authored from (None when blind or not from a trade)
+    source_trade_id: int | None = None
 
 
 class ScenarioSessionResponse(BaseModel):

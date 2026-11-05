@@ -136,3 +136,27 @@ def pt_date(iso: str | None) -> str | None:
     if d.tzinfo is None:
         d = d.replace(tzinfo=timezone.utc)
     return d.astimezone(PT).date().isoformat()
+
+
+def reader_ids(lesson_ids, db_path: str | None = None) -> dict[str, int | None]:
+    """Course-notes lesson id -> the in-app reader's lesson id (``/knowledge/lessons/<id>``),
+    resolved against the ingested knowledge base (a plain number, or ``module.seq`` such as
+    ``3.1.1``). None when it does not resolve or nothing is ingested. Never raises."""
+    ids = [str(i) for i in dict.fromkeys(lesson_ids or [])]
+    if not ids:
+        return {}
+    try:
+        from app.db.connection import get_engine, init_db
+        from app.desk.lessons import _resolve
+
+        engine = get_engine(db_path)
+        init_db(engine)
+        with engine.connect() as conn:
+            return {i: _resolve(conn, i) for i in ids}
+    except Exception:
+        return {i: None for i in ids}
+
+
+def with_readers(refs: list[LessonRef], db_path: str | None = None) -> list[LessonRef]:
+    found = reader_ids([r.id for r in refs], db_path)
+    return [r.model_copy(update={"reader_id": found.get(r.id)}) for r in refs]

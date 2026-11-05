@@ -43,6 +43,16 @@ class Rubric(BaseModel):
     rule_refs: dict[str, str] = Field(default_factory=dict)
 
 
+class Because(BaseModel):
+    """Why a drill is in the set: one of your own trades broke a rule (or showed a pattern).
+
+    ``rule`` is a stable code: ``exited_early`` | ``countertrend`` | ``before_cutoff``."""
+
+    trade_id: int
+    date: str          # the trade's session date (YYYY-MM-DD)
+    rule: str
+
+
 class Drill(BaseModel):
     """The full drill file (private: carries the answer key)."""
 
@@ -64,12 +74,15 @@ class Drill(BaseModel):
     review: bool = False
     # levels known before the open (prior day, premarket): safe to draw from the first bar
     key_levels: dict[str, float] = Field(default_factory=dict)
+    # set when the drill was picked because of one of your trades (older files: absent)
+    because: Because | None = None
 
 
 class LessonRef(BaseModel):
     id: str
     title: str | None = None
     video_url: str | None = None
+    reader_id: int | None = None   # the in-app reader's lesson id (/knowledge/lessons/<id>)
 
 
 class DrillPublic(BaseModel):
@@ -87,6 +100,7 @@ class DrillPublic(BaseModel):
     question_steps: list[str]
     review: bool
     key_levels: dict[str, float] = Field(default_factory=dict)
+    because: Because | None = None
     status: Literal["new", "done"] = "new"
     score: int | None = None
 
