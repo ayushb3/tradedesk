@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
 
 /**
  * Bar-replay engine. The engine owns exactly one piece of truth: `currentIndex`.
@@ -38,7 +40,20 @@ export interface ReplayEngine {
   setIndex: (i: number) => void;
 }
 
-export function useReplayEngine(total: number): ReplayEngine {
+export interface EngineOptions {
+  /**
+   * Continuous speed in chart-seconds per real second (trade/day replay's speed slider).
+   * When set, the engine advances by speed x elapsed time in whole `barSec` bars; the
+   * discrete `speed` presets are ignored.
+   */
+  chartSpeed?: number;
+  /** Bar length in seconds for `chartSpeed` (default 60: minute bars). */
+  barSec?: number;
+}
+
+export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngine {
+  const chartSpeed = opts?.chartSpeed;
+  const barSec = opts?.barSec ?? 60;
   const [currentIndex, setIndexState] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
@@ -63,15 +78,34 @@ export function useReplayEngine(total: number): ReplayEngine {
     [clamp],
   );
 
-  // Advance timer while playing. Recreated when speed/total changes.
+  // Continuous speed: advance by speed x elapsed real time, carrying the remainder, so a
+  // slow timer never changes the speed. The carry survives speed changes mid-play.
+  const speedRef = useRef(chartSpeed);
+  speedRef.current = chartSpeed;
+  const continuous = chartSpeed !== undefined;
   useEffect(() => {
-    if (!isPlaying || total === 0) return;
+    if (!continuous || !isPlaying || total === 0) return;
+    let last = performance.now();
+    let carry = 0;
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const r = advance(carry, now - last, speedRef.current ?? 60, barSec);
+      last = now;
+      carry = r.carry;
+      if (r.steps > 0) setIndexState((i) => Math.min(i + r.steps, lastIndex));
+    }, CLOCK_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [continuous, isPlaying, total, lastIndex, barSec]);
+
+  // Advance timer while playing (discrete presets). Recreated when speed/total changes.
+  useEffect(() => {
+    if (continuous || !isPlaying || total === 0) return;
     const interval = speed === "max" ? MAX_MS : BASE_MS / speed;
     const id = window.setInterval(() => {
       setIndexState((i) => (i >= lastIndex ? i : i + 1));
     }, interval);
     return () => window.clearInterval(id);
-  }, [isPlaying, speed, total, lastIndex]);
+  }, [continuous, isPlaying, speed, total, lastIndex]);
 
   // Auto-stop at the last bar.
   useEffect(() => {

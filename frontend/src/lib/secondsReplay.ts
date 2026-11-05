@@ -10,15 +10,10 @@ import type { Candle } from "./api";
 import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "./format";
 
 export const MINUTE = 60;
-export const SECONDS_SPEEDS = [1, 2, 4] as const;
-export type SecondsSpeed = (typeof SECONDS_SPEEDS)[number];
 
 export const floorMinuteSec = (sec: number): number => Math.floor(sec / MINUTE) * MINUTE;
 const epoch = (iso: string): number => Math.floor(new Date(iso).getTime() / 1000);
 const iso = (sec: number): string => new Date(sec * 1000).toISOString();
-
-/** ms between one-second steps at a given speed (1x = real time). */
-export const tickMs = (speed: number): number => 1000 / speed;
 
 export function clampSec(sec: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, sec));

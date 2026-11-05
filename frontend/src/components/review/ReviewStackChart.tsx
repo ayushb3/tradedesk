@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
+import { paneLevels, smaLines } from "@/lib/indicatorLines";
+import { DEFAULT_STACK_INDICATORS } from "@/lib/stackIndicators";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,6 +90,9 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
             label: spyPaneLabel(spy.symbol, spy.meta.source_label),
             candles: view.spyCandles,
             vwap: view.vwap,
+            // SMA 200/400 (red dashed) and the caller's levels; same colors as Replay.
+            emas: smaLines(spy),
+            levels: paneLevels(spy, -1, { ...DEFAULT_STACK_INDICATORS, ladder: "off" }),
           }
         : null,
     [view, spy],

@@ -41,7 +41,8 @@ def test_replay_session_arrays_aligned(client):
     for name, arr in body["levels"].items():
         assert len(arr) == n, f"level '{name}' length {len(arr)} != {n}"
     # Expected series present.
-    assert set(body["indicators"]) == {"ema9", "ema21", "ema50", "ema200", "vwap", "rsi14"}
+    assert set(body["indicators"]) == {
+        "ema9", "ema21", "ema50", "ema200", "vwap", "rsi14", "sma200", "sma400"}
     assert set(body["levels"]) == {"pdh", "pdl", "pmh", "pml", "day_high", "day_low", "or_high", "or_low"}
     # Default timeframe is echoed in meta.
     assert body["meta"]["timeframe"] == "1m"
@@ -80,7 +81,7 @@ def test_replay_session_custom_indicator_params(client):
     )
     assert r.status_code == 200, r.text
     keys = set(r.json()["indicators"])
-    assert keys == {"ema8", "ema20", "vwap", "rsi7"}
+    assert keys == {"ema8", "ema20", "vwap", "rsi7", "sma200", "sma400"}  # SMAs always ride along
 
 
 def test_replay_session_or_minutes_override(client):

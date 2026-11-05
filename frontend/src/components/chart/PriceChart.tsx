@@ -38,7 +38,7 @@ import {
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
-import { EMA_GREYS } from "@/lib/stackIndicators";
+import { LEVEL_SLATE, VWAP_COLOR, emaColor, type LineStyleName } from "@/lib/chartColors";
 import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
 
 // Keep in sync with the tokens in index.css (lightweight-charts needs literal colors).
@@ -49,7 +49,7 @@ const THEME = {
   down: "#ef5350",
   play: "#3b82f6", // playhead / crosshair / sim fills
   stop: "#f59e0b", // the stop
-  vwap: "#22d3ee",
+  vwap: VWAP_COLOR, // white
   avg: "#a1a1aa", // blended average entry
 };
 const PRICE_SCALE_WIDTH = 72;
@@ -60,8 +60,15 @@ const EDGE = 0.5;
 const readRange = (r: { from: number; to: number } | null): IndexRange | null =>
   r ? { from: r.from + EDGE, to: r.to - EDGE } : null;
 const BUTTON_ZOOM = 1.5;
-/** Level lines are neutral slate; indicators never use the meaning hues. */
-const LEVEL_COLOR = "#64748b";
+/** Level lines default to neutral slate; indicators never use the meaning hues. */
+const LEVEL_COLOR = LEVEL_SLATE;
+/** Line series kept per pane for EMAs/SMAs (each restyled from its spec on every feed). */
+const MAX_LINES = 6;
+const LINE_STYLE: Record<LineStyleName, LineStyle> = {
+  solid: LineStyle.Solid,
+  dashed: LineStyle.Dashed,
+  dotted: LineStyle.Dotted,
+};
 const LEVEL_LABEL_GAP = 16;
 
 export interface PaneSpec {
@@ -71,12 +78,12 @@ export interface PaneSpec {
   candles: Candle[];
   /** Optional causal VWAP keyed by minute (epoch seconds). */
   vwap?: Map<number, number>;
-  /** Causal level values at the playhead, drawn as thin lines with in-pane labels. */
-  levels?: { label: string; price: number }[];
+  /** Causal level values at the playhead, drawn as thin lines with in-pane labels. Slate dashed unless styled. */
+  levels?: { label: string; price: number; color?: string; style?: LineStyleName }[];
   /** Tag levels on the price axis (TradingView-style) instead of in-pane labels over the bars. */
   levelsOnAxis?: boolean;
-  /** Optional EMAs (grey), each keyed by minute. */
-  emas?: { label: string; values: Map<number, number> }[];
+  /** Optional moving-average lines (EMAs green by order, unless `color`/`style` say otherwise), each keyed by minute. */
+  emas?: { label: string; values: Map<number, number>; color?: string; style?: LineStyleName }[];
   /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
   marks?: { label: string; price: number; color: string; key?: string }[];
   badge?: React.ReactNode;
@@ -158,7 +165,7 @@ interface Layout {
   exitX: number | null;
   stopY: number | null;
   height: number;
-  levelYs: { label: string; price: number; y: number }[];
+  levelYs: { label: string; price: number; y: number; color?: string }[];
   markYs: { key: string; label: string; y: number }[];
   chips: { x: number; text: string; side: "buy" | "sell" }[];
   /** Price at the bottom/top edge of the pane and the visible bar indices (also exposed as data-* for checks). */
@@ -400,9 +407,9 @@ export function PriceChart({
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null, // never part of the scale
       });
-      const emas = EMA_GREYS.map((color) =>
+      const emas = Array.from({ length: MAX_LINES }, (_, i) =>
         chart.addLineSeries({
-          color,
+          color: emaColor(i),
           lineWidth: 1,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -679,6 +686,7 @@ export function PriceChart({
       rt.vwap.setData(line);
       rt.emas.forEach((s, i) => {
         const e = spec.emas?.[i];
+        if (e) s.applyOptions({ color: e.color ?? emaColor(i), lineStyle: LINE_STYLE[e.style ?? "solid"] });
         s.setData(
           e
             ? timeline
@@ -687,16 +695,16 @@ export function PriceChart({
             : [],
         );
       });
-      // Level lines: thin dashed, no axis tag (labels are drawn inside the pane).
+      // Level lines: thin (dashed unless styled), no axis tag (labels are drawn inside the pane).
       for (const l of rt.levelLines) rt.series.removePriceLine(l);
       rt.levelLines = (spec.levels ?? []).map((lv) =>
         rt.series.createPriceLine({
           price: lv.price,
-          color: LEVEL_COLOR,
+          color: lv.color ?? LEVEL_COLOR,
           lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          lineStyle: LINE_STYLE[lv.style ?? "dashed"],
           axisLabelVisible: Boolean(spec.levelsOnAxis),
-          axisLabelColor: LEVEL_COLOR,
+          axisLabelColor: lv.color ?? LEVEL_COLOR,
           title: "",
         }),
       );
@@ -843,7 +851,7 @@ export function PriceChart({
         height: (rt === p.top ? topEl.current : bottomEl.current)?.clientHeight ?? 0,
         levelYs: (spec?.levelsOnAxis ? [] : (spec?.levels ?? [])).flatMap((lv) => {
           const y = rt.series.priceToCoordinate(lv.price) as number | null;
-          return y === null ? [] : [{ label: lv.label, price: lv.price, y }];
+          return y === null ? [] : [{ label: lv.label, price: lv.price, y, color: lv.color }];
         }),
         markYs: (spec?.marks ?? []).flatMap((m) => {
           if (!m.key) return [];
@@ -1247,7 +1255,7 @@ function Pane({
             <span
               key={lv.label}
               className="num absolute right-1 -translate-y-1/2 rounded bg-card/80 px-1 text-label text-grey"
-              style={{ top: lv.labelY }}
+              style={{ top: lv.labelY, color: lv.color }}
             >
               {lv.label} {lv.price.toFixed(2)}
             </span>
@@ -1271,7 +1279,11 @@ function Pane({
           )}
           {spec.emas && spec.emas.length > 0 && (
             <span className="num absolute bottom-1 right-1 rounded bg-card/80 px-1 text-label text-grey">
-              {spec.emas.map((e) => e.label).join(" ")}
+              {spec.emas.map((e, i) => (
+                <span key={e.label} className="ml-1 first:ml-0" style={{ color: e.color ?? emaColor(i) }}>
+                  {e.label}
+                </span>
+              ))}
             </span>
           )}
           {overlay}

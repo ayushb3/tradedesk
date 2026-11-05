@@ -21,6 +21,15 @@ import {
   valueAt,
 } from "@/lib/chart";
 import { orderTypeLabel } from "@/lib/priceChart";
+import {
+  CALLER_STYLE,
+  callerStyle,
+  emaColor,
+  LEVEL_COLORS,
+  smaColor,
+  VWAP_COLOR,
+  type LineStyleName,
+} from "@/lib/chartColors";
 
 // Keep in sync with the dark theme in index.css.
 const CHART_THEME = {
@@ -31,14 +40,13 @@ const CHART_THEME = {
   down: "#ef5350",
 };
 
-/** Greys for EMA overlays (opt-in), in order of increasing period. */
-const EMA_COLORS = ["#d4d4d8", "#a1a1aa", "#8b8b93", "#71717a", "#5f5f68", "#4b4b52"];
 
 export interface OverlaySpec {
   key: string; // matches a key in session.indicators, e.g. "ema9"
   label: string;
   color: string;
   width: 1 | 2;
+  dashed?: boolean;
 }
 
 /**
@@ -53,11 +61,15 @@ export function overlaySpecs(indicators: Record<string, unknown>): OverlaySpec[]
   const specs: OverlaySpec[] = emaKeys.map((k, i) => ({
     key: k,
     label: k.toUpperCase(),
-    color: EMA_COLORS[i % EMA_COLORS.length],
+    color: emaColor(i),
     width: 2,
   }));
+  // SMA 200 / 400: red dashed, 200 brighter.
+  for (const k of Object.keys(indicators).filter((k) => /^sma\d+$/.test(k)).sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))) {
+    specs.push({ key: k, label: k.toUpperCase(), color: smaColor(Number(k.slice(3))), width: 1, dashed: true });
+  }
   if ("vwap" in indicators) {
-    specs.push({ key: "vwap", label: "VWAP", color: "#22d3ee", width: 2 });
+    specs.push({ key: "vwap", label: "VWAP", color: VWAP_COLOR, width: 2 });
   }
   return specs;
 }
@@ -69,24 +81,28 @@ export function rsiKey(indicators: Record<string, unknown>): string | null {
 
 /** Horizontal levels drawn as price lines, using the value at currentIndex. */
 export const LEVEL_META: { key: LevelKey; label: string; color: string }[] = [
-  { key: "pdh", label: "PDH", color: "#f59e0b" },
-  { key: "pdl", label: "PDL", color: "#f59e0b" },
-  { key: "pmh", label: "PMH", color: "#8b5cf6" },
-  { key: "pml", label: "PML", color: "#8b5cf6" },
+  { key: "pdh", label: "PDH", color: LEVEL_COLORS.pdh },
+  { key: "pdl", label: "PDL", color: LEVEL_COLORS.pdl },
+  { key: "pmh", label: "PMH", color: LEVEL_COLORS.pmh },
+  { key: "pml", label: "PML", color: LEVEL_COLORS.pml },
   { key: "or_high", label: "ORH", color: "#10b981" },
   { key: "or_low", label: "ORL", color: "#10b981" },
-  { key: "day_high", label: "HOD", color: "#64748b" },
-  { key: "day_low", label: "LOD", color: "#64748b" },
+  { key: "day_high", label: "HOD", color: LEVEL_COLORS.day_high },
+  { key: "day_low", label: "LOD", color: LEVEL_COLORS.day_low },
 ];
 
 const RSI_COLOR = "#eab308";
 
 /** Visibility key for the caller-levels group (lives in hiddenLevels). */
 export const CALLER_LEVELS_KEY = "caller";
-const CALLER_COLORS: Record<string, string> = {
-  level: "#facc15",
-  ray: "#f43f5e",
-  ema200_1h: "#fb923c",
+/** Caller levels: blue lines, dotted blue rays, the 1h 200 SMA red dashed (lib/chartColors). */
+export const CALLER_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(CALLER_STYLE).map(([k, v]) => [k, v.color]),
+);
+const CALLER_LINE: Record<LineStyleName, LineStyle> = {
+  solid: LineStyle.Solid,
+  dashed: LineStyle.Dashed,
+  dotted: LineStyle.Dotted,
 };
 
 /**
@@ -322,7 +338,7 @@ export function ReplayChart({
           chart.addLineSeries({
             color: o.color,
             lineWidth: o.width,
-            lineStyle: LineStyle.Solid,
+            lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
             priceLineVisible: false,
             lastValueVisible: false,
             crosshairMarkerVisible: false,
@@ -387,11 +403,11 @@ export function ReplayChart({
         levelLinesRef.current.push(
           candleSeries.createPriceLine({
             price: cl.price,
-            color: CALLER_COLORS[cl.kind] ?? CALLER_COLORS.level,
+            color: callerStyle(cl.kind).color,
             lineWidth: cl.kind === "level" ? 2 : 1,
-            lineStyle: cl.kind === "level" ? LineStyle.Solid : LineStyle.Dotted,
+            lineStyle: CALLER_LINE[callerStyle(cl.kind).style],
             axisLabelVisible: true,
-            title: cl.kind === "ema200_1h" ? "200 1h" : cl.kind === "ray" ? "ray" : "",
+            title: cl.kind === "level" ? "" : callerStyle(cl.kind).label,
           }),
         );
       }

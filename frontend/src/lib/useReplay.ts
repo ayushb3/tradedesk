@@ -87,12 +87,14 @@ export function useReplay(
   options?: {
     /** Default: true. Pass false to disable Space/Arrow keyboard shortcuts. */
     keyboardEnabled?: boolean;
+    /** Continuous speed (chart-seconds per real second); see useReplayEngine. */
+    chartSpeed?: number;
   },
 ): ReplayState {
   const keyboardEnabled = options?.keyboardEnabled ?? true;
 
   const total = session?.candles.length ?? 0;
-  const engine = useReplayEngine(total);
+  const engine = useReplayEngine(total, { chartSpeed: options?.chartSpeed });
 
   // --- barLabel -----------------------------------------------------------
   // "09:12 PT" — the current bar's display-zone (PT) wall-clock time. The scrubber already

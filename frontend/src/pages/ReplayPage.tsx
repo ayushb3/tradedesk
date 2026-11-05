@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ServerCrash } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -8,12 +9,12 @@ import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
 import { RuleSummary } from "@/components/replay/RuleBar";
 import { TradePicker } from "@/components/replay/TradePicker";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
+import { DayReplay } from "@/components/replay/DayReplay";
 import {
   ReplayChart,
   overlaySpecs,
   rsiKey,
   type ChartVisibility,
-  CALLER_LEVELS_KEY,
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { PriceChart } from "@/components/chart/PriceChart";
@@ -31,13 +32,11 @@ import {
   useTrade,
 } from "@/lib/queries";
 import { ruleBarState } from "@/lib/ruleBar";
-import {
-  DEFAULT_STACK_INDICATORS,
-  EMA_GREYS,
-  LADDERS,
-  type StackIndicators,
-} from "@/lib/stackIndicators";
-import { isInputFocused, useReplay, type ReplayState, type Speed } from "@/lib/useReplay";
+import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
+import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
+import { engineFor, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
+import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
+import { isInputFocused, useReplay, type ReplayState } from "@/lib/useReplay";
 import { useSecondsReplay } from "@/lib/useSecondsReplay";
 import {
   finishedOnly,
@@ -46,11 +45,9 @@ import {
   liveCandle,
   minuteIndexAt,
   replaySeries,
-  type SecondsSpeed,
 } from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
 import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
-import type { LevelKey } from "@/lib/api";
 import {
   candlesInWindow,
   floorMinute,
@@ -63,7 +60,7 @@ import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
+import { api, ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
 
 /** Free replay starts on SPY and the most recent weekday; there is no stored default. */
 const FREE_SYMBOL = "SPY";
@@ -74,7 +71,24 @@ function previousWeekday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * /replay: a trade (?trade=<id>&lead=<min>), a whole day (?day=YYYY-MM-DD), the trade
+ * picker, or (behind a link) free symbol + date. `from=<path>` is where Exit goes.
+ */
 export function ReplayPage() {
+  const [params] = useSearchParams();
+  const day = params.get("day");
+  if (isDay(day) && !params.get("trade")) return <DayReplay day={day} />;
+  return <TradeOrFreeReplay />;
+}
+
+function TradeOrFreeReplay() {
+  const navigate = useNavigate();
+  const [speed, setSpeedState] = useState<number>(() => loadSpeed());
+  const setSpeed = (s: number) => {
+    setSpeedState(s);
+    saveSpeed(s);
+  };
   const [symbol, setSymbol] = useState<string>(FREE_SYMBOL);
   const [date, setDate] = useState<string>(previousWeekday);
   const [stackInd, setStackInd] = useState<StackIndicators>(DEFAULT_STACK_INDICATORS);
@@ -86,6 +100,7 @@ export function ReplayPage() {
   const tradeParam = Number(params.get("trade"));
   const tradeId = Number.isInteger(tradeParam) && tradeParam > 0 ? tradeParam : null;
   const lead = Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
+  const from = safeFrom(params.get("from"));
   // No trade: a picker of recent trades, or (behind a link) symbol + date.
   const freeMode = tradeId === null && params.get("mode") === "symbol";
   const picking = tradeId === null && !freeMode;
@@ -130,46 +145,40 @@ export function ReplayPage() {
   const revealedEndSec = revealedEnd?.key === endKey ? revealedEnd.sec : 0;
   const endSec = Math.max(initialEndSec, Math.min(revealedEndSec, sessionEndSec));
 
-  // Seconds mode (opt-in, only when the trade has second-level prints).
-  const [secondsOn, setSecondsOn] = useState(false);
-  useEffect(() => setSecondsOn(false), [tradeId, lead]);
+  // Below 60x the replay plays second bars when the trade has them (the speed slider is the
+  // only switch); otherwise minute bars, with a "minute bars" tag saying why.
   const secondsProbe = useReplaySecondsProbe(tradeId, lead, tradeReplay.data?.start_ts ?? null);
-  const useSeconds = secondsOn && secondsProbe.data?.available === true;
+  const secondsAvailable = secondsProbe.data?.available === true;
+  const useSeconds = tradeId !== null && engineFor(speed, secondsAvailable) === "seconds";
   const secs = useSecondsReplay({
     enabled: useSeconds,
     tradeId,
     lead,
     minSec: startSec,
     maxSec: endSec + 59,
+    speed,
+    res: secondsRes(speed),
   });
+  const minuteTag =
+    tradeId !== null && !useSeconds && engineFor(speed, true) === "seconds"
+      ? {
+          reason: secondsProbe.isLoading
+            ? "checking for second-level prints"
+            : (secondsProbe.data?.reason ?? (secondsProbe.isError ? "request failed" : "no second-level prints")),
+        }
+      : null;
 
   const windowedAll = useMemo(() => {
     if (!tradeSession) return null;
     const spyCandles = candlesInWindow(tradeSession.candles, startSec, endSec);
-    const vwapSeries = tradeSession.indicators.vwap;
-    const vwap = new Map<number, number>();
-    tradeSession.candles.forEach((c, i) => {
-      const v = vwapSeries?.[i];
-      if (v != null && !Number.isNaN(v)) vwap.set(floorMinute(isoToUtcSeconds(c.ts)), v);
-    });
+    const vwap = vwapMap(tradeSession);
     const contractCandles = hasContract
       ? candlesInWindow(contractData!.candles, startSec, endSec)
       : null;
-    // EMAs (opt-in, grey): one minute-keyed map per period present.
-    const emas = Object.keys(tradeSession.indicators)
-      .filter((k) => /^ema\d+$/.test(k))
-      .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))
-      .slice(0, EMA_GREYS.length)
-      .map((k) => {
-        const series = tradeSession.indicators[k as keyof typeof tradeSession.indicators];
-        const values = new Map<number, number>();
-        tradeSession.candles.forEach((c, i) => {
-          const v = series?.[i];
-          if (v != null && !Number.isNaN(v)) values.set(floorMinute(isoToUtcSeconds(c.ts)), v);
-        });
-        return { label: k.toUpperCase(), values };
-      });
-    return { spyCandles, vwap, emas, contractCandles };
+    // EMAs 9/21/50 (greens) and SMAs 200/400 (red dashed), minute-keyed; toggled in spyPane.
+    const emas = emaLines(tradeSession);
+    const smas = smaLines(tradeSession);
+    return { spyCandles, vwap, emas, smas, contractCandles };
   }, [tradeSession, startSec, endSec, hasContract, contractData]);
 
   // What the panes may show. In Seconds mode the current minute is the candle formed from the
@@ -186,6 +195,7 @@ export function ReplayPage() {
         : null,
       vwap: finishedOnly(windowedAll.vwap, ph),
       emas: windowedAll.emas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
+      smas: windowedAll.smas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
     };
   }, [windowedAll, useSeconds, secs.playSec, secs.underlying, secs.contract]);
 
@@ -227,7 +237,11 @@ export function ReplayPage() {
 
   // The session is already cut to the trade window, so the replay starts at bar 0
   // (the engine resets to the first bar whenever the bar count changes).
-  const minuteReplay = useReplay(data, { keyboardEnabled: !useSeconds });
+  const minuteReplay = useReplay(data, {
+    keyboardEnabled: !useSeconds,
+    // Trade replay: the speed slider drives the minute clock too (60x = 1 bar per second).
+    chartSpeed: inTrade ? speed : undefined,
+  });
 
   // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
   // minute engine only supplies the bar count. Everything below reads `replay`.
@@ -238,7 +252,6 @@ export function ReplayPage() {
         currentIndex: secIndex,
         currentBar: secIndex,
         isPlaying: secs.isPlaying,
-        speed: secs.speed,
         atStart: secs.atStart,
         atEnd: secs.atEnd,
         play: secs.play,
@@ -247,9 +260,6 @@ export function ReplayPage() {
         stepForward: secs.stepForward,
         stepBack: secs.stepBack,
         restart: secs.restart,
-        setSpeed: (sp: Speed) => {
-          if (sp === 1 || sp === 2 || sp === 4) secs.setSpeed(sp as SecondsSpeed);
-        },
         setIndex: (i: number) => {
           const c = data?.candles[i];
           if (c) secs.seek(isoToUtcSeconds(c.ts));
@@ -269,17 +279,35 @@ export function ReplayPage() {
     : playheadTs
       ? floorMinute(isoToUtcSeconds(playheadTs))
       : startSec;
-  const toggleSeconds = () => {
-    if (useSeconds) {
-      secs.pause();
-      minuteReplay.setIndex(secIndex);
-      setSecondsOn(false);
-    } else {
-      minuteReplay.pause();
-      secs.seek(playheadSec);
-      setSecondsOn(true);
+  // Crossing 60x (or the seconds probe landing) swaps the clock: carry the playhead and the
+  // play state across. `lastClock` holds the previous render's position.
+  const lastClock = useRef({
+    seconds: useSeconds,
+    sec: playheadSec,
+    index: replay.currentIndex,
+    playing: replay.isPlaying,
+  });
+  const { pause: secsPause, seek: secsSeek, play: secsPlay } = secs;
+  useEffect(() => {
+    const prev = lastClock.current;
+    if (prev.seconds !== useSeconds) {
+      if (useSeconds) {
+        minuteReplay.pause();
+        secsSeek(prev.sec);
+        if (prev.playing) secsPlay();
+      } else {
+        secsPause();
+        minuteReplay.setIndex(prev.index);
+        if (prev.playing) minuteReplay.play();
+      }
     }
-  };
+    lastClock.current = {
+      seconds: useSeconds,
+      sec: playheadSec,
+      index: replay.currentIndex,
+      playing: replay.isPlaying,
+    };
+  });
 
   // SPY pane: VWAP plus one level ladder by default; EMAs opt-in. Levels are the
   // causal value at the playhead bar, never a later one.
@@ -293,24 +321,17 @@ export function ReplayPage() {
       if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > levelSec) break;
       idx = i;
     }
-    const levels = LADDERS[stackInd.ladder].levels.flatMap((l: { key: LevelKey; label: string }) => {
-      const v = valueAt(tradeSession.levels[l.key], idx);
-      return v == null ? [] : [{ label: l.label, price: v }];
-    });
-    // Somesh's posted levels for the day (constant; hidden with the "Somesh levels" toggle).
-    if (!config.hiddenLevels.has(CALLER_LEVELS_KEY)) {
-      for (const cl of tradeSession.caller_levels ?? []) {
-        levels.push({ label: cl.kind === "ema200_1h" ? "200 1h" : cl.kind === "ray" ? "S ray" : "S", price: cl.price });
-      }
-    }
+    // Ladder levels (causal at idx) plus the caller's posted levels for the day.
+    const levels = paneLevels(tradeSession, idx, stackInd);
+    const lines = [...(stackInd.ema ? windowed.emas : []), ...(stackInd.sma ? windowed.smas : [])];
     return {
       label: spyLabel,
       candles: windowed.spyCandles,
       vwap: stackInd.vwap ? windowed.vwap : undefined,
       levels,
-      emas: stackInd.ema ? windowed.emas : undefined,
+      emas: lines.length > 0 ? lines : undefined,
     };
-  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds, config.hiddenLevels]);
+  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds]);
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
   const windowEndTs = fillsQuery.data?.window_end_ts ?? null;
   useEffect(() => {
@@ -443,7 +464,24 @@ export function ReplayPage() {
     tradeRow.data?.contract_label ?? contractData?.symbol ?? tradeReplay.data?.session.symbol ?? "…";
   const tradeDate = tradeRow.data?.session_date ?? tradeReplay.data?.session.session_date ?? "";
   const bar = useMemo(() => ruleBarState(daySoFar.data), [daySoFar.data]);
-  const setLead = (l: number) => setParams({ trade: String(tradeId), lead: String(l) });
+  const tradeParams = (id: number, l: number) => ({
+    trade: String(id),
+    lead: String(l),
+    ...(from ? { from } : {}),
+  });
+  const setLead = (l: number) => setParams(tradeParams(tradeId as number, l));
+  const neighbors = useQuery({
+    queryKey: ["replay-neighbors", tradeId],
+    queryFn: () => api.replayTradeNeighbors(tradeId as number),
+    enabled: tradeId !== null,
+    staleTime: 60_000,
+  });
+  const goTrade = (id: number | null | undefined) => (id ? () => setParams(tradeParams(id, lead)) : null);
+  const exit = () => {
+    const to = exitTarget(from, tradeId);
+    if (to) navigate(to);
+    else setParams({});
+  };
 
   if (picking) {
     return (
@@ -467,14 +505,12 @@ export function ReplayPage() {
             }
             replay={replay}
             disabled={!ready}
-            onExit={() => setParams({})}
-            seconds={{
-              on: useSeconds,
-              available: secondsProbe.data?.available === true,
-              checking: secondsProbe.isLoading,
-              reason: secondsProbe.data?.reason ?? (secondsProbe.isError ? "request failed" : null),
-              onToggle: toggleSeconds,
-            }}
+            onExit={exit}
+            speed={speed}
+            onSpeedChange={setSpeed}
+            minuteTag={minuteTag}
+            fineSteps={useSeconds}
+            nav={{ onPrev: goTrade(neighbors.data?.prev_id), onNext: goTrade(neighbors.data?.next_id) }}
             daySoFar={<RuleSummary state={bar} loading={daySoFar.isLoading} />}
           />
         </>
