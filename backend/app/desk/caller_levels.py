@@ -3,10 +3,12 @@
 Read from ``data/levels/YYYY-MM-DD.json`` (private, never committed):
 
     {"date": "...", "source": "somesh",
-     "tickers": {"SPY": {"levels": [...], "ema200_1h": 764.45, "rays": [...]}}}
+     "tickers": {"SPY": {"levels": [...], "sma200_1h": 764.45, "rays": [...]}}}
 
-``levels`` are the caller's horizontal lines, ``ema200_1h`` the 1h 200 EMA he tags on the chart,
+``levels`` are the caller's horizontal lines, ``sma200_1h`` the 1h 200 SMA he tags on the chart,
 ``rays`` the shorter lines he starts from a candle. A missing or unreadable file means no levels.
+Older files call the 200 line ``ema200_1h`` (it was always an SMA); both keys are read and
+emitted as kind ``sma200_1h``.
 """
 from __future__ import annotations
 
@@ -34,6 +36,9 @@ def load(symbol: str, day: date, root: Path = LEVELS_DIR) -> list[CallerLevel]:
     src = doc.get("source") or "caller"
     out = [CallerLevel(price=float(p), kind="level", source=src) for p in t.get("levels") or []]
     out += [CallerLevel(price=float(p), kind="ray", source=src) for p in t.get("rays") or []]
-    if t.get("ema200_1h") is not None:
-        out.append(CallerLevel(price=float(t["ema200_1h"]), kind="ema200_1h", source=src))
+    sma200 = t.get("sma200_1h")
+    if sma200 is None:
+        sma200 = t.get("ema200_1h")  # old key, same line
+    if sma200 is not None:
+        out.append(CallerLevel(price=float(sma200), kind="sma200_1h", source=src))
     return out

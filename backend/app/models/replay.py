@@ -20,7 +20,7 @@ from app.models.utc import UtcDatetime
 class CallerLevel(BaseModel):
     """A level a caller posted for the day (data/levels/YYYY-MM-DD.json)."""
     price: float
-    kind: str = "level"  # level | ray | ema200_1h
+    kind: str = "level"  # level | ray | sma200_1h
     source: str = "somesh"
 
 
@@ -31,7 +31,8 @@ class ReplaySessionResponse(BaseModel):
 
     # Each key -> array aligned with candles; value at i uses only candles[0..i].
     # indicators keys are dynamic: one ema<period> per requested EMA (default
-    # ema9/ema21/ema50/ema200), always vwap, and rsi<period> (default rsi14). The
+    # ema9/ema21/ema50/ema200), always vwap, sma200 and sma400 (seeded with prior
+    # sessions, null until a full window), and rsi<period> (default rsi14). The
     # replay route lets the client override the EMA periods and RSI period.
     indicators: dict[str, list[float | None]] = Field(default_factory=dict)
 
@@ -154,3 +155,43 @@ class DaySoFarResponse(BaseModel):
     cutoff: str | None = None  # "HH:MM" PT
     entry: str | None = None  # "before" | "after" the cutoff
     call_source: str | None = None  # the trade's mentor/own field, else its plan's caller
+
+
+class ReplayNeighbors(BaseModel):
+    """The trades before and after one trade, in time order across days. Ids only."""
+
+    trade_id: int
+    prev_id: int | None = None
+    next_id: int | None = None
+
+
+class ReplayDayResponse(BaseModel):
+    """A whole day's replay: one underlying session. Carries no trade times, fills or
+    results; those come from the playhead-gated /fills poll."""
+
+    session_date: date
+    symbol: str
+    symbols: list[str] = Field(default_factory=list)  # every underlying traded that day
+    trade_count: int = 0  # trades on `symbol` that day
+    session: ReplaySessionResponse
+
+
+class ReplayDayTrade(BaseModel):
+    trade_id: int
+    contract_label: str | None = None
+    open_ts: UtcDatetime
+
+
+class ReplayDayFill(ReplayFill):
+    trade_id: int
+    contract_label: str | None = None
+
+
+class ReplayDayFillsResponse(BaseModel):
+    """Fills (and trades entered) at or before `playhead` only, across the day."""
+
+    session_date: date
+    symbol: str
+    playhead: UtcDatetime
+    trades: list[ReplayDayTrade] = Field(default_factory=list)
+    fills: list[ReplayDayFill] = Field(default_factory=list)

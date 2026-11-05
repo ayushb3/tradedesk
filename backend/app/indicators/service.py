@@ -26,6 +26,7 @@ from app.providers.base import DataProvider
 from . import levels as lv
 from .ema import ema
 from .rsi import rsi
+from .sma import sma_with_warmup
 from .vwap import vwap
 
 # Defensive import: task 6.0.2 (training_store) may not be landed yet.
@@ -42,6 +43,11 @@ _ROUND = 4
 # alignment and stored expectations are unaffected.
 DEFAULT_EMA_PERIODS: tuple[int, ...] = (9, 21, 50, 200)
 DEFAULT_RSI_PERIOD = 14
+# Simple moving averages drawn red on every chart (keys ``sma200`` / ``sma400``).
+# Seeded with prior-session closes so they are valid from the open; never partial.
+DEFAULT_SMA_PERIODS: tuple[int, ...] = (200, 400)
+# How many extra prior sessions we may fetch to warm the longest SMA up.
+_MAX_WARMUP_SESSIONS = 3
 
 # Fixed anchor for blind-mode timestamp rebasing.
 # All sliced candles have their timestamps rebased so the first bar of the slice
@@ -71,6 +77,8 @@ def _build_indicators(
     *,
     ema_periods: tuple[int, ...] = DEFAULT_EMA_PERIODS,
     rsi_period: int = DEFAULT_RSI_PERIOD,
+    sma_periods: tuple[int, ...] = DEFAULT_SMA_PERIODS,
+    warmup_closes: list[float] | None = None,
 ) -> dict[str, list[float | None]]:
     """Compute the indicator series map for a candle list.
 
@@ -89,6 +97,11 @@ def _build_indicators(
         indicators[f"ema{p}"] = _round_series(ema(closes, p))
     indicators["vwap"] = _round_series(vwap(candles, tz=tz))
     indicators[f"rsi{rsi_period}"] = _round_series(rsi(closes, rsi_period))
+    # SMAs: seeded with earlier closes (``warmup_closes``) so they're valid from the
+    # first bar when enough history exists; None (never a partial mean) otherwise.
+    warm = warmup_closes or []
+    for p in sma_periods:
+        indicators[f"sma{p}"] = _round_series(sma_with_warmup(warm, closes, p))
     return indicators
 
 
@@ -132,12 +145,42 @@ def _fetch_full_session(
         symbol, _prior_trading_day(session_date), timeframe
     )
 
+    warmup = _warmup_closes(provider, symbol, session_date, timeframe, prior_candles)
     indicators = _build_indicators(
-        candles, tz, ema_periods=ema_periods, rsi_period=rsi_period
+        candles, tz, ema_periods=ema_periods, rsi_period=rsi_period, warmup_closes=warmup
     )
     levels = _build_levels(candles, prior_candles, tz, or_minutes)
 
     return candles, indicators, levels
+
+
+def _warmup_closes(
+    provider: DataProvider,
+    symbol: str,
+    session_date: date,
+    timeframe: str,
+    prior_candles: list[Candle],
+    need: int = max(DEFAULT_SMA_PERIODS) - 1,
+) -> list[float]:
+    """Closes from the sessions before ``session_date``, oldest first, enough to fill
+    the longest SMA window at the first bar. Starts from the already-fetched prior
+    session and walks back at most ``_MAX_WARMUP_SESSIONS`` more; a provider error
+    just stops the walk (the SMA then starts later instead of being wrong)."""
+    sessions: list[list[Candle]] = [prior_candles]
+    have = len(prior_candles)
+    day = _prior_trading_day(session_date)
+    for _ in range(_MAX_WARMUP_SESSIONS):
+        if have >= need:
+            break
+        day = _prior_trading_day(day)
+        try:
+            more = provider.get_candles(symbol, day, timeframe)
+        except Exception:  # noqa: BLE001 - warm-up is best effort
+            break
+        sessions.insert(0, more)
+        have += len(more)
+    closes = [c.close for s in sessions for c in s]
+    return closes[-need:] if need > 0 else []
 
 
 def compute_replay_session(

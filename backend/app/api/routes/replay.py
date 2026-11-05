@@ -23,7 +23,12 @@ from app.models.replay import (
     RealResult,
     ReplayFill,
     ReplayContractResponse,
+    ReplayDayFill,
+    ReplayDayFillsResponse,
+    ReplayDayResponse,
+    ReplayDayTrade,
     ReplayFillsResponse,
+    ReplayNeighbors,
     ReplaySecondsResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
@@ -404,4 +409,79 @@ def replay_day_so_far(trade_id: int) -> DaySoFarResponse:
         cutoff=rules.window.end,
         entry="before" if entry <= cutoff_end else "after",
         call_source=own_source or plan_caller or None,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Navigation: prev/next trade, and a whole day
+# --------------------------------------------------------------------------- #
+@router.get("/replay/trade/{trade_id}/neighbors", response_model=ReplayNeighbors)
+def replay_trade_neighbors(trade_id: int) -> ReplayNeighbors:
+    """The trade before and after this one: same day in time order, then the
+    adjacent day. Ids only (no times, prices or results)."""
+    from app.desk import replay_nav
+
+    found = replay_nav.neighbors(trade_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return ReplayNeighbors(trade_id=trade_id, prev_id=found[0], next_id=found[1])
+
+
+def _day_trades_or_404(day: date, symbol: str | None) -> tuple[str, list[str], list[dict]]:
+    from app.desk import replay_nav
+
+    trades = replay_nav.day_trades(day)
+    if not trades:
+        raise HTTPException(status_code=404, detail="no trades on that day")
+    symbols = replay_nav.day_symbols(trades)
+    sym = symbol.upper() if symbol else symbols[0]
+    if sym not in symbols:
+        raise HTTPException(status_code=404, detail=f"no {sym} trades on that day")
+    return sym, symbols, [t for t in trades if t["symbol"] == sym]
+
+
+@router.get("/replay/day/{day}", response_model=ReplayDayResponse)
+def replay_day(
+    day: date,
+    symbol: str | None = Query(None, description="Underlying; default: the day's most traded."),
+    provider: DataProvider = Depends(provider_dep),
+    settings: Settings = Depends(settings_dep),
+) -> ReplayDayResponse:
+    """One session for a whole day's trades on one underlying. Trade times, fills and
+    results are NOT here: they come from the playhead-gated ``/fills`` poll."""
+    from app.indicators.service import compute_replay_session
+
+    sym, symbols, trades = _day_trades_or_404(day, symbol)
+    session = compute_replay_session(provider, sym, day, settings, timeframe="1m")
+    session.caller_levels = caller_levels.load(sym, day)
+    return ReplayDayResponse(
+        session_date=day, symbol=sym, symbols=symbols, trade_count=len(trades), session=session
+    )
+
+
+@router.get("/replay/day/{day}/fills", response_model=ReplayDayFillsResponse)
+def replay_day_fills(
+    day: date,
+    playhead: datetime = Query(..., description="Reveal trades and fills at or before this time."),
+    symbol: str | None = Query(None),
+) -> ReplayDayFillsResponse:
+    """The day's trades entered and fills printed at or before the playhead, each fill
+    tagged with its trade. Nothing later is serialized."""
+    sym, _, trades = _day_trades_or_404(day, symbol)
+    head = _as_utc(playhead).replace(microsecond=0)
+    seen: list[ReplayDayTrade] = []
+    fills: list[ReplayDayFill] = []
+    for t in trades:
+        if t["open_ts"].replace(microsecond=0) > head:
+            continue
+        seen.append(ReplayDayTrade(
+            trade_id=t["trade_id"], contract_label=t["contract_label"], open_ts=t["open_ts"]
+        ))
+        for f in revealed_fills(t["trade_id"], head):
+            fills.append(ReplayDayFill(
+                **f.model_dump(), trade_id=t["trade_id"], contract_label=t["contract_label"]
+            ))
+    fills.sort(key=lambda f: _as_utc(f.ts))
+    return ReplayDayFillsResponse(
+        session_date=day, symbol=sym, playhead=head, trades=seen, fills=fills
     )
