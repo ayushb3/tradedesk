@@ -216,9 +216,10 @@ function ReviewContent({
             />
           )}
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
-            {/* Chart + fills column */}
-            <div className="flex flex-col gap-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
+            {/* Chart + fills column. minmax(0, …) + min-w-0: the column is sized by the page,
+                never by its content, so the chart cannot grow (and resize) as its readout changes. */}
+            <div className="flex min-w-0 flex-col gap-4">
               <ReviewStackChart trade={trade} fills={fills} hasOption={option != null} />
 
               {/* Share trades carry their MFE/MAE here (basis: underlying); option trades
