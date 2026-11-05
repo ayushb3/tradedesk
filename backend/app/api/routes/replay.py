@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import provider_dep, settings_dep
 from app.config import Settings
+from app.desk import caller_levels
 from app.models.replay import (
     DaySoFarResponse,
     RealResult,
@@ -100,7 +101,7 @@ def replay_session(
     except ImportError:
         raise HTTPException(status_code=501, detail="indicators service not implemented")
     try:
-        return compute_replay_session(
+        session = compute_replay_session(
             provider,
             symbol.upper(),
             date_,
@@ -110,6 +111,8 @@ def replay_session(
             rsi_period=rsi_period,
             or_minutes=or_minutes,
         )
+        session.caller_levels = caller_levels.load(symbol, date_)
+        return session
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="indicators service not implemented")
 
@@ -202,6 +205,7 @@ def replay_trade(
     session = compute_replay_session(
         provider, trade.symbol.upper(), trade.session_date, settings, timeframe=timeframe
     )
+    session.caller_levels = caller_levels.load(trade.symbol, trade.session_date)
     start_index = next(
         (i for i, c in enumerate(session.candles) if _as_utc(c.ts) >= start_ts),
         max(len(session.candles) - 1, 0),

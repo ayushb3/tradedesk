@@ -13,6 +13,7 @@ import {
   overlaySpecs,
   rsiKey,
   type ChartVisibility,
+  CALLER_LEVELS_KEY,
 } from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { PriceChart } from "@/components/chart/PriceChart";
@@ -296,6 +297,12 @@ export function ReplayPage() {
       const v = valueAt(tradeSession.levels[l.key], idx);
       return v == null ? [] : [{ label: l.label, price: v }];
     });
+    // Somesh's posted levels for the day (constant; hidden with the "Somesh levels" toggle).
+    if (!config.hiddenLevels.has(CALLER_LEVELS_KEY)) {
+      for (const cl of tradeSession.caller_levels ?? []) {
+        levels.push({ label: cl.kind === "ema200_1h" ? "200 1h" : cl.kind === "ray" ? "S ray" : "S", price: cl.price });
+      }
+    }
     return {
       label: spyLabel,
       candles: windowed.spyCandles,
@@ -303,7 +310,7 @@ export function ReplayPage() {
       levels,
       emas: stackInd.ema ? windowed.emas : undefined,
     };
-  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds]);
+  }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds, config.hiddenLevels]);
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
   const windowEndTs = fillsQuery.data?.window_end_ts ?? null;
   useEffect(() => {

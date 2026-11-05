@@ -80,6 +80,14 @@ export const LEVEL_META: { key: LevelKey; label: string; color: string }[] = [
 
 const RSI_COLOR = "#eab308";
 
+/** Visibility key for the caller-levels group (lives in hiddenLevels). */
+export const CALLER_LEVELS_KEY = "caller";
+const CALLER_COLORS: Record<string, string> = {
+  level: "#facc15",
+  ray: "#f43f5e",
+  ema200_1h: "#fb923c",
+};
+
 /**
  * Which overlays / levels / RSI to draw. A key absent from a set (or the set
  * being undefined) means "show it" — visibility is opt-out so a freshly loaded
@@ -370,6 +378,22 @@ export function ReplayChart({
           title: lv.label,
         }),
       );
+    }
+
+    // Caller levels (Somesh's posted lines): constant all session, toggled as one group.
+    if (!visibility.hiddenLevels.has(CALLER_LEVELS_KEY)) {
+      for (const cl of session.caller_levels ?? []) {
+        levelLinesRef.current.push(
+          candleSeries.createPriceLine({
+            price: cl.price,
+            color: CALLER_COLORS[cl.kind] ?? CALLER_COLORS.level,
+            lineWidth: cl.kind === "level" ? 2 : 1,
+            lineStyle: cl.kind === "level" ? LineStyle.Solid : LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: cl.kind === "ema200_1h" ? "200 1h" : cl.kind === "ray" ? "ray" : "",
+          }),
+        );
+      }
     }
 
     // On first render of a session, lock the visible logical range to the FULL
