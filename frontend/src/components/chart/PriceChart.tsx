@@ -1032,7 +1032,7 @@ export function PriceChart({
 
   return (
     // No text selection or native drag: a drag on the chart must never pick up a ghost image of it.
-    <div className="flex h-full min-h-0 w-full select-none flex-col" onDragStart={(e) => e.preventDefault()}>
+    <div className="flex h-full min-h-0 w-full min-w-0 select-none flex-col" onDragStart={(e) => e.preventDefault()}>
       {top && (
         <Pane
           className="flex-[6]"
@@ -1124,8 +1124,11 @@ function Pane({
       {/* Header + OHLC readout for the hovered (or playhead) minute. One fixed-height line: if
           the readout could wrap, hovering would resize the plot under the cursor and jitter. */}
       <div className="flex h-8 shrink-0 items-center gap-x-3 whitespace-nowrap px-3">
-        {/* The readout clips; the controls never move. */}
-        <div className="flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden">
+        {/* The readout clips; the controls never move. w-0 + flex-1: the readout takes the space
+            left over and adds nothing to the chart's min-content width. Without it the nowrap
+            OHLC text widened the page's grid column on hover, resizing the chart under the
+            cursor (the Trade window "duplicate labels" glitch). */}
+        <div className="flex w-0 min-w-0 flex-1 items-center gap-x-3 overflow-hidden">
         <span className="label-caps text-label font-semibold">{spec.label}</span>
         {spec.badge}
         <span className="num text-label text-muted-foreground">
