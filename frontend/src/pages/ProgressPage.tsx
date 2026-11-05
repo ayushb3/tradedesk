@@ -1,5 +1,5 @@
 /**
- * ProgressPage — /training/progress
+ * ProgressPage — /learn/progress (old /training/progress redirects here)
  *
  * Gamification surface for the training module (M6 task 6.4.2).
  *
@@ -19,7 +19,7 @@
  *
  * Consumes: GET /api/training/progress → ProgressReport
  * Due-review "Review now": POST /api/training/scenarios (synthetic), then
- * navigate to /training/drills/:id (Option B per PLAN §6 C4 acceptance).
+ * navigate to /learn/practice/:id (Option B per PLAN §6 C4 acceptance).
  */
 
 import { useState } from "react";
@@ -45,6 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import { createSyntheticScenario, useProgress } from "@/lib/drills";
 import type { ArchetypeMastery, DueReview, Quest } from "@/lib/trainingTypes";
+import { LEARN_HOME, practicePath } from "@/lib/learnRoutes";
 
 // --------------------------------------------------------------------------- //
 // Helpers
@@ -238,7 +239,7 @@ function DueReviewCard({ review }: { review: DueReview }) {
         synth_seed: review.suggested_seed,
         title,
       });
-      navigate(`/training/drills/${scenario.id}`);
+      navigate(practicePath(scenario.id));
     } catch (err) {
       setCreateError(
         err instanceof ApiError
@@ -486,7 +487,7 @@ function EmptyProgress() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => navigate("/training/drills")}
+        onClick={() => navigate(LEARN_HOME)}
         className="gap-1.5"
       >
         <BookOpen className="h-3.5 w-3.5" />

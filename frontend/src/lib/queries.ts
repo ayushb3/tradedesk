@@ -32,6 +32,8 @@ import {
   type LearnNotConfigured,
   type LearnToday,
   type LearnTopic,
+  type LearnTopicDetail,
+  type LessonTrades,
   type KnowledgeSearchResponse,
   type KnowledgeStatus,
   type KnowledgeConceptsResponse,
@@ -527,6 +529,22 @@ export function useLearnTopics() {
   return useQuery<LearnTopic[] | LearnNotConfigured>({
     queryKey: ["learn-topics"],
     queryFn: () => api.learnTopics(),
+  });
+}
+
+export function useLearnTopic(slug: string | undefined) {
+  return useQuery<LearnTopicDetail | LearnNotConfigured>({
+    queryKey: ["learn-topic", slug],
+    queryFn: () => api.learnTopic(slug as string),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useLessonTrades(id: number | undefined) {
+  return useQuery<LessonTrades>({
+    queryKey: ["knowledge-lesson-trades", id],
+    queryFn: () => api.knowledgeLessonTrades(id as number),
+    enabled: id !== undefined && Number.isFinite(id),
   });
 }
 

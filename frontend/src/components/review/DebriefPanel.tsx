@@ -49,6 +49,7 @@ import type {
 } from "@/lib/debriefTypes";
 import type { DebriefVerdict } from "@/lib/trainingTypes";
 import { cn } from "@/lib/utils";
+import { practicePath } from "@/lib/learnRoutes";
 
 // --------------------------------------------------------------------------- //
 // State machine
@@ -245,7 +246,7 @@ export function DebriefPanel({ tradeId, onGetCritique }: DebriefPanelProps) {
         tradeId={tradeId}
         artifacts={artifacts}
         onTakeDrill={() =>
-          navigate(`/training/drills/${artifacts.scenario_id}`)
+          navigate(practicePath(String(artifacts.scenario_id)))
         }
         onGetCritique={onGetCritique}
       />

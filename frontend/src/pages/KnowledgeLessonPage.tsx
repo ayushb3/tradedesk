@@ -36,7 +36,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, type KnowledgeChunkAnchor, type KnowledgeLessonSheet } from "@/lib/api";
-import { useKnowledgeLesson, useSetLessonProgress } from "@/lib/queries";
+import { useKnowledgeLesson, useLessonTrades, useSetLessonProgress } from "@/lib/queries";
+import { shortDate } from "@/lib/learn";
+import { tradePath } from "@/lib/learnRoutes";
 
 /**
  * Split raw transcript text into non-overlapping display segments keyed to the
@@ -134,6 +136,35 @@ function StudySheet({ sheet }: { sheet: KnowledgeLessonSheet }) {
             <LessonQuiz questions={sheet.quiz} />
           </section>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Your own trades whose setup tags match this lesson (title / concept words). Hidden when none. */
+function TaggedTrades({ lessonId }: { lessonId: number }) {
+  const q = useLessonTrades(lessonId);
+  const data = q.data;
+  if (!data || data.trades.length === 0) return null;
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Your trades tagged with this setup</h2>
+          <span className="text-xs text-muted-foreground">{data.tags.join(", ")}</span>
+        </div>
+        <ul className="divide-y divide-border">
+          {data.trades.map((t) => (
+            <li key={t.trade_id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+              <Link to={tradePath(t.trade_id)} className="min-w-0 truncate text-primary hover:underline">
+                {t.label ?? t.symbol}
+              </Link>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {shortDate(t.session_date)} · {t.tags.join(", ")}
+              </span>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );
@@ -279,6 +310,8 @@ export function KnowledgeLessonPage() {
                   ))}
                 </div>
               ) : null}
+
+              <TaggedTrades lessonId={data.id} />
 
               {data.sheet != null ? <StudySheet sheet={data.sheet} /> : null}
 

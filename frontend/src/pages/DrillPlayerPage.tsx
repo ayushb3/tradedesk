@@ -1,5 +1,5 @@
 /**
- * DrillPlayerPage — /training/drills/:scenarioId
+ * DrillPlayerPage — /learn/practice/:scenarioId (old /training/drills/:id redirects here)
  *
  * State machine:
  *   loading  → ready (session loaded, no attempt yet)
@@ -20,8 +20,8 @@
  *   ?playlist=2,3,4&mood=calm
  *   The current scenario is the :scenarioId path param.  `playlist` holds the
  *   *remaining* ids (not yet played).  On finish the player either:
- *     - navigates to /training/drills/<next>?playlist=<rest>&mood=<mood>  (more drills left)
- *     - navigates to /training/leaks with a success toast                 (playlist complete)
+ *     - navigates to /learn/practice/<next>?playlist=<rest>&mood=<mood>  (more drills left)
+ *     - navigates to /learn with a success toast                         (playlist complete)
  *   All state rides in the URL; bailing mid-playlist is harmless.
  *
  * Reuses ReplayChart for tape rendering. The chart receives a `DrillSession`
@@ -60,6 +60,7 @@ import type {
   DrillSession,
   MoodCheckin,
 } from "@/lib/trainingTypes";
+import { LEARN_HOME, practicePath } from "@/lib/learnRoutes";
 
 // --------------------------------------------------------------------------- //
 // Playlist URL helpers
@@ -381,10 +382,10 @@ export function DrillPlayerPage() {
       if (rest.length > 0) params.set("playlist", serializePlaylist(rest));
       if (moodParam) params.set("mood", moodParam);
       const qs = params.toString();
-      navigate(`/training/drills/${nextId}${qs ? `?${qs}` : ""}`);
+      navigate(practicePath(nextId, qs));
     } else if (isInPlaylist && remainingIds.length === 0) {
       // Playlist complete — go to leaks page with a toast.
-      navigate("/training/leaks");
+      navigate(LEARN_HOME);
       // Toast fires after navigation; slight delay avoids race with page mount.
       window.setTimeout(() => {
         toast({
@@ -394,8 +395,8 @@ export function DrillPlayerPage() {
         });
       }, 150);
     } else {
-      // Normal single-drill flow — lobby.
-      navigate("/training/drills");
+      // Normal single-drill flow — back to Learn.
+      navigate(LEARN_HOME);
     }
   }, [isInPlaylist, remainingIds, moodParam, navigate, toast]);
 
@@ -427,7 +428,7 @@ export function DrillPlayerPage() {
       <ReadyScreen
         session={session}
         onStart={handleConfirmStart}
-        onBack={() => navigate("/training/drills")}
+        onBack={() => navigate(LEARN_HOME)}
         playlistRemaining={isInPlaylist ? remainingIds.length : null}
       />
     );
