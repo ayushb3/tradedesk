@@ -41,7 +41,7 @@ import {
   emaKeys,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { overlaySpecs, LEVEL_META } from "@/components/replay/ReplayChart";
+import { overlaySpecs, LEVEL_META, CALLER_LEVELS_KEY } from "@/components/replay/ReplayChart";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 
 interface ReplayControlBarProps {
@@ -465,6 +465,12 @@ function IndicatorsPopover({
                   />
                 );
               })}
+              <ToggleRow
+                label="Somesh levels"
+                on={!config.hiddenLevels.has(CALLER_LEVELS_KEY)}
+                color="#facc15"
+                onToggle={() => toggleLevel(CALLER_LEVELS_KEY)}
+              />
             </div>
           </section>
 
