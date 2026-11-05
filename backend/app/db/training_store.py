@@ -670,6 +670,16 @@ def finish_debrief(
         # gracefully — DebriefArtifacts.enrichment_saved will be False.
         enrichment_saved = False
 
+    # A finished debrief is a review: take the trade out of the review queue
+    # (keeps an earlier reviewed_at). Best-effort, like the enrichment above.
+    try:
+        from app.ingest.query import mark_reviewed
+
+        with engine.begin() as conn:
+            mark_reviewed(conn, debrief.trade_id)
+    except Exception:
+        pass  # the debrief itself is saved; the trade just stays in the queue
+
     # Optionally emit a scenario from this debrief.
     emitted_scenario_id: int | None = None
     if finish.emit_scenario:

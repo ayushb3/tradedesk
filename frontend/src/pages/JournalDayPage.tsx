@@ -1,23 +1,41 @@
-import { useState } from "react";
-import { ArrowLeft, CalendarDays } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { DayJournal } from "@/components/days/DayJournal";
+import { DayPlans } from "@/components/days/DayPlans";
 import { SessionStrip } from "@/components/days/SessionStrip";
 import { TradeRows } from "@/components/days/TradeRows";
 import { VerdictBand } from "@/components/days/VerdictBand";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { ApiErrorState, EmptyState } from "@/components/journal/ApiStates";
 import { ApiError } from "@/lib/api";
-import { dayVerdict, tradeRows } from "@/lib/dayPage";
+import { dayNavKey, dayVerdict, isTypingTarget, replayDayHref, tradeRows } from "@/lib/dayPage";
+import { adjacentTradingDay, tradingDays } from "@/lib/daysHome";
 import { formatDayMonth } from "@/lib/format";
-import { useDailyReview, useDeskDay } from "@/lib/queries";
+import { useDailyReview, useDeskDay, useDeskDays } from "@/lib/queries";
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Local-midnight Date for a `YYYY-MM-DD` (what react-day-picker works in). */
+function isoToLocal(iso: string): Date | undefined {
+  if (!ISO_DATE.test(iso)) return undefined;
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function localToIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /**
  * A session day: the verdict band (net, sum of R, rule chips), the SPY session
- * strip with each trade as a band, and the trades as time-ordered rows. Rows and
- * bands open the trade review. Reached from the Days calendar.
+ * strip with each trade as a band, the trades as time-ordered rows, the day's plans
+ * and the day journal (saved). The header steps between trading days (`[` / `]` or
+ * Alt+arrows) and opens a replay of the day. Reached from the Days calendar.
  */
 export function JournalDayPage() {
   const { date = "" } = useParams<{ date: string }>();
@@ -25,13 +43,32 @@ export function JournalDayPage() {
   const { data: day, isLoading, isError, error } = useDeskDay(date);
   // Reflection prompts come from the review payload, keyed on the same :date.
   const review = useDailyReview(date);
+  const days = useDeskDays();
+
+  const allDays = days.data?.days ?? [];
+  const prevDay = adjacentTradingDay(allDays, date, -1);
+  const nextDay = adjacentTradingDay(allDays, date, 1);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isTypingTarget(e.target)) return;
+      const dir = dayNavKey(e);
+      if (dir == null) return;
+      const to = dir < 0 ? prevDay : nextDay;
+      e.preventDefault(); // Alt+arrow is also browser back/forward
+      if (to) navigate(`/journal/${to}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate, prevDay, nextDay]);
 
   const noDay = isError && error instanceof ApiError && error.status === 404;
   const positions = day?.positions ?? [];
+  const validDate = ISO_DATE.test(date);
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
         <Button
           variant="ghost"
           size="sm"
@@ -41,15 +78,54 @@ export function JournalDayPage() {
           <ArrowLeft className="h-4 w-4" />
           Days
         </Button>
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-          <h1 className="font-semibold tracking-tight">{formatDayMonth(date)}</h1>
-          {positions.length > 0 && (
-            <span className="num text-label text-muted-foreground">
-              {positions.length} {positions.length === 1 ? "trade" : "trades"}
-            </span>
-          )}
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={!prevDay}
+            onClick={() => prevDay && navigate(`/journal/${prevDay}`)}
+            aria-label={prevDay ? `Previous trading day, ${formatDayMonth(prevDay)}` : "No earlier trading day"}
+            title="Previous trading day ( [ or Alt+← )"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <DayPicker
+            date={date}
+            tradingDates={tradingDays(allDays)}
+            onPick={(d) => navigate(`/journal/${d}`)}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={!nextDay}
+            onClick={() => nextDay && navigate(`/journal/${nextDay}`)}
+            aria-label={nextDay ? `Next trading day, ${formatDayMonth(nextDay)}` : "No later trading day"}
+            title="Next trading day ( ] or Alt+→ )"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
+
+        {positions.length > 0 && (
+          <span className="num text-label text-muted-foreground">
+            {positions.length} {positions.length === 1 ? "trade" : "trades"}
+          </span>
+        )}
+
+        {validDate && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto gap-1.5"
+            onClick={() => navigate(replayDayHref(date))}
+          >
+            <Play className="h-4 w-4" />
+            Replay day
+          </Button>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -71,9 +147,12 @@ export function JournalDayPage() {
             <>
               <VerdictBand verdict={dayVerdict(day)} />
               <SessionStrip date={date} positions={positions} />
-              <TradeRows rows={tradeRows(positions)} />
-              <JournalPrompts key={date} prompts={review.data?.prompts ?? []} />
+              <TradeRows rows={tradeRows(positions)} from={`/journal/${date}`} />
+              <DayPlans plans={day.plans ?? []} notTaken={day.plans_not_taken ?? 0} />
             </>
+          )}
+          {validDate && !isLoading && (
+            <DayJournal key={date} date={date} prompts={review.data?.prompts ?? []} />
           )}
         </div>
       </div>
@@ -81,62 +160,48 @@ export function JournalDayPage() {
   );
 }
 
-/**
- * Reflection prompts as a review checklist. Answers are local to the session —
- * there's no persistence endpoint in the M3 contract, so this is a working
- * scratchpad for end-of-day journaling. (Persistence tracked separately, #68.)
- */
-function JournalPrompts({ prompts }: { prompts: string[] }) {
-  const [checked, setChecked] = useState<Record<number, boolean>>({});
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-
-  if (prompts.length === 0) {
-    return (
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Journal prompts
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          No prompts for this session.
-        </p>
-      </section>
-    );
-  }
+/** The day title as a button that opens a small calendar; only trading days can be picked. */
+function DayPicker({
+  date,
+  tradingDates,
+  onPick,
+}: {
+  date: string;
+  tradingDates: string[];
+  onPick: (date: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = isoToLocal(date);
+  const trading = new Set(tradingDates);
+  const first = isoToLocal(tradingDates[0] ?? "");
+  const last = isoToLocal(tradingDates[tradingDates.length - 1] ?? "");
 
   return (
-    <section className="space-y-2">
-      <h2 className="text-sm font-semibold tracking-tight">Journal prompts</h2>
-      <ul className="space-y-2">
-        {prompts.map((prompt, i) => (
-          <li key={i} className="rounded-lg border border-border bg-card p-3">
-            <label className="flex cursor-pointer items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={checked[i] ?? false}
-                onChange={(e) =>
-                  setChecked((prev) => ({ ...prev, [i]: e.target.checked }))
-                }
-                className="mt-0.5 h-4 w-4 accent-primary"
-              />
-              <span
-                className={
-                  checked[i] ? "text-foreground" : "text-muted-foreground"
-                }
-              >
-                {prompt}
-              </span>
-            </label>
-            <Textarea
-              value={answers[i] ?? ""}
-              onChange={(e) =>
-                setAnswers((prev) => ({ ...prev, [i]: e.target.value }))
-              }
-              placeholder="Your reflection…"
-              className="mt-2 min-h-[60px]"
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="gap-2 px-2" aria-label="Pick a trading day">
+          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <h1 className="font-semibold tracking-tight">{formatDayMonth(date)}</h1>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          fromDate={first}
+          toDate={last}
+          disabled={(d) => !trading.has(localToIso(d))}
+          onSelect={(d) => {
+            if (!d) return;
+            setOpen(false);
+            onPick(localToIso(d));
+          }}
+        />
+        <p className="border-t border-border px-3 py-2 text-label text-muted-foreground">
+          Days with trades. <kbd className="num">[</kbd> / <kbd className="num">]</kbd> step between them.
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }

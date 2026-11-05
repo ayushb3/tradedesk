@@ -3,12 +3,15 @@ import { useNavigate } from "react-router-dom";
 
 import { RuleChip } from "@/components/days/RuleChip";
 import { formatR } from "@/components/days/VerdictBand";
-import { ruleLabel, type TradeRow } from "@/lib/dayPage";
+import { replayTradeHref, ruleLabel, type TradeRow } from "@/lib/dayPage";
 import { formatPnl, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/** The day trades in time order. A row opens the trade review; Replay is its own link. */
-export function TradeRows({ rows }: { rows: TradeRow[] }) {
+/**
+ * The day trades in time order. A row opens the trade review; Replay is its own link
+ * (`from` is where Replay's back link returns). A dot marks trades not reviewed yet.
+ */
+export function TradeRows({ rows, from }: { rows: TradeRow[]; from?: string }) {
   const navigate = useNavigate();
   return (
     <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
@@ -23,7 +26,14 @@ export function TradeRows({ rows }: { rows: TradeRow[] }) {
           }}
           className="flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
         >
-          <span className="num w-20 shrink-0 text-body text-muted-foreground">{r.timePt}</span>
+          <span className="num flex w-24 shrink-0 items-center gap-1.5 whitespace-nowrap text-body text-muted-foreground">
+            <span
+              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", r.reviewed ? "bg-transparent" : "bg-primary")}
+              title={r.reviewed ? "Reviewed" : "Not reviewed yet"}
+              aria-label={r.reviewed ? "Reviewed" : "Not reviewed yet"}
+            />
+            {r.timePt}
+          </span>
           <span className="min-w-0 flex-1 truncate text-body font-medium">{r.contract}</span>
           <span className={cn("num w-28 shrink-0 text-right text-value", pnlColorClass(r.r))}>
             {formatR(r.r)}
@@ -43,11 +53,11 @@ export function TradeRows({ rows }: { rows: TradeRow[] }) {
             )}
           </span>
           <a
-            href={`/replay?trade=${r.tradeId}&lead=15`}
+            href={replayTradeHref(r.tradeId, from)}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              navigate(`/replay?trade=${r.tradeId}&lead=15`);
+              navigate(replayTradeHref(r.tradeId, from));
             }}
             className="inline-flex shrink-0 items-center gap-1 text-label font-medium text-play hover:underline"
           >

@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { MoreHorizontal, Play, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { DayJournalField } from "@/components/days/DayJournal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { Trade, TradeExcursions } from "@/lib/api";
+import { replayTradeHref } from "@/lib/dayPage";
+import { formatDayMonth } from "@/lib/format";
 import { useCreateTag, usePatchTrade, useSetCallSource, useTags } from "@/lib/queries";
 import { writtenBeforeEntry } from "@/lib/reviewChart";
 import { cn } from "@/lib/utils";
@@ -18,8 +21,8 @@ interface Props {
 
 /**
  * Trade review rail: Replay first, then what was written before entry, whose call it was, one
- * setup tag and one line of lesson. Everything else (grade, checklist, screenshots, the Debrief
- * chat) sits behind "More".
+ * setup tag, one line of lesson and the day note (the same note as the Day page journal).
+ * Everything else (grade, checklist, screenshots, the Debrief chat) sits behind "More".
  */
 export function ReviewRail({ trade, excursions, onOpenMore }: Props) {
   const navigate = useNavigate();
@@ -27,7 +30,7 @@ export function ReviewRail({ trade, excursions, onOpenMore }: Props) {
 
   return (
     <aside className="flex flex-col gap-4 rounded-lg border border-border bg-card/40 p-4" data-testid="review-rail">
-      <Button size="lg" className="w-full gap-2" onClick={() => navigate(`/replay?trade=${trade.id}&lead=15`)}>
+      <Button size="lg" className="w-full gap-2" onClick={() => navigate(replayTradeHref(trade.id, `/trades/${trade.id}`))}>
         <Play className="h-4 w-4" />
         Replay this trade
       </Button>
@@ -50,6 +53,14 @@ export function ReviewRail({ trade, excursions, onOpenMore }: Props) {
       <CallSource trade={trade} />
       <SetupTag trade={trade} />
       <Lesson trade={trade} />
+      <DayJournalField
+        key={trade.session_date}
+        date={trade.session_date}
+        field="notes"
+        label={`Day note · ${formatDayMonth(trade.session_date)}`}
+        placeholder="The day's note: what happened, the one adjustment for tomorrow."
+        rows={3}
+      />
 
       <Button variant="outline" className="w-full gap-2" onClick={onOpenMore}>
         <MoreHorizontal className="h-4 w-4" />

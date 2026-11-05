@@ -3,7 +3,19 @@
  * Run: npm run check:sim
  */
 import type { DeskDayDetail, DeskPosition, RuleResult } from "./api";
-import { clockPt, dayVerdict, linePoints, ptWallToMs, stripWindow, tradeBands, tradeRows } from "./dayPage";
+import {
+  clockPt,
+  dayNavKey,
+  dayVerdict,
+  isTypingTarget,
+  linePoints,
+  ptWallToMs,
+  replayDayHref,
+  replayTradeHref,
+  stripWindow,
+  tradeBands,
+  tradeRows,
+} from "./dayPage";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -141,6 +153,12 @@ eq("broken only", rows[1].broken.map((r) => r.code), ["before_cutoff"]);
 eq("kept count", rows[1].keptCount, 1);
 eq("open row", rows[2].open, true);
 eq("open row R null", rows[2].r, null);
+eq("reviewed flag", rows.map((r) => r.reviewed), [false, false, false]);
+eq(
+  "reviewed when stamped",
+  tradeRows([{ ...day.positions[0], reviewed_at: "2026-03-04T15:00:00Z" }])[0].reviewed,
+  true,
+);
 
 const start = Date.parse(t0);
 const bands = tradeBands(day.positions, start, start + 100 * 60_000);
@@ -173,6 +191,21 @@ eq("PDT close", new Date(ptWallToMs("2026-10-14", "13:00")).toISOString(), "2026
   const late = pos(3, "2026-10-14T21:00:00Z", "2026-10-14T21:30:00Z", 5, 1, "written", []);
   eq("strip widens end for a late trade", stripWindow("2026-10-14", [late]).endMs, Date.parse("2026-10-14T21:30:00Z") + 5 * 60_000);
 }
+
+// ---- replay links and day shortcuts
+eq("replay day link", replayDayHref("2026-03-04"), "/replay?day=2026-03-04&from=/journal/2026-03-04");
+eq("replay trade link", replayTradeHref(7, "/trades/7"), "/replay?trade=7&lead=15&from=/trades/7");
+eq("replay trade link, no from", replayTradeHref(7), "/replay?trade=7&lead=15");
+const k = (key: string, altKey = false, ctrlKey = false) => dayNavKey({ key, altKey, ctrlKey, metaKey: false });
+eq("[ is previous", k("["), -1);
+eq("] is next", k("]"), 1);
+eq("alt+left is previous", k("ArrowLeft", true), -1);
+eq("alt+right is next", k("ArrowRight", true), 1);
+eq("plain arrows do nothing", k("ArrowLeft"), null);
+eq("ctrl+] does nothing", k("]", false, true), null);
+eq("typing target: none", isTypingTarget(null), false);
+eq("typing target: textarea", isTypingTarget({ tagName: "TEXTAREA" } as unknown as EventTarget), true);
+eq("typing target: div", isTypingTarget({ tagName: "DIV", isContentEditable: false } as unknown as EventTarget), false);
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

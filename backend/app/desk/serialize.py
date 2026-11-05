@@ -75,7 +75,7 @@ def position_out(lp, a, rules: Rules, fact=None, rr=None) -> PositionOut:
         status=p.status, swing=p.swing, qty_in=a.qty_in, qty_out=a.qty_out,
         cost=a.cost, proceeds=a.proceeds, avg_in=a.avg_in, avg_out=a.avg_out,
         pnl=a.pnl, fees=a.fees, realized_before_fees=a.realized_before_fees, risk=a.risk, r=a.r, r_basis=a.r_basis,
-        call_source=lp.call_source,
+        call_source=lp.call_source, reviewed_at=lp.reviewed_at,
         rule_results=[rule_result_out(r) for r in (rr.results if rr else [])],
         stop_multiple=a.risk_x,
         add_lower=a.add_lower, add_higher=a.add_higher, add_same=a.add_same,
@@ -119,6 +119,7 @@ def days_response(rules: Rules, days, as_of: datetime | None) -> DaysResponse:
             size_written_first=d.size_written_first,
             rule_results=[rule_result_out(r) for r in d.rule_results.results],
             stop_result=stop_result_out(d.rule_results.stop),
+            unreviewed=sum(1 for lp in d.loaded if lp.reviewed_at is None),
         )
         for d in reversed(days)
     ]

@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Circle,
   ServerCrash,
   Sparkles,
 } from "lucide-react";
@@ -30,16 +33,19 @@ import {
   type ReviewOption,
   type Trade,
 } from "@/lib/api";
+import { adjacentTradingDay } from "@/lib/daysHome";
 import { formatDayMonth } from "@/lib/format";
 import {
   useAgentStatus,
   useDayTrades,
+  useDeskDays,
   useReviewDay,
   useRunCritic,
+  useSetReviewed,
   useTradeExcursions,
   useTradeReview,
 } from "@/lib/queries";
-import { dayTally } from "@/lib/tradeReview";
+import { dayTally, stepTrade } from "@/lib/tradeReview";
 
 /**
  * Per-trade review: verdict band, story strip, the static stacked contract-over-SPY chart,
@@ -129,8 +135,25 @@ function ReviewContent({
   const dayTrades = useDayTrades(trade.session_date);
   const ids = (dayTrades.data?.trades ?? []).map((t) => t.id);
   const idx = ids.indexOf(trade.id);
-  const prevId = idx > 0 ? ids[idx - 1] : null;
-  const nextId = idx >= 0 && idx < ids.length - 1 ? ids[idx + 1] : null;
+  // Past the day's first/last trade, Prev/Next cross to the neighbouring trading day.
+  const deskDays = useDeskDays();
+  const allDays = deskDays.data?.days ?? [];
+  const prevDay = idx === 0 ? adjacentTradingDay(allDays, trade.session_date, -1) : null;
+  const nextDay = idx >= 0 && idx === ids.length - 1 ? adjacentTradingDay(allDays, trade.session_date, 1) : null;
+  const prevDayTrades = useDayTrades(prevDay);
+  const nextDayTrades = useDayTrades(nextDay);
+  const prev = stepTrade(ids, trade.id, -1, prevDayTrades.data?.trades.map((t) => t.id));
+  const next = stepTrade(ids, trade.id, 1, nextDayTrades.data?.trades.map((t) => t.id));
+
+  const setReviewed = useSetReviewed();
+  const reviewed = trade.reviewed_at != null;
+  const qc = useQueryClient();
+  const closeMore = () => {
+    setMoreOpen(false);
+    // Finishing a debrief marks the trade reviewed server-side; pick that up.
+    void qc.invalidateQueries({ queryKey: ["trade-review"] });
+    void qc.invalidateQueries({ queryKey: ["desk-days"] });
+  };
 
   const label = trade.contract_label ?? trade.symbol;
 
@@ -174,14 +197,27 @@ function ReviewContent({
 
         <div className="ml-auto flex items-center gap-1">
           <Button
+            variant={reviewed ? "secondary" : "outline"}
+            size="sm"
+            aria-pressed={reviewed}
+            disabled={setReviewed.isPending}
+            onClick={() => setReviewed.mutate({ id: trade.id, reviewed: !reviewed })}
+            title={reviewed ? "Reviewed. Click to put it back in the review queue." : "Take this trade out of the review queue"}
+            className="mr-2 gap-1.5"
+          >
+            {reviewed ? <CheckCircle2 className="h-4 w-4 text-gain" /> : <Circle className="h-4 w-4" />}
+            {reviewed ? "Reviewed" : "Mark reviewed"}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
-            disabled={prevId == null}
-            onClick={() => prevId != null && navigate(`/trades/${prevId}`)}
+            disabled={prev == null}
+            onClick={() => prev && navigate(`/trades/${prev.id}`)}
+            title={prev?.crossesDay && prevDay ? `Last trade of ${formatDayMonth(prevDay)}` : undefined}
             className="gap-1"
           >
             <ChevronLeft className="h-4 w-4" />
-            Prev
+            {prev?.crossesDay ? "Prev day" : "Prev"}
           </Button>
           {idx >= 0 && ids.length > 0 && (
             <span className="tabular px-1 text-xs text-muted-foreground">
@@ -191,11 +227,12 @@ function ReviewContent({
           <Button
             variant="outline"
             size="sm"
-            disabled={nextId == null}
-            onClick={() => nextId != null && navigate(`/trades/${nextId}`)}
+            disabled={next == null}
+            onClick={() => next && navigate(`/trades/${next.id}`)}
+            title={next?.crossesDay && nextDay ? `First trade of ${formatDayMonth(nextDay)}` : undefined}
             className="gap-1"
           >
-            Next
+            {next?.crossesDay ? "Next day" : "Next"}
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -267,7 +304,7 @@ function ReviewContent({
         </div>
       </div>
 
-      <Drawer open={moreOpen} onClose={() => setMoreOpen(false)} title="More about this trade" className="max-w-lg">
+      <Drawer open={moreOpen} onClose={closeMore} title="More about this trade" className="max-w-lg">
         <DrawerHeader>
           <div className="flex items-center gap-2">
             {(["journal", "debrief"] as const).map((t) => (
@@ -293,7 +330,7 @@ function ReviewContent({
                 onGetCritique={
                   agentAvailable
                     ? () => {
-                        setMoreOpen(false);
+                        closeMore();
                         focusCritique();
                       }
                     : undefined

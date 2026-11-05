@@ -98,6 +98,8 @@ class Trade(BaseModel):
     hold_time_s: int | None = None
     status: TradeStatus = TradeStatus.closed
     simulated: bool = False
+    # When the trade was marked reviewed (UTC); None = still in the review queue.
+    reviewed_at: UtcDatetime | None = None
     rule_results: list[RuleResultOut] = Field(default_factory=list)  # real trades only
     tags: list[Tag] = Field(default_factory=list)
     enrichment: TradeEnrichment = Field(default_factory=TradeEnrichment)
