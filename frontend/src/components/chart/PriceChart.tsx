@@ -134,6 +134,11 @@ interface Props {
    */
   mainPane?: "top" | "bottom";
   /**
+   * Draw the contract (`top`) pane below the underlying instead of above it (Replay: the ticker
+   * is what you trade, so it leads). The time axis moves to the contract pane, which is then lowest.
+   */
+  contractBelow?: boolean;
+  /**
    * How real fills are labelled. "chips" (default): a time chip per fill above the candles.
    * "arrows": the arrows only; a fill's side, qty, price, second and order type show in a small
    * box over the plot while its minute is hovered (or under the playhead), one line per fill.
@@ -245,6 +250,7 @@ export function PriceChart({
   initialBars = null,
   barSec = 60,
   mainPane = "top",
+  contractBelow = false,
   fillLabels = "chips",
 }: Props) {
   const isReplay = mode.kind === "replay";
@@ -407,8 +413,8 @@ export function PriceChart({
       return { chart, series, vwap, emas, levelLines: [] };
     };
 
-    const topPane = topEl.current ? make(topEl.current, "top", false) : null;
-    const bottomPane = make(bottomNode, "bottom", true);
+    const topPane = topEl.current ? make(topEl.current, "top", contractBelow) : null;
+    const bottomPane = make(bottomNode, "bottom", !(contractBelow && topEl.current));
     panes.current = { top: topPane, bottom: bottomPane };
     const all = [topPane, bottomPane].filter((p): p is PaneRuntime => p !== null);
 
@@ -652,7 +658,7 @@ export function PriceChart({
       stopLine.current = null;
       avgLine.current = null;
     };
-  }, [hasTop]);
+  }, [hasTop, contractBelow]);
   const refitRef = useRef<(() => void) | null>(null);
 
   // ---- data: aligned on the shared grid, revealed up to the playhead ---------
@@ -1046,10 +1052,12 @@ export function PriceChart({
 
   return (
     // No text selection or native drag: a drag on the chart must never pick up a ghost image of it.
-    <div className="flex h-full min-h-0 w-full min-w-0 select-none flex-col" onDragStart={(e) => e.preventDefault()}>
+    <div
+      className={`flex h-full min-h-0 w-full min-w-0 select-none ${top && contractBelow ? "flex-col-reverse" : "flex-col"}`}
+      onDragStart={(e) => e.preventDefault()}>
       {top && (
         <Pane
-          className={mainPane === "bottom" ? "flex-[3]" : "flex-[6]"}
+          className={`${mainPane === "bottom" ? "flex-[3]" : "flex-[6]"}${contractBelow ? " border-t border-border" : ""}`}
           spec={top}
           layout={layouts.top}
           shown={shown}
@@ -1068,7 +1076,9 @@ export function PriceChart({
       )}
       <Pane
         className={
-          top ? (mainPane === "bottom" ? "flex-[7] border-t border-border" : "flex-[4] border-t border-border") : "flex-1"
+          top
+            ? `${mainPane === "bottom" ? "flex-[7]" : "flex-[4]"}${contractBelow ? "" : " border-t border-border"}`
+            : "flex-1"
         }
         spec={bottom}
         layout={layouts.bottom}
