@@ -1,8 +1,9 @@
 /**
  * Seconds-mode clock and data feed for 'Replay my trade'.
  *
- * Owns the playhead second, play/pause/speed/steps and the keys (Space, left/right =
- * 1 s, Shift+left/right = 1 min). Second bars are polled from the server with the
+ * Owns the playhead second, play/pause/steps and the keys (Space, left/right = 1 s,
+ * Shift+left/right = 1 min). The speed comes from the page's slider (chart-seconds per real
+ * second); the clock advances by speed x elapsed time, not one second per timer tick. Second bars are polled from the server with the
  * CURRENT playhead as the `playhead` parameter and the newest held bar as `after`, so
  * the browser never holds a bar from after the playhead. A poll is in flight at most
  * once; if the playhead has moved on when it lands, the next one follows at once.
@@ -11,14 +12,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Candle } from "@/lib/api";
 import { isInputFocused } from "@/lib/useReplay";
+import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
 import {
   arrowDelta,
   clampSec,
   mergeBars,
   pollDue,
   stepSec,
-  tickMs,
-  type SecondsSpeed,
 } from "@/lib/secondsReplay";
 
 interface Options {
@@ -28,12 +28,15 @@ interface Options {
   /** First and last playable second (epoch). */
   minSec: number;
   maxSec: number;
+  /** Chart-seconds per real second. */
+  speed: number;
+  /** Second-bar resolution; a change refetches from the start of the window. */
+  res?: "1s" | "5s";
 }
 
-export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Options) {
+export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec, speed, res = "1s" }: Options) {
   const [playSec, setPlaySec] = useState(minSec);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<SecondsSpeed>(1);
   const [contract, setContract] = useState<Candle[]>([]);
   const [underlying, setUnderlying] = useState<Candle[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -43,8 +46,10 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Opt
   const inflight = useRef(false);
   const heldContract = useRef<Candle[]>([]);
   const heldUnderlying = useRef<Candle[]>([]);
-  const key = `${tradeId}:${lead}`;
+  const key = `${tradeId}:${lead}:${res}`;
+  const tradeKey = `${tradeId}:${lead}`;
   const keyRef = useRef(key);
+  const tradeKeyRef = useRef(tradeKey);
   const [tick, setTick] = useState(0); // re-runs the poll effect when a poll lands
 
   useEffect(() => {
@@ -55,19 +60,33 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Opt
     heldUnderlying.current = [];
     setContract([]);
     setUnderlying([]);
-    setIsPlaying(false);
     setError(null);
-  }, [key]);
+    // A new trade stops playback; a resolution change keeps playing.
+    if (tradeKeyRef.current !== tradeKey) {
+      tradeKeyRef.current = tradeKey;
+      setIsPlaying(false);
+    }
+  }, [key, tradeKey]);
 
   const atStart = playSec <= minSec;
   const atEnd = playSec >= maxSec;
 
-  // ---- the clock
+  // ---- the clock: speed x elapsed real time, whole seconds, remainder carried
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
   useEffect(() => {
     if (!enabled || !isPlaying) return;
-    const id = window.setInterval(() => setPlaySec((s) => Math.min(s + 1, maxSec)), tickMs(speed));
+    let last = performance.now();
+    let carry = 0;
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const r = advance(carry, now - last, speedRef.current, 1);
+      last = now;
+      carry = r.carry;
+      if (r.steps > 0) setPlaySec((s) => Math.min(s + r.steps, maxSec));
+    }, CLOCK_TICK_MS);
     return () => window.clearInterval(id);
-  }, [enabled, isPlaying, speed, maxSec]);
+  }, [enabled, isPlaying, maxSec]);
   useEffect(() => {
     if (isPlaying && atEnd) setIsPlaying(false);
   }, [isPlaying, atEnd]);
@@ -85,6 +104,7 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Opt
         // everything up to the last poll's playhead is already held
         after: fetchedUpTo.current === null ? null : new Date(fetchedUpTo.current * 1000).toISOString(),
         lead,
+        res,
       })
       .then((r) => {
         if (keyRef.current !== myKey) return;
@@ -107,7 +127,7 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Opt
         inflight.current = false;
         setTick((n) => n + 1);
       });
-  }, [enabled, tradeId, lead, playSec, key, tick]);
+  }, [enabled, tradeId, lead, res, playSec, key, tick]);
 
   // ---- controls
   const seek = useCallback((sec: number) => setPlaySec(clampSec(sec, minSec, maxSec)), [minSec, maxSec]);
@@ -148,7 +168,7 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec }: Opt
   }, [enabled, toggle, step]);
 
   return {
-    playSec, isPlaying, speed, setSpeed, atStart, atEnd, error,
+    playSec, isPlaying, atStart, atEnd, error,
     contract, underlying,
     seek, play, pause, toggle, stepForward, stepBack, restart,
   };

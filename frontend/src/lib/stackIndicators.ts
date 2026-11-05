@@ -1,7 +1,7 @@
 /**
  * Indicator choices for the stacked trade replay (SPY pane).
- * Defaults: VWAP plus one level ladder. EMAs are opt-in and drawn in grey.
- * RSI is not drawn in the stack.
+ * Defaults: VWAP (white), one level ladder, SMA 200/400 (red dashed) and the caller's levels.
+ * EMAs 9/21/50 are opt-in (greens). RSI is not drawn in the stack. Colors: lib/chartColors.ts.
  */
 import type { LevelKey } from "@/lib/api";
 
@@ -11,12 +11,17 @@ export interface StackIndicators {
   vwap: boolean;
   ladder: Ladder;
   ema: boolean;
+  sma: boolean;
+  /** The caller's posted levels for the day (blue lines, dotted rays, red 1h 200 SMA). */
+  caller: boolean;
 }
 
 export const DEFAULT_STACK_INDICATORS: StackIndicators = {
   vwap: true,
   ladder: "key",
   ema: false,
+  sma: true,
+  caller: true,
 };
 
 export const LADDERS: Record<Ladder, { label: string; levels: { key: LevelKey; label: string }[] }> = {
@@ -45,7 +50,3 @@ export const LADDERS: Record<Ladder, { label: string; levels: { key: LevelKey; l
   },
   off: { label: "No levels", levels: [] },
 };
-
-/** Greys for EMA 1..4, light to dark. Never a meaning hue. */
-export const EMA_GREYS = ["#d4d4d8", "#a1a1aa", "#8b8b93", "#71717a"];
-export const MAX_EMAS = EMA_GREYS.length;

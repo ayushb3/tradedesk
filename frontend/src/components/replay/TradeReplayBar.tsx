@@ -1,14 +1,14 @@
-import { Check, Pause, Play, SlidersHorizontal, StepBack, StepForward } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Pause, Play, SlidersHorizontal, StepBack, StepForward } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrubberMarks } from "@/components/replay/ReplayControlBar";
+import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import { LADDERS, type Ladder, type StackIndicators } from "@/lib/stackIndicators";
-import type { ReplayState, Speed } from "@/lib/useReplay";
+import type { ReplayState } from "@/lib/useReplay";
 
 export const LEADS = [5, 15, 30] as const;
-const TRADE_SPEEDS: readonly Speed[] = [1, 2, 4];
 
 const segment = (on: boolean) =>
   `num h-7 px-2.5 text-label first:rounded-l-md last:rounded-r-md border border-border -ml-px first:ml-0 ${
@@ -16,9 +16,9 @@ const segment = (on: boolean) =>
   }`;
 
 /**
- * Slim top bar for a trade replay: contract and date, lead, the PT clock,
- * transport, speed, the collapsed day-so-far summary and Exit. One short row so
- * the charts keep the height; everything else lives in the chart and the rail.
+ * Slim top bar for a trade (or day) replay: prev / contract / next, lead, the speed slider,
+ * the PT clock, transport, the collapsed day-so-far summary and Exit. One short row so the
+ * charts keep the height; everything else lives in the chart and the rail.
  */
 export function TradeReplayBar({
   contract,
@@ -29,65 +29,86 @@ export function TradeReplayBar({
   replay,
   disabled,
   onExit,
-  seconds,
+  speed,
+  onSpeedChange,
+  minuteTag,
+  fineSteps,
+  nav,
   daySoFar,
 }: {
   contract: string;
   date: string;
-  lead: number;
-  onLeadChange: (lead: number) => void;
-  /** "HH:MM" (or "HH:MM:SS" in Seconds mode) of the playhead in PT, or null while loading. */
+  /** Minutes before entry; omitted on a day replay (no lead control). */
+  lead?: number;
+  onLeadChange?: (lead: number) => void;
+  /** "HH:MM" (or "HH:MM:SS" on second bars) of the playhead in PT, or null while loading. */
   clock: string | null;
   replay: ReplayState;
   disabled: boolean;
   onExit: () => void;
-  /** The Seconds playback toggle; omitted when the trade has no second-level data source. */
-  seconds?: { on: boolean; available: boolean; checking: boolean; reason: string | null; onToggle: () => void };
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+  /** Set when a sub-60x speed is playing minute bars (with the reason). */
+  minuteTag?: { reason: string } | null;
+  /** True on second bars: the step buttons move 1 s (Shift+arrow: 1 min). */
+  fineSteps?: boolean;
+  /** Previous / next trade (same day in time order, then the adjacent day). */
+  nav?: { onPrev: (() => void) | null; onNext: (() => void) | null };
   /** The collapsed rule bar (day so far, cutoff, call source). */
   daySoFar?: React.ReactNode;
 }) {
-  const sOn = seconds?.on === true;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1">
-      <div className="min-w-0" title={date ? `Session ${date}` : undefined}>
+      <div className="flex min-w-0 items-center gap-1" title={date ? `Session ${date}` : undefined}>
+        {nav && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            disabled={!nav.onPrev}
+            onClick={nav.onPrev ?? undefined}
+            aria-label="Previous trade"
+            title="Previous trade"
+          >
+            <ChevronLeft />
+          </Button>
+        )}
         <span className="num truncate text-value">{contract}</span>
+        {nav && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            disabled={!nav.onNext}
+            onClick={nav.onNext ?? undefined}
+            aria-label="Next trade"
+            title="Next trade"
+          >
+            <ChevronRight />
+          </Button>
+        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="label-caps text-label text-muted-foreground">Lead</span>
-        <div className="flex" role="group" aria-label="Minutes before entry">
-          {LEADS.map((m) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={lead === m}
-              className={segment(lead === m)}
-              onClick={() => onLeadChange(m)}
-            >
-              {m}m
-            </button>
-          ))}
+      {lead !== undefined && onLeadChange && (
+        <div className="flex items-center gap-2">
+          <span className="label-caps text-label text-muted-foreground">Lead</span>
+          <div className="flex" role="group" aria-label="Minutes before entry">
+            {LEADS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={lead === m}
+                className={segment(lead === m)}
+                onClick={() => onLeadChange(m)}
+              >
+                {m}m
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-
-      {seconds && (
-        <button
-          type="button"
-          aria-pressed={sOn}
-          disabled={disabled || !seconds.available}
-          onClick={seconds.onToggle}
-          title={
-            seconds.available
-              ? "Play second by second: the current minute candle forms from tick prints"
-              : seconds.checking
-                ? "Checking for second-level prints"
-                : `Seconds unavailable: ${seconds.reason ?? "no trade prints"}`
-          }
-          className={`${segment(sOn)} rounded-md disabled:opacity-50`}
-        >
-          Seconds
-        </button>
       )}
+
+      <SpeedSlider value={speed} onChange={onSpeedChange} disabled={disabled} minuteTag={minuteTag} />
 
       <div className="flex items-baseline gap-2" aria-live="off">
         <span className="num text-value font-semibold">{clock ?? "--:--"}</span>
@@ -101,8 +122,8 @@ export function TradeReplayBar({
           className="h-8 w-8"
           disabled={disabled || replay.atStart}
           onClick={replay.stepBack}
-          aria-label={sOn ? "Step back 1 second (←)" : "Step back (←)"}
-          title={sOn ? "Back 1 s (←), 1 min (Shift+←)" : "Step back (←)"}
+          aria-label={fineSteps ? "Step back 1 second (←)" : "Step back (←)"}
+          title={fineSteps ? "Back 1 s (←), 1 min (Shift+←)" : "Step back (←)"}
         >
           <StepBack />
         </Button>
@@ -123,26 +144,11 @@ export function TradeReplayBar({
           className="h-8 w-8"
           disabled={disabled || replay.atEnd}
           onClick={replay.stepForward}
-          aria-label={sOn ? "Step forward 1 second (→)" : "Step forward (→)"}
-          title={sOn ? "Forward 1 s (→), 1 min (Shift+→)" : "Step forward (→)"}
+          aria-label={fineSteps ? "Step forward 1 second (→)" : "Step forward (→)"}
+          title={fineSteps ? "Forward 1 s (→), 1 min (Shift+→)" : "Step forward (→)"}
         >
           <StepForward />
         </Button>
-      </div>
-
-      <div className="flex" role="group" aria-label="Playback speed">
-        {TRADE_SPEEDS.map((s) => (
-          <button
-            key={String(s)}
-            type="button"
-            aria-pressed={replay.speed === s}
-            disabled={disabled}
-            className={segment(replay.speed === s)}
-            onClick={() => replay.setSpeed(s)}
-          >
-            {s}x
-          </button>
-        ))}
       </div>
 
       {daySoFar}
@@ -205,9 +211,9 @@ function IndicatorsMenu({
           Indicators
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-60 p-3" align="end" sideOffset={8}>
+      <PopoverContent className="w-72 p-3" align="end" sideOffset={8}>
         <div className="flex flex-col gap-3">
-          <Row label="VWAP" on={value.vwap} onClick={() => onChange({ ...value, vwap: !value.vwap })} />
+          <Row label="VWAP" hint="white" on={value.vwap} onClick={() => onChange({ ...value, vwap: !value.vwap })} />
           <div>
             <p className="label-caps mb-1 text-label text-muted-foreground">Levels on SPY</p>
             {(Object.keys(LADDERS) as Ladder[]).map((k) => (
@@ -220,7 +226,14 @@ function IndicatorsMenu({
               />
             ))}
           </div>
-          <Row label="EMAs (grey)" on={value.ema} onClick={() => onChange({ ...value, ema: !value.ema })} />
+          <Row label="EMA 9 / 21 / 50" hint="green" on={value.ema} onClick={() => onChange({ ...value, ema: !value.ema })} />
+          <Row label="SMA 200 / 400" hint="red dashed" on={value.sma} onClick={() => onChange({ ...value, sma: !value.sma })} />
+          <Row
+            label="Caller levels"
+            hint="blue, 1h 200 SMA red"
+            on={value.caller}
+            onClick={() => onChange({ ...value, caller: !value.caller })}
+          />
         </div>
       </PopoverContent>
     </Popover>

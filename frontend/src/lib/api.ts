@@ -97,6 +97,8 @@ export type IndicatorKey =
   | "ema21"
   | "ema50"
   | "ema200"
+  | "sma200"
+  | "sma400"
   | "vwap"
   | "rsi14";
 
@@ -243,7 +245,7 @@ export interface ReplayFills {
 /** A level a caller posted for the day (Somesh's morning charts). */
 export interface CallerLevel {
   price: number;
-  kind: "level" | "ray" | "ema200_1h";
+  kind: "level" | "ray" | "sma200_1h";
   source: string;
 }
 
@@ -256,6 +258,31 @@ export interface ReplaySession {
   /** Caller-posted levels for the day; absent or empty when none were saved. */
   caller_levels?: CallerLevel[];
   meta: ReplaySessionMeta;
+}
+
+/** GET /api/replay/trade/{id}/neighbors: the trades before/after, ids only. */
+export interface ReplayNeighbors {
+  trade_id: number;
+  prev_id: number | null;
+  next_id: number | null;
+}
+
+/** GET /api/replay/day/{date}: one underlying session for the day; no trade times or fills. */
+export interface ReplayDay {
+  session_date: string;
+  symbol: string;
+  symbols: string[];
+  trade_count: number;
+  session: ReplaySession;
+}
+
+/** GET /api/replay/day/{date}/fills: trades entered and fills printed at or before the playhead. */
+export interface ReplayDayFills {
+  session_date: string;
+  symbol: string;
+  playhead: string;
+  trades: { trade_id: number; contract_label: string | null; open_ts: string }[];
+  fills: (ReplayFill & { trade_id: number; contract_label: string | null })[];
 }
 
 export interface ReplaySessionParams {
@@ -1419,6 +1446,21 @@ export const api = {
     if (opts.after) qs.set("after", opts.after);
     if (opts.lead !== undefined) qs.set("lead_minutes", String(opts.lead));
     return request<ReplaySeconds>(`/replay/trade/${tradeId}/seconds?${qs.toString()}`);
+  },
+
+  replayTradeNeighbors(tradeId: number): Promise<ReplayNeighbors> {
+    return request<ReplayNeighbors>(`/replay/trade/${tradeId}/neighbors`);
+  },
+
+  replayDay(day: string, symbol?: string | null): Promise<ReplayDay> {
+    const qs = symbol ? `?${new URLSearchParams({ symbol }).toString()}` : "";
+    return request<ReplayDay>(`/replay/day/${encodeURIComponent(day)}${qs}`);
+  },
+
+  replayDayFills(day: string, playhead: string, symbol?: string | null): Promise<ReplayDayFills> {
+    const qs = new URLSearchParams({ playhead });
+    if (symbol) qs.set("symbol", symbol);
+    return request<ReplayDayFills>(`/replay/day/${encodeURIComponent(day)}/fills?${qs.toString()}`);
   },
 
   replayTradeFills(tradeId: number, playhead: string): Promise<ReplayFills> {

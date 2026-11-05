@@ -5,7 +5,7 @@
 import type { Candle } from "./api";
 import {
   arrowDelta, barsUpTo, finishedOnly, formatClockSeconds, formingCandle, liveCandle, mergeBars,
-  minuteIndexAt, newestTs, pollDue, replaySeries, stepSec, tickMs,
+  minuteIndexAt, newestTs, pollDue, replaySeries, stepSec,
 } from "./secondsReplay";
 
 let failures = 0;
@@ -87,7 +87,6 @@ eq(
   [arrowDelta("ArrowRight", false), arrowDelta("ArrowLeft", false), arrowDelta("ArrowRight", true), arrowDelta("ArrowLeft", true)],
   [1, -1, 60, -60],
 );
-eq("speeds are multiples of real time", [tickMs(1), tickMs(2), tickMs(4)], [1000, 500, 250]);
 
 // ---- readout and sim (14:00:07 UTC is 07:00:07 in Pacific daylight time)
 eq("PT clock with seconds", formatClockSeconds(BASE + 7), "07:00:07");
