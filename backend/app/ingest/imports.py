@@ -307,7 +307,11 @@ def _finalize(acc: _TradeAcc) -> dict:
         avg_exit = None
         close_ts = None
 
-    closed = avg_exit is not None
+    # Closed only once every contract bought has been sold. A partial exit (sell 1 of 2,
+    # hold the rest overnight) stays open; scoring it closed charged the whole cost
+    # against the proceeds of the part that was sold.
+    exit_qty = sum(l[0] for l in acc.exits)
+    closed = avg_exit is not None and exit_qty >= entry_qty - 1e-9
     if closed:
         # ------------------------------------------------------------------ #
         # FIFO lot-matching for gross_pnl                                     #

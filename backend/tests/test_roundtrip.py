@@ -545,3 +545,18 @@ def test_fifo_lot_matching_option_scale_in_out_in_with_multiplier(temp_engine):
         "FIFO should give +1300; avg-cost with max_size bug would give +812.50"
     )
     assert t.net_pnl == pytest.approx(1300.0, abs=0.01)
+
+
+def test_partial_exit_stays_open(temp_engine):
+    """Buy 2, sell 1, hold the other: still open, so no P&L charges the whole cost to one sale."""
+    fills = [
+        _fill(1, "FFF", Side.buy, 2, 1.21, 0),
+        _fill(2, "FFF", Side.sell, 1, 1.00, 37),
+    ]
+    _import(fills, temp_engine)
+
+    (t,) = _trades(temp_engine)
+    assert t.status == TradeStatus.open
+    assert t.qty == 2
+    assert t.gross_pnl is None
+    assert t.net_pnl is None
