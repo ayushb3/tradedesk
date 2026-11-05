@@ -7,9 +7,12 @@ import {
   calendarFromDays,
   calendarMarks,
   groupByDay,
+  adjacentTradingDay,
   lastTradingDay,
+  reviewQueue,
   ruleBreaks,
   ruleScoreboard,
+  tradingDays,
   visibleColumns,
 } from "./daysHome";
 
@@ -118,6 +121,26 @@ eq("break trades newest first", rb[0].trades.map((t) => t.id), [3, 2]);
 eq("lastTradingDay skips empty days", lastTradingDay(days), "2026-10-04");
 eq("lastTradingDay ignores order", lastTradingDay([days[1], days[0], days[2]]), "2026-10-02");
 eq("lastTradingDay none", lastTradingDay([]), null);
+
+// day navigation and the review queue (synthetic dates, out of order, one empty day)
+const nav: DeskDaySummary[] = [
+  { ...day("2026-03-04", 0, 2, []), unreviewed: 1 },
+  { ...day("2026-03-02", 0, 1, []), unreviewed: 0 },
+  { ...day("2026-03-03", 0, 0, []), unreviewed: 3 }, // no trades: skipped everywhere
+  { ...day("2026-03-06", 0, 3, []), unreviewed: 2 },
+];
+eq("tradingDays sorted, empty day skipped", tradingDays(nav), ["2026-03-02", "2026-03-04", "2026-03-06"]);
+eq("next skips the empty day", adjacentTradingDay(nav, "2026-03-02", 1), "2026-03-04");
+eq("prev skips the empty day", adjacentTradingDay(nav, "2026-03-04", -1), "2026-03-02");
+eq("next from a non-trading date", adjacentTradingDay(nav, "2026-03-05", 1), "2026-03-06");
+eq("prev from a non-trading date", adjacentTradingDay(nav, "2026-03-05", -1), "2026-03-04");
+eq("no day before the first", adjacentTradingDay(nav, "2026-03-02", -1), null);
+eq("no day after the last", adjacentTradingDay(nav, "2026-03-06", 1), null);
+const q = reviewQueue(nav);
+eq("queue total ignores empty days", q.total, 3);
+eq("queue oldest", q.oldest, "2026-03-04");
+eq("queue by date", q.byDate, { "2026-03-04": 1, "2026-03-06": 2 });
+eq("queue empty", reviewQueue([day("2026-03-02", 0, 1, [])]), { total: 0, oldest: null, byDate: {} });
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

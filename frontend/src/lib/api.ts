@@ -436,6 +436,8 @@ export interface Trade {
   hold_time_s: number | null;
   status: TradeStatus;
   simulated: boolean;
+  /** When the trade was marked reviewed (ISO UTC); null = still in the review queue. */
+  reviewed_at?: string | null;
   tags: Tag[];
   enrichment: TradeEnrichment;
 }
@@ -728,6 +730,8 @@ export interface DeskPosition {
   r_basis: string;
   rule_results: RuleResult[];
   fills: DeskFill[];
+  /** ISO UTC; null = not reviewed yet. Optional so older payloads still type. */
+  reviewed_at?: string | null;
 }
 
 /** The day's stop state (net, closed positions, fees in). */
@@ -757,7 +761,53 @@ export interface DeskDayDetail {
   positions: DeskPosition[];
   rule_results: RuleResult[];
   stop_result: DeskStopResult | null;
+  /** Plan cards for the day, including the ones not taken. */
+  plans?: DeskPlan[];
+  /** Plans written and not forced: a good outcome. */
+  plans_not_taken?: number;
 }
+
+/** A written plan card (GET /api/days/{date} `plans`). */
+export interface DeskPlan {
+  id: number;
+  created_at: string;
+  /** "HH:MM PT" */
+  created_pt: string;
+  session_date: string;
+  caller: string;
+  symbol: string;
+  option_type: "CALL" | "PUT" | null;
+  strike: number | null;
+  expiry: string | null;
+  size_usd: number;
+  max_loss_usd: number;
+  target: string | null;
+  note: string;
+  status: "open" | "matched" | "unmatched";
+  late: boolean;
+  matched_trade_id: number | null;
+}
+
+/** GET/PUT /api/days/{date}/fields: the day journal (self-report). */
+export interface DayFields {
+  date: string;
+  why: string;
+  callers: string[];
+  size_written_first: boolean | null;
+  max_loss_declared: number | null;
+  closed_by_window_end: boolean | null;
+  stop_hit: boolean | null;
+  target_hit: boolean | null;
+  how_felt: string;
+  notes: string;
+  updated_at: string;
+}
+
+/** The free-text day journal fields the UI edits. */
+export type DayTextField = "why" | "how_felt" | "notes";
+
+/** PUT body: any subset of the fields; omitted ones are left alone. */
+export type DayFieldsPatch = Partial<Omit<DayFields, "date" | "updated_at">>;
 
 /** One row of GET /api/days: the day's net and rule state. */
 export interface DeskDaySummary {
@@ -766,6 +816,8 @@ export interface DeskDaySummary {
   positions: number;
   rule_results: RuleResult[];
   stop_result: DeskStopResult | null;
+  /** Positions on the day not marked reviewed. Optional so older payloads still type. */
+  unreviewed?: number;
 }
 
 /** GET /api/rules: the desk rules file as the backend parsed it (read-only here). */
@@ -1184,6 +1236,17 @@ export interface LessonRef {
   id: string;
   title: string | null;
   video_url: string | null;
+  /** The in-app reader's lesson id (/knowledge/lessons/:id); null when not ingested. Older servers omit it. */
+  reader_id?: number | null;
+}
+
+/** Why a nightly drill is in the set: one of your own trades broke a rule. */
+export interface DrillBecause {
+  trade_id: number;
+  /** The trade's session date, YYYY-MM-DD. */
+  date: string;
+  /** exited_early | countertrend | before_cutoff */
+  rule: string;
 }
 
 export type LearnStepName = "level" | "enter" | "stop" | "target";
@@ -1203,6 +1266,8 @@ export interface DrillPublic {
   review: boolean;
   /** Levels known before the open (prior day, premarket). Older servers omit it. */
   key_levels?: Record<string, number>;
+  /** Set when the drill was picked because of one of your trades. Older servers omit it. */
+  because?: DrillBecause | null;
   status: "new" | "done";
   score: number | null;
 }
@@ -1286,6 +1351,24 @@ export interface LearnLesson {
   module: string;
   video_url: string | null;
   topics: string[];
+  /** The in-app reader's lesson id; null when the lesson is not ingested. */
+  reader_id?: number | null;
+}
+
+/** GET /api/learn/topics/{slug}: one topic's drills (every set, newest first) and lessons. */
+export interface LearnTopicDetail {
+  configured: true;
+  slug: string;
+  title: string;
+  drills: DrillPublic[];
+  lessons: LearnLesson[];
+}
+
+/** GET /api/knowledge/lessons/{id}/trades: your trades whose setup tags match the lesson. */
+export interface LessonTrades {
+  lesson_id: number;
+  tags: string[];
+  trades: { trade_id: number; session_date: string; symbol: string; label: string | null; tags: string[] }[];
 }
 
 /** GET /api/days/{date}: only the fields the Trade review day tally reads. */
@@ -1327,6 +1410,14 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ call_source: callSource }),
+    });
+  },
+
+  setReviewed(id: number | string, reviewed: boolean): Promise<Trade> {
+    return request<Trade>(`/trades/${id}/reviewed`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ reviewed }),
     });
   },
 
@@ -1391,6 +1482,18 @@ export const api = {
 
   deskDay(date: string): Promise<DeskDayDetail> {
     return request<DeskDayDetail>(`/days/${date}`);
+  },
+
+  dayFields(date: string): Promise<DayFields | null> {
+    return request<DayFields | null>(`/days/${date}/fields`);
+  },
+
+  putDayFields(date: string, body: DayFieldsPatch): Promise<DayFields> {
+    return request<DayFields>(`/days/${date}/fields`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
   },
 
   reviewDay(date: string): Promise<ReviewDay> {
@@ -1516,6 +1619,9 @@ export const api = {
     const qs = toQuery({ q });
     return request<LearnLesson[] | LearnNotConfigured>(`/learn/lessons${qs ? `?${qs}` : ""}`);
   },
+  learnTopic(slug: string): Promise<LearnTopicDetail | LearnNotConfigured> {
+    return request<LearnTopicDetail | LearnNotConfigured>(`/learn/topics/${encodeURIComponent(slug)}`);
+  },
 
   // M8b — knowledge base: modules tree + lesson reader + progress
   knowledgeModules(): Promise<KnowledgeModulesResponse> {
@@ -1524,6 +1630,10 @@ export const api = {
 
   knowledgeLesson(id: number | string): Promise<KnowledgeLessonResponse> {
     return request<KnowledgeLessonResponse>(`/knowledge/lessons/${id}`);
+  },
+
+  knowledgeLessonTrades(id: number | string): Promise<LessonTrades> {
+    return request<LessonTrades>(`/knowledge/lessons/${id}/trades`);
   },
 
   knowledgeSetLessonProgress(

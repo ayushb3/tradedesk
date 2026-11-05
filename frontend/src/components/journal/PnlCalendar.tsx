@@ -17,6 +17,8 @@ interface PnlCalendarProps {
   onSelectDay?: (date: string) => void;
   /** Rule state per date: a red dot per broken rule, a red outline on a stop breach. */
   marks?: Record<string, DayMark>;
+  /** Trades not reviewed yet, per date: a small dot beside the day number. */
+  reviewDue?: Record<string, number>;
 }
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -45,6 +47,7 @@ export function PnlCalendar({
   onMonthChange,
   onSelectDay,
   marks,
+  reviewDue,
 }: PnlCalendarProps) {
   const [y, m] = month.split("-").map(Number);
   const year = y ?? new Date().getUTCFullYear();
@@ -133,6 +136,7 @@ export function PnlCalendar({
                     losses={cell?.losses}
                     maxAbs={maxAbs}
                     mark={marks?.[iso]}
+                    due={reviewDue?.[iso]}
                     onSelect={onSelectDay}
                   />
                 );
@@ -154,6 +158,7 @@ function DayCell({
   losses,
   maxAbs,
   mark,
+  due,
   onSelect,
 }: {
   day: number;
@@ -164,6 +169,7 @@ function DayCell({
   losses: number | undefined;
   maxAbs: number;
   mark?: DayMark;
+  due?: number;
   onSelect?: (date: string) => void;
 }) {
   const hasTrades = trades != null && trades > 0;
@@ -207,18 +213,29 @@ function DayCell({
         hasTrades
           ? `${iso}: ${formatPnl(pnl)}${wlTooltip}${
               mark?.stopBreach ? " · broke the daily stop" : ""
-            }${mark?.broken.length ? ` · broken: ${mark.broken.map(ruleName).join(", ")}` : ""}`
+            }${mark?.broken.length ? ` · broken: ${mark.broken.map(ruleName).join(", ")}` : ""}${
+              due ? ` · ${due} to review` : ""
+            }`
           : iso
       }
     >
       <span className="flex w-full items-center justify-between gap-1">
-        <span
-          className={cn(
-            "text-label tabular",
-            hasTrades ? "text-foreground/90" : "text-muted-foreground",
-          )}
-        >
-          {day}
+        <span className="flex items-center gap-1">
+          <span
+            className={cn(
+              "text-label tabular",
+              hasTrades ? "text-foreground/90" : "text-muted-foreground",
+            )}
+          >
+            {day}
+          </span>
+          {hasTrades && due ? (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-primary ring-1 ring-background"
+              aria-label={`${due} to review`}
+              data-testid="review-dot"
+            />
+          ) : null}
         </span>
         {mark && mark.broken.length > 0 && (
           <span className="flex items-center gap-0.5" aria-label={`${mark.broken.length} rules broken`}>

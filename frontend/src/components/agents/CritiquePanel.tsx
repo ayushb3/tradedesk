@@ -44,6 +44,7 @@ import { type ScenarioCreateSpec } from "@/lib/api";
 import { createScenario, type ScenarioCreateInput } from "@/lib/training";
 import { cn } from "@/lib/utils";
 import { useKnowledgeLesson } from "@/lib/queries";
+import { practicePath } from "@/lib/learnRoutes";
 
 // Fenced Mermaid blocks may appear inside a verdict's markdown; extract them so
 // a diagram renders as a diagram (R5) rather than a literal code fence.
@@ -345,7 +346,7 @@ function DrillPrescription({
         size="sm"
         variant="outline"
         className="w-fit gap-1.5"
-        onClick={() => navigate(`/training/drills/${drillId}`)}
+        onClick={() => navigate(practicePath(drillId))}
       >
         Take drill #{drillId}
       </Button>
@@ -364,7 +365,7 @@ function DrillPrescription({
       const created = await createScenario(
         drillSpec as unknown as ScenarioCreateInput,
       );
-      navigate(`/training/drills/${created.id}`);
+      navigate(practicePath(created.id));
     } catch (err) {
       // TrainingApiError (and ApiError) both carry an optional `detail`; fall
       // back to the message otherwise.

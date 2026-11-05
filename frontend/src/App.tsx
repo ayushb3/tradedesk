@@ -1,10 +1,11 @@
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { ReplayPage } from "@/pages/ReplayPage";
 import { JournalPage } from "@/pages/JournalPage";
 import { RulesSettingsPage } from "@/pages/RulesSettingsPage";
 import { lastTradingDay } from "@/lib/daysHome";
+import { trainingRedirect } from "@/lib/learnRoutes";
 import { useDeskDays } from "@/lib/queries";
 // M7a — Trade Review page (share trades) + calendar day drill-in.
 import { TradeReviewPage } from "@/pages/TradeReviewPage";
@@ -27,6 +28,7 @@ import { KnowledgeConceptsPage } from "@/pages/KnowledgeConceptsPage";
 // Learn: nightly drills, topic map, lessons
 import { LearnPage } from "@/pages/LearnPage";
 import { LearnDrillPage } from "@/pages/LearnDrillPage";
+import { LearnTopicPage } from "@/pages/LearnTopicPage";
 import { KnowledgeConceptPage } from "@/pages/KnowledgeConceptPage";
 
 /**
@@ -37,6 +39,16 @@ import { KnowledgeConceptPage } from "@/pages/KnowledgeConceptPage";
 function DebriefRedirect() {
   const { tradeId } = useParams<{ tradeId: string }>();
   return <Navigate to={`/trades/${tradeId}?debrief=1`} replace />;
+}
+
+/**
+ * Redirect for the retired /training/* pages: everything training moved under Learn
+ * (/learn, /learn/practice/:id, /learn/leaks, /learn/progress, /learn/scenarios). Keeps old
+ * links (and any query string such as ?playlist) working.
+ */
+function TrainingRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={trainingRedirect(pathname, search)} replace />;
 }
 
 /**
@@ -64,19 +76,8 @@ export function App() {
         <Route path="/trades/:id" element={<TradeReviewPage />} />
         {/* Daily Review is merged into Days: old route goes to the last trading day */}
         <Route path="/daily-review" element={<DailyReviewRedirect />} />
-        {/* M6 training — unified list (scenarios + drill launch) */}
-        <Route path="/training/scenarios" element={<ScenarioListPage />} />
-        <Route path="/training/scenarios/new" element={<ScenarioAuthorPage />} />
-        {/* /training/drills (lobby) merged into /training/scenarios — redirect for back-compat */}
-        <Route
-          path="/training/drills"
-          element={<Navigate to="/training/scenarios" replace />}
-        />
-        <Route path="/training/drills/:scenarioId" element={<DrillPlayerPage />} />
-        {/* M6 6.3.4 — leaks + prescribed drill playlists */}
-        <Route path="/training/leaks" element={<LeaksPage />} />
-        {/* M6 6.4.2 — progress: mastery, discipline streaks, due reviews, quests */}
-        <Route path="/training/progress" element={<ProgressPage />} />
+        {/* The old training pages live under Learn now; their URLs redirect. */}
+        <Route path="/training/*" element={<TrainingRedirect />} />
         {/* Debrief moved onto the cockpit (#63, closes #62): the interview is
             now a tab on /trades/:id. Old links redirect there, opening the
             Debrief tab via ?debrief=1. */}
@@ -89,9 +90,16 @@ export function App() {
         {/* M8c — Knowledge: concept index + concept detail */}
         <Route path="/knowledge/concepts" element={<KnowledgeConceptsPage />} />
         <Route path="/knowledge/concepts/:slug" element={<KnowledgeConceptPage />} />
-        {/* Learn: nightly drills + topic map + lessons */}
+        {/* Learn, the one home: today's drills, drills from your trades, progress, lessons */}
         <Route path="/learn" element={<LearnPage />} />
         <Route path="/learn/drills/:id" element={<LearnDrillPage />} />
+        <Route path="/learn/topics/:slug" element={<LearnTopicPage />} />
+        {/* Scenario drills (Critique / Debrief / leak playlists), leaks and progress */}
+        <Route path="/learn/practice/:scenarioId" element={<DrillPlayerPage />} />
+        <Route path="/learn/scenarios" element={<ScenarioListPage />} />
+        <Route path="/learn/scenarios/new" element={<ScenarioAuthorPage />} />
+        <Route path="/learn/leaks" element={<LeaksPage />} />
+        <Route path="/learn/progress" element={<ProgressPage />} />
         {/* Rules: a small settings page, reached from the gear in the nav footer */}
         <Route path="/settings/rules" element={<RulesSettingsPage />} />
         <Route path="*" element={<Navigate to="/journal" replace />} />

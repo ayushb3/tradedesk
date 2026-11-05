@@ -130,6 +130,7 @@ class PositionOut(BaseModel):
     realized_before_fees: float | None = None  # closed only: pnl + fees
     r_basis: str = "assumed"  # "written" | "assumed": the risk r was measured on
     call_source: str | None = None  # "mentor" | "own" | None (not recorded)
+    reviewed_at: UtcDatetime | None = None  # None = still in the review queue
     rule_results: list[RuleResultOut] = Field(default_factory=list)
 
 
@@ -190,6 +191,7 @@ class DaySummary(BaseModel):
     size_written_first: bool | None = None
     rule_results: list[RuleResultOut] = Field(default_factory=list)
     stop_result: StopResultOut | None = None
+    unreviewed: int = 0  # positions on the day not marked reviewed (the review queue)
 
 
 class DaysResponse(BaseModel):

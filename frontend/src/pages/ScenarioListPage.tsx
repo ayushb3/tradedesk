@@ -1,17 +1,17 @@
 /**
- * ScenarioListPage — /training/scenarios
+ * ScenarioListPage — /learn/scenarios (old /training/scenarios redirects here)
  *
  * Unified entry point for both scenario management and drill-taking.
  *
  * Each row shows: title, archetype, drill type, symbol/date, blind flag, created
  * date — plus a two-icon action group:
- *   - Pencil (Edit)  → /training/scenarios/new  (authoring view; follow-up will
- *                       support /training/scenarios/:id/edit once backend ships)
- *   - Play triangle  → mood check-in overlay → /training/drills/:id?mood=<value>
+ *   - Pencil (Edit)  → /learn/scenarios/new  (authoring view; follow-up will
+ *                       support /learn/scenarios/:id/edit once backend ships)
+ *   - Play triangle  → mood check-in overlay → /learn/practice/:id?mood=<value>
  *
  * The mood check-in overlay is lifted in from what was DrillLobbyPage.
- * DrillLobbyPage (/training/drills) now redirects here; the drill player route
- * /training/drills/:scenarioId is unchanged.
+ * The old /training/* URLs redirect to /learn/*; the scenario drill player is
+ * /learn/practice/:scenarioId.
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -52,6 +52,7 @@ import {
   type ScenarioPublic,
 } from "@/lib/training";
 import type { MoodCheckin } from "@/lib/trainingTypes";
+import { LEARN_SCENARIO_NEW, practicePath } from "@/lib/learnRoutes";
 
 // ---------------------------------------------------------------------------
 // Mood check-in overlay (lifted from DrillLobbyPage)
@@ -77,7 +78,7 @@ function MoodCheckinOverlay({
   const navigate = useNavigate();
 
   function go(mood: MoodCheckin | null) {
-    const path = `/training/drills/${scenarioId}`;
+    const path = practicePath(scenarioId);
     navigate(mood ? `${path}?mood=${mood}` : path);
   }
 
@@ -160,7 +161,7 @@ export function ScenarioListPage() {
           </div>
           <Button
             size="sm"
-            onClick={() => navigate("/training/scenarios/new")}
+            onClick={() => navigate(LEARN_SCENARIO_NEW)}
             className="gap-1.5"
           >
             <PlusCircle className="h-4 w-4" />
@@ -175,11 +176,11 @@ export function ScenarioListPage() {
           {!isLoading && !isError && (
             <>
               {!data || data.length === 0 ? (
-                <EmptyState onNew={() => navigate("/training/scenarios/new")} />
+                <EmptyState onNew={() => navigate(LEARN_SCENARIO_NEW)} />
               ) : (
                 <ScenarioTable
                   scenarios={data}
-                  onEdit={() => navigate(`/training/scenarios/new`)}
+                  onEdit={() => navigate(LEARN_SCENARIO_NEW)}
                   onPlay={(s) => setPendingScenarioId(s.id)}
                 />
               )}

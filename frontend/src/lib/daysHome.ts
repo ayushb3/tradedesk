@@ -204,3 +204,49 @@ export function lastTradingDay(days: DeskDaySummary[]): string | null {
   }
   return last;
 }
+
+/** Session dates that have at least one trade, oldest first. */
+export function tradingDays(days: DeskDaySummary[]): string[] {
+  return days
+    .filter((d) => d.positions > 0)
+    .map((d) => d.date)
+    .sort();
+}
+
+/**
+ * The trading day before (dir -1) or after (dir 1) `date`, skipping days with no
+ * trades. `date` itself need not be a trading day. Null at either end.
+ */
+export function adjacentTradingDay(days: DeskDaySummary[], date: string, dir: -1 | 1): string | null {
+  const list = tradingDays(days);
+  if (dir < 0) {
+    for (let i = list.length - 1; i >= 0; i--) if (list[i] < date) return list[i];
+    return null;
+  }
+  for (const d of list) if (d > date) return d;
+  return null;
+}
+
+export interface ReviewQueue {
+  /** Trades not marked reviewed, over every day. */
+  total: number;
+  /** Oldest day with an unreviewed trade (where "Start review" goes), or null. */
+  oldest: string | null;
+  /** Unreviewed trades per date; days with none are omitted. */
+  byDate: Record<string, number>;
+}
+
+/** The review queue from the days list (`unreviewed` per day). */
+export function reviewQueue(days: DeskDaySummary[]): ReviewQueue {
+  const byDate: Record<string, number> = {};
+  let total = 0;
+  let oldest: string | null = null;
+  for (const d of days) {
+    const n = d.positions > 0 ? (d.unreviewed ?? 0) : 0;
+    if (n <= 0) continue;
+    byDate[d.date] = n;
+    total += n;
+    if (oldest === null || d.date < oldest) oldest = d.date;
+  }
+  return { total, oldest, byDate };
+}

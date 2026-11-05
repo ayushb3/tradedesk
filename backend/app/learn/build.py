@@ -6,8 +6,13 @@ the existing read-only Alpaca market-data provider), runs the pure detectors, de
 key mechanically from each setup, ties it to course notes through the course search, and writes
 the best three drills to LEARN_DIR/drills/<for-date>/.
 
-Hard rules: market data only; answer keys cite course notes only (a candidate with no
-supporting course hit is dropped, never forced); fewer than three drills is fine.
+Hard rules: answer keys come from market data only and cite course notes only (a candidate
+with no supporting course hit is dropped, never forced); fewer than three drills is fine.
+
+Drills from your trades (from_trades.py): the last 7 days of your own trades pick up to two
+extra drills that match what went wrong (an early exit, a countertrend entry, a trade after the
+cutoff). Your trades only choose WHICH market setup to drill; the key still comes from the
+market bars, and the drill records ``because`` (trade id, date, rule).
 """
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ from app.models.market import Candle
 
 from . import callouts as calls
 from . import detectors as det
+from . import from_trades as ft
 from . import ltp
 from . import store
 from .outcome import play_out
@@ -81,6 +87,31 @@ RULE_QUERIES["somesh_call"] = {
     "stop": "stop on the other side of the candle",
     "target": "target the next intraday or hourly level",
 }
+# Drills from your trades: the course material each kind is about.
+TRADE_QUERIES: dict[str, dict[str, str]] = {}
+TRADE_QUERIES["first_target"] = {
+    "topic": "take profit at the first target and manage the runner",
+    "level": "first profit target at the next level",
+    "enter": "hold a runner after taking partial profit at the first target",
+    "stop": "move the stop to break even after the first target",
+    "target": "target the next level for the runner",
+}
+TRADE_QUERIES["countertrend"] = {
+    "topic": "trade in the direction of the trend",
+    "level": "levels support resistance VWAP hourly level",
+    "enter": "do not trade against the trend wait for the trend",
+    "stop": "stop on the other side of the candle",
+    "target": "target the next level",
+}
+TRADE_QUERIES["late_window"] = {
+    "topic": "time of day trading windows when not to trade",
+    "level": "levels support resistance VWAP hourly level",
+    "enter": "no new trades late in the session stop trading after the window",
+    "stop": "stop on the other side of the candle",
+    "target": "target the next level",
+}
+KIND_QUERY = {"first_target": "first_target", "countertrend": "countertrend",
+              "late": "late_window"}
 SHORT = {"level_touches": "levels", "break_retest": "retest", "patience_candle_at_level": "patience",
          "ltp_pullback": "ltp", "somesh_call": "call"}
 
@@ -98,6 +129,9 @@ PRIMARY_TOPICS: dict[str, tuple[str, ...]] = {
     "patience_candle_at_level": ("patience-candles",),
     "ltp_pullback": ("patience-candles", "strategy-setups"),
     "somesh_call": ("strategy-setups", "levels"),
+    "first_target": ("trade-management",),
+    "countertrend": ("trend", "strategy-setups"),
+    "late_window": ("strategy-setups",),
 }
 # A lesson only belongs in a drill when its title / hit section mentions one of these.
 KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -106,6 +140,9 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     "patience_candle_at_level": ("patien", "candle", "pullback", "inside", "level", "hold"),
     "ltp_pullback": ("patien", "candle", "pullback", "trend", "level", "vwap", "fib", "break"),
     "somesh_call": ("level", "trend", "candle", "entry", "vwap", "hourly"),
+    "first_target": ("target", "profit", "runner", "partial", "scale", "trail", "break even"),
+    "countertrend": ("trend", "ema", "vwap", "direction", "counter"),
+    "late_window": ("time", "window", "late", "lunch", "afternoon", "hour"),
 }
 STEP_KEYWORDS = {"level": (), "enter": ("entry", "enter", "confirm"), "stop": ("stop",),
                  "target": ("target", "profit", "exit")}
@@ -181,7 +218,7 @@ class RuleBook:
         return slug, score, res
 
     def _lookup(self, detector: str) -> RuleInfo | None:
-        q = RULE_QUERIES.get(detector)
+        q = RULE_QUERIES.get(detector) or TRADE_QUERIES.get(detector)
         if not q or self.notes is None:
             return None
         picked = self._pick_topic(detector, q)
@@ -326,6 +363,8 @@ def _explain_call(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) 
 
 
 def explain(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str:
+    if c.facts.get("trade_kind"):
+        return ft.explain(c, key, refs)
     if c.detector == "ltp_pullback":
         return _explain_ltp(c, key, refs)
     if c.detector == "somesh_call":
@@ -382,7 +421,7 @@ def explain(c: det.Candidate, key: store.AnswerKey, refs: dict[str, str]) -> str
 # ----------------------------------------------------------------------- drafting
 
 def draft_drill(c: det.Candidate, info: RuleInfo, for_date: str, review: bool,
-                drill_id: str = "") -> store.Drill:
+                drill_id: str = "", because: store.Because | None = None) -> store.Drill:
     enter = c.enter
     key = store.AnswerKey(
         level=c.level, enter="enter" if enter else "wait",
@@ -403,6 +442,7 @@ def draft_drill(c: det.Candidate, info: RuleInfo, for_date: str, review: bool,
         grading_rubric=rub, explanation=explain(c, key, info.refs),
         detector=c.detector, review=review,
         key_levels=dict(c.facts.get("session_levels", {})),
+        because=because,
     )
 
 
@@ -576,9 +616,14 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
           rules: RuleBook, root: Path | None, dry_run: bool = False,
           candidates_only: bool = False,
           premarket: Callable[[str, date], list[Candle]] | None = None,
-          callouts_root: Path | None = None) -> dict:
+          callouts_root: Path | None = None,
+          trade_signals: list[ft.TradeSignal] | None = None,
+          cutoff: time = ft.DEFAULT_CUTOFF, trade_pick: int = ft.TRADE_PICK) -> dict:
     """Run the pipeline. Writes only when ``root`` is set and neither dry_run nor
-    candidates_only. Returns a summary dict (drills are Drill models)."""
+    candidates_only. Returns a summary dict (drills are Drill models).
+
+    ``trade_signals``: your recent trades (from_trades.load_signals); each kind of rule break
+    they show adds at most one drill (``trade_pick`` in all), with ``because`` set."""
     fd = for_date.isoformat()
     memo: dict[tuple[str, date], list[Candle]] = {}
     raw_loader = loader
@@ -642,9 +687,34 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
     chosen = select(drafts, 8 if candidates_only else PICK)
     drills = [draft_drill(c, info, fd, review, f"{fd}-{c.ticker.lower()}-{SHORT[c.detector]}-{i}")
               for i, (c, info) in enumerate(chosen, 1)]
+
+    # drills from your trades: the kinds your recent rule breaks ask for
+    signals = [ft.mark_countertrend(s, _trade_bars(s, loader)) for s in (trade_signals or [])]
+    wants = ft.pick_wants(signals)
+    taken = seen | {(c.ticker, c.date, c.pause_at.astimezone(UTC).isoformat()) for c, _ in chosen}
+    trade_drills: list[store.Drill] = []
+    if wants and trade_pick > 0 and not candidates_only:
+        extra = [w.ticker for w in wants if w.ticker and w.ticker not in tickers]
+        pool = _trade_pool(for_date, days, list(tickers) + sorted(set(extra)), loader, premarket)
+        for want in wants:
+            if len(trade_drills) >= trade_pick:
+                break
+            got = _pick_for(want, pool, rules, taken, cutoff)
+            if got is None:
+                continue
+            c, info = got
+            taken.add((c.ticker, c.date, c.pause_at.astimezone(UTC).isoformat()))
+            trade_drills.append(draft_drill(
+                c, info, fd, review,
+                f"{fd}-{c.ticker.lower()}-{ft.SHORT[want.kind]}-t{len(trade_drills) + 1}",
+                because=want.because))
+    drills += trade_drills
+
     out = {"for_date": fd, "night": night, "review": review, "sessions": sessions,
            "sessions_skipped": skipped, "candidates": counts, "dropped_no_course_support": dropped,
            "dropped_key_stopped_out": failed, "skipped_already_served": repeats,
+           "from_trades": {"trades": len(signals), "wants": [w.kind for w in wants],
+                           "built": len(trade_drills)},
            "drills": drills, "written": []}
     if candidates_only:
         out["candidates_detail"] = [c.to_dict() for c, _ in chosen]
@@ -652,6 +722,72 @@ def build(for_date: date, days: int, tickers: list[str], *, loader: Callable[[st
         out["written"] = [str(p) for p in store.replace_set(root, fd, drills)]
         store.write_state(root, store.record_build(state, fd))
     return out
+
+
+def _trade_bars(sig: ft.TradeSignal, loader: Callable[[str, date], list[Candle]]) -> list[Candle]:
+    """The underlying's session bars for a trade (only needed to read its trend at entry)."""
+    if sig.side is None or sig.entry_ts is None:
+        return []
+    try:
+        return loader(ft.chart_ticker(sig.ticker), date.fromisoformat(sig.date))
+    except Exception:
+        return []
+
+
+def _trade_pool(for_date: date, days: int, tickers: list[str],
+                loader: Callable[[str, date], list[Candle]],
+                premarket: Callable[[str, date], list[Candle]] | None
+                ) -> list[tuple[det.Candidate, list[Candle]]]:
+    """Every raw setup (enter and wait, every detector) of the recent sessions, with its bars."""
+    pool: list[tuple[det.Candidate, list[Candle]]] = []
+    for tk in tickers:
+        for day in recent_weekdays(for_date, days):
+            bars = loader(tk, day)
+            if len(bars) < MIN_SESSION_BARS:
+                continue
+            ctx = session_context(tk, day, loader, premarket)
+            found = [c for fn in det.DETECTORS.values() for c in fn(bars, tk, day.isoformat())]
+            found += ltp.ltp_pullback(bars, tk, day.isoformat(), ctx)
+            for c in found:
+                c.facts["session_levels"] = ctx.levels
+                pool.append((c, bars))
+    return pool
+
+
+def _pick_for(want: ft.Want, pool: list[tuple[det.Candidate, list[Candle]]], rules: RuleBook,
+              taken: set[tuple[str, str, str]], cutoff: time
+              ) -> tuple[det.Candidate, RuleInfo] | None:
+    """The best market setup for one kind of rule break, or None (never forced)."""
+    options: list[tuple[det.Candidate, RuleInfo]] = []
+    for raw, bars in pool:
+        close = rth_window(date.fromisoformat(raw.date))[1]
+        c = ft.make_candidate(want.kind, raw, bars, cutoff=cutoff, lookahead_min=LOOKAHEAD_MIN,
+                              session_close=close)
+        if c is None or (c.ticker, c.date, c.pause_at.astimezone(UTC).isoformat()) in taken:
+            continue
+        if c.pause_at + timedelta(minutes=10) > close or not key_holds_up(c, bars):
+            continue
+        info = rules.lookup(KIND_QUERY[want.kind]) or rules.lookup(raw.detector)
+        if info is None:
+            continue
+        options.append((c, info))
+    if not options:
+        return None
+    return min(options, key=lambda x: ft.preference(x[0], want))
+
+
+def _load_trade_signals(for_date: date) -> tuple[list[ft.TradeSignal], time]:
+    """Your recent trades and the window cutoff from the rules file. Never raises: a desk that
+    cannot be read just means no drills from your trades tonight."""
+    try:
+        from app.desk.rules import _parse_hhmm, load_rules
+
+        rules = load_rules()
+        cutoff = _parse_hhmm(rules.window.end)
+        return ft.load_signals(for_date, ft.WINDOW_DAYS, rules=rules), cutoff
+    except Exception as exc:
+        print(f"trade signals unavailable: {type(exc).__name__}", file=sys.stderr)
+        return [], ft.DEFAULT_CUTOFF
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -683,12 +819,14 @@ def main(argv: list[str] | None = None) -> int:
         print("course notes not configured: set TRADEDESK_COURSE_NOTES_DIR; "
               "answer keys must cite course notes, so nothing was built", file=sys.stderr)
         return 2
+    signals, cutoff = _load_trade_signals(for_date)
     res = build(for_date, a.days, tickers, loader=make_loader(settings),
                 rules=RuleBook(notes), root=root, dry_run=a.dry_run,
                 candidates_only=a.candidates_only,
                 premarket=lambda t, d: read_cached(settings.db_path, t, d, premarket_window(d)),
                 callouts_root=(Path(os.environ["TRADEDESK_CALLOUTS_DIR"])
-                               if os.environ.get("TRADEDESK_CALLOUTS_DIR") else calls.default_dir()))
+                               if os.environ.get("TRADEDESK_CALLOUTS_DIR") else calls.default_dir()),
+                trade_signals=signals, cutoff=cutoff)
     drills = [d.model_dump(mode="json") for d in res["drills"]]
     summary = {k: v for k, v in res.items() if k != "drills"}  # incl. candidates_detail
     if read_only:

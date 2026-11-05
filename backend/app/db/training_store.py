@@ -159,6 +159,7 @@ def _full_to_public(full: ScenarioFull, blind: bool) -> ScenarioPublic:
         blind_default=full.blind_default,
         active=full.active,
         created_at=full.created_at,
+        source_trade_id=None if blind else full.source_trade_id,
     )
 
 
@@ -669,6 +670,16 @@ def finish_debrief(
         # Enrichment is best-effort at this stage. The route handles this
         # gracefully — DebriefArtifacts.enrichment_saved will be False.
         enrichment_saved = False
+
+    # A finished debrief is a review: take the trade out of the review queue
+    # (keeps an earlier reviewed_at). Best-effort, like the enrichment above.
+    try:
+        from app.ingest.query import mark_reviewed
+
+        with engine.begin() as conn:
+            mark_reviewed(conn, debrief.trade_id)
+    except Exception:
+        pass  # the debrief itself is saved; the trade just stays in the queue
 
     # Optionally emit a scenario from this debrief.
     emitted_scenario_id: int | None = None

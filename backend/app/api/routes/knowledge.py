@@ -5,6 +5,7 @@
     GET /api/knowledge/modules                -> curriculum tree + read/star counts (M8b)
     GET /api/knowledge/lessons/{id}           -> full lesson + chunk anchors + progress (M8b)
     PUT /api/knowledge/lessons/{id}/progress  -> set reading progress (idempotent) (M8b)
+    GET /api/knowledge/lessons/{id}/trades    -> your trades tagged with this lesson's setup
 
 Read-only and mock-safe: all resolve with no credentials. Availability-style
 endpoints (status/search/modules) never raise when ingestion has not been run —
@@ -264,6 +265,17 @@ def knowledge_lesson(lesson_id: int) -> KnowledgeLessonResponse:
         prev_lesson_id=prev_id,
         next_lesson_id=next_id,
     )
+
+
+@router.get("/lessons/{lesson_id}/trades")
+def knowledge_lesson_trades(lesson_id: int) -> dict:
+    """Your real trades whose setup tags match this lesson (see app.knowledge.lesson_trades)."""
+    from app.knowledge.lesson_trades import trades_for_lesson
+
+    out = trades_for_lesson(lesson_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"Lesson {lesson_id} not found.")
+    return out
 
 
 # --------------------------------------------------------------------------- #

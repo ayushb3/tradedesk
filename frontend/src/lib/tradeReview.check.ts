@@ -3,7 +3,7 @@
  * Run: npm run check:sim
  */
 import type { ReviewDay, RuleResult, TradeExcursions } from "./api";
-import { dayTally, ruleChips, storyStrip } from "./tradeReview";
+import { dayTally, ruleChips, stepTrade, storyStrip } from "./tradeReview";
 
 let failures = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -114,6 +114,15 @@ eq("suspect marks best/stop/worst", hit.map((i) => i.estimated), [true, true, tr
 eq("unavailable", storyStrip({ ...base, available: false }), null);
 eq("open trade has no after-exit", storyStrip({ ...base, status: "open" })!.length, 3);
 eq("no bars after exit", storyStrip({ ...base, after_exit: { ...base.after_exit!, bars: 0 } })![3].value, "No bars after the exit");
+
+// ---- prev/next across days
+eq("next within the day", stepTrade([4, 5, 6], 5, 1, [9]), { id: 6, crossesDay: false });
+eq("prev within the day", stepTrade([4, 5, 6], 5, -1, [9]), { id: 4, crossesDay: false });
+eq("next from the last trade opens the next day's first", stepTrade([4, 5, 6], 6, 1, [9, 10]), { id: 9, crossesDay: true });
+eq("prev from the first trade opens the previous day's last", stepTrade([4, 5, 6], 4, -1, [1, 2]), { id: 2, crossesDay: true });
+eq("no neighbour day", stepTrade([4, 5, 6], 6, 1, undefined), null);
+eq("empty neighbour day", stepTrade([4], 4, -1, []), null);
+eq("current not in the day", stepTrade([4, 5], 7, 1, [9]), null);
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

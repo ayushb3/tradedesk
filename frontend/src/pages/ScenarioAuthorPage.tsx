@@ -60,6 +60,7 @@ import {
   type ScenarioCreateInput,
   type ScenarioSource,
 } from "@/lib/training";
+import { LEARN_SCENARIOS } from "@/lib/learnRoutes";
 
 const DEFAULT_SYMBOL: Symbol = "AAPL";
 const DEFAULT_DATE = "2026-07-01";
@@ -208,7 +209,7 @@ export function ScenarioAuthorPage() {
           description: `"${scenario.title}" created (id ${scenario.id})`,
           variant: "success",
         });
-        navigate("/training/scenarios");
+        navigate(LEARN_SCENARIOS);
       },
       onError: (err) => {
         toast({

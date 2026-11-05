@@ -105,8 +105,8 @@ def test_today_lists_public_drills_without_secrets(client):
     d = r["drills"][0]
     assert (d["status"], d["score"], d["review"]) == ("new", None, True)
     assert d["lessons"] == [
-        {"id": "3.1.1", "title": "3.1.1 Where to put the stop", "video_url": "https://example.com/video/5"},
-        {"id": "2.1", "title": "2.1 Trailing the runner", "video_url": "https://example.com/video/3"},
+        {"id": "3.1.1", "title": "3.1.1 Where to put the stop", "video_url": "https://example.com/video/5", "reader_id": None},
+        {"id": "2.1", "title": "2.1 Trailing the runner", "video_url": "https://example.com/video/3", "reader_id": None},
     ]
     assert not SECRET_KEYS & set(_walk_keys(r))
 
@@ -122,8 +122,8 @@ def test_today_uses_latest_set_not_after_today(client, monkeypatch):
 def test_lesson_refs_null_when_notes_not_configured(monkeypatch, tmp_path):
     c = _make_client(monkeypatch, tmp_path, notes=False)
     d = c.get("/api/learn/today").json()["drills"][0]
-    assert d["lessons"] == [{"id": "3.1.1", "title": None, "video_url": None},
-                            {"id": "2.1", "title": None, "video_url": None}]
+    assert d["lessons"] == [{"id": "3.1.1", "title": None, "video_url": None, "reader_id": None},
+                            {"id": "2.1", "title": None, "video_url": None, "reader_id": None}]
     assert c.get("/api/learn/topics").json() == []
     assert c.get("/api/learn/lessons").json() == []
 
@@ -232,7 +232,7 @@ def test_lessons_all_and_search(client):
     assert [x["id"] for x in allx] == ["1.1", "1.2", "2.1", "2.3", "3.1.1"]
     row = next(x for x in allx if x["id"] == "3.1.1")
     assert row["video_url"] == "https://example.com/video/5" and "stops" in row["topics"]
-    assert set(row) == {"id", "title", "module", "video_url", "topics"}
+    assert set(row) == {"id", "title", "module", "video_url", "topics", "reader_id"}
     hits = client.get("/api/learn/lessons?q=where to put the stop").json()
     assert hits and hits[0]["id"] == "3.1.1"
 
@@ -285,3 +285,51 @@ def test_answer_and_result_carry_both_plans_outcomes(client, tmp_path):
     r = client.get(f"/api/learn/drills/{D1}/result").json()
     assert r["outcomes"] == g["outcomes"]
     assert d["id"] == D1
+
+
+# ------------------------------------------------- topic view, reader links, because
+
+def _seed_reader_lesson(lesson_id: int, module: str, seq: int, title: str) -> None:
+    from app.knowledge import store as kstore
+    from app.knowledge.chunking import chunk_text
+
+    body = "synthetic body"
+    kstore.upsert_lesson(lesson_id=lesson_id, module=module, seq=seq, title=title,
+                         source_path=f"/fake/{lesson_id}.txt", raw_text=body,
+                         chash=kstore.content_hash(body), embedder="hashing-v1",
+                         chunk_count=len(chunk_text(body)))
+
+
+def test_lesson_refs_carry_the_in_app_reader_id_when_ingested(client):
+    _seed_reader_lesson(41, "3.1", 1, "Synthetic stop lesson")      # resolves "3.1.1"
+    d = client.get("/api/learn/today").json()["drills"][0]
+    by_id = {x["id"]: x["reader_id"] for x in d["lessons"]}
+    assert by_id == {"3.1.1": 41, "2.1": None}
+    rows = {r["id"]: r["reader_id"] for r in client.get("/api/learn/lessons").json()}
+    assert rows["3.1.1"] == 41
+
+
+def test_topic_view_lists_its_drills_and_lessons(client):
+    r = client.get("/api/learn/topics/stops").json()
+    assert r["configured"] is True and r["slug"] == "stops" and r["title"]
+    assert [d["id"] for d in r["drills"]] == [D1]
+    assert not SECRET_KEYS & set(_walk_keys(r))
+    assert r["lessons"] and all("stops" in x["topics"] for x in r["lessons"])
+    assert all("reader_id" in x for x in r["lessons"])
+    assert client.get("/api/learn/topics/no-such-topic").status_code == 404
+
+
+def test_topic_view_unconfigured(monkeypatch, tmp_path):
+    c = _make_client(monkeypatch, tmp_path, learn=False)
+    assert c.get("/api/learn/topics/stops").json()["configured"] is False
+
+
+def test_because_reaches_the_public_drill(client, tmp_path):
+    p = tmp_path / "learn" / "drills" / SET / f"{D2}.json"
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    raw["because"] = {"trade_id": 99, "date": "2026-10-27", "rule": "before_cutoff"}
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    drills = {d["id"]: d for d in client.get("/api/learn/today").json()["drills"]}
+    assert drills[D1]["because"] is None
+    assert drills[D2]["because"] == {"trade_id": 99, "date": "2026-10-27", "rule": "before_cutoff"}
+    assert not SECRET_KEYS & set(_walk_keys(drills[D2]))

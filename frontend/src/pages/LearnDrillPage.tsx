@@ -11,10 +11,11 @@
  * guardBars() cuts again on the client. Times are PT and labelled.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
+import { BecauseLink, LessonLink } from "@/components/learn/LessonLink";
 import { Markdown } from "@/components/learn/Markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ import {
   type ReplayFill,
 } from "@/lib/api";
 import { floorMinute } from "@/lib/stackedReplay";
+import { becauseFocus, becauseRuleText, topicPath } from "@/lib/learnRoutes";
 import { isoToUtcSeconds } from "@/lib/chart";
 import {
   EMPTY_DRAFT,
@@ -298,20 +300,8 @@ function LessonLinks({ lessons }: { lessons: LessonRef[] }) {
       <h3 className="label-caps text-label font-semibold text-muted-foreground">Lessons</h3>
       <ul className="flex flex-col gap-1">
         {lessons.map((l) => (
-          <li key={l.id} className="flex items-center justify-between gap-2 text-body">
-            <span className="min-w-0 truncate">{l.title ?? `Lesson ${l.id}`}</span>
-            {l.video_url ? (
-              <a
-                href={l.video_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline"
-              >
-                Video <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            ) : (
-              <span className="shrink-0 text-label text-muted-foreground">No video</span>
-            )}
+          <li key={l.id} className="text-body">
+            <LessonLink title={l.title ?? `Lesson ${l.id}`} readerId={l.reader_id} videoUrl={l.video_url} />
           </li>
         ))}
       </ul>
@@ -693,7 +683,12 @@ export function LearnDrillPage() {
           </Button>
           <h1 className="text-value font-semibold">
             <span className="num">{drill.ticker}</span>
-            <span className="text-muted-foreground"> · {topicName(drill.topic)}</span>
+            <span className="text-muted-foreground">
+              {" · "}
+              <Link to={topicPath(drill.topic)} className="hover:text-foreground hover:underline">
+                {topicName(drill.topic)}
+              </Link>
+            </span>
           </h1>
         </div>
         <p className="text-label text-muted-foreground">
@@ -701,6 +696,15 @@ export function LearnDrillPage() {
           {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
         </p>
       </div>
+
+      {drill.because ? (
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2">
+          <BecauseLink because={drill.because} />
+          <span className="text-label text-muted-foreground">
+            ({becauseRuleText(drill.because.rule)}). {becauseFocus(drill.because)}
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex flex-col gap-2">

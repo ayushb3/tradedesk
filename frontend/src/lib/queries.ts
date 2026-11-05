@@ -21,6 +21,7 @@ import {
   type CreateTagRequest,
   type CriticResponse,
   type DailyReview,
+  type DayFields,
   type DayTradesResponse,
   type Health,
   type ImportResult,
@@ -32,6 +33,8 @@ import {
   type LearnNotConfigured,
   type LearnToday,
   type LearnTopic,
+  type LearnTopicDetail,
+  type LessonTrades,
   type KnowledgeSearchResponse,
   type KnowledgeStatus,
   type KnowledgeConceptsResponse,
@@ -328,6 +331,33 @@ export function useDeskDay(date: string | null) {
   });
 }
 
+/** The day journal (why / how it felt / notes); null until something is written. */
+export function useDayFields(date: string | null) {
+  return useQuery<DayFields | null>({
+    queryKey: ["day-fields", date],
+    queryFn: () => api.dayFields(date as string),
+    enabled: Boolean(date),
+    retry: false,
+  });
+}
+
+/**
+ * Mark a trade reviewed (or put it back in the queue). Refreshes the trade, its review
+ * payload, the desk day rows and the Days home counts.
+ */
+export function useSetReviewed() {
+  const qc = useQueryClient();
+  return useMutation<Trade, unknown, { id: number | string; reviewed: boolean }>({
+    mutationFn: ({ id, reviewed }) => api.setReviewed(id, reviewed),
+    onSuccess: (trade) => {
+      qc.setQueryData(["trade", trade.id], trade);
+      void qc.invalidateQueries({ queryKey: ["trade-review"] });
+      void qc.invalidateQueries({ queryKey: ["desk-day", trade.session_date] });
+      void qc.invalidateQueries({ queryKey: ["desk-days"] });
+    },
+  });
+}
+
 /** A session-day's trade cards with sparklines. Enabled only when `date` is set. */
 export function useDayTrades(date: string | null) {
   return useQuery<DayTradesResponse>({
@@ -527,6 +557,22 @@ export function useLearnTopics() {
   return useQuery<LearnTopic[] | LearnNotConfigured>({
     queryKey: ["learn-topics"],
     queryFn: () => api.learnTopics(),
+  });
+}
+
+export function useLearnTopic(slug: string | undefined) {
+  return useQuery<LearnTopicDetail | LearnNotConfigured>({
+    queryKey: ["learn-topic", slug],
+    queryFn: () => api.learnTopic(slug as string),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useLessonTrades(id: number | undefined) {
+  return useQuery<LessonTrades>({
+    queryKey: ["knowledge-lesson-trades", id],
+    queryFn: () => api.knowledgeLessonTrades(id as number),
+    enabled: id !== undefined && Number.isFinite(id),
   });
 }
 

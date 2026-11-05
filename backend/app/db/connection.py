@@ -36,6 +36,7 @@ from .schema import metadata
 # v8 (issue #7): day_fields (new table, created by create_all).
 # v10 (issue #12): audit (new table, created by create_all).
 # (cache source fix: option_bars_cache.source is an idempotent column migration; no version bump.)
+# (review queue: trades.reviewed_at is an idempotent column migration; no version bump.)
 # v11 (option-bar scale fix): one-time purge of synthetic option_bars_cache rows. The old
 #     whole-day scale check threw away real 0DTE provider bars and cached BS fallbacks
 #     (some priced SPX contracts off the SPY proxy); they are rebuilt on demand.
@@ -165,6 +166,9 @@ def _apply_column_migrations(conn) -> None:
     # trade ids are NOT changed, so every FK already pointing at them stays valid.
     if "trade_key" not in trade_cols:
         conn.execute(text("ALTER TABLE trades ADD COLUMN trade_key TEXT"))
+    # trades.reviewed_at (review queue): nullable, existing rows read as not reviewed.
+    if "reviewed_at" not in trade_cols:
+        conn.execute(text("ALTER TABLE trades ADD COLUMN reviewed_at DATETIME"))
     # trade_enrichment.call_source (redesign slice 6): mentor | own | NULL. Additive.
     enrich_cols = {
         r[1] for r in conn.execute(text("PRAGMA table_info(trade_enrichment)")).fetchall()

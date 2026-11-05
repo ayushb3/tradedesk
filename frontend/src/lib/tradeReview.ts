@@ -184,3 +184,23 @@ export function storyStrip(x: TradeExcursions | undefined | null): StoryItem[] |
   }
   return items;
 }
+
+/**
+ * Prev/Next on the trade page. Within the day it steps through `dayIds` (time order);
+ * past either end it crosses to the neighbouring trading day: Next opens that day's
+ * first trade, Prev the previous day's last. `neighborIds` are the neighbouring day's
+ * trade ids in time order (undefined while loading or when there is no such day).
+ */
+export function stepTrade(
+  dayIds: number[],
+  current: number,
+  dir: -1 | 1,
+  neighborIds: number[] | undefined,
+): { id: number; crossesDay: boolean } | null {
+  const idx = dayIds.indexOf(current);
+  if (idx < 0) return null;
+  const j = idx + dir;
+  if (j >= 0 && j < dayIds.length) return { id: dayIds[j], crossesDay: false };
+  if (!neighborIds || neighborIds.length === 0) return null;
+  return { id: dir > 0 ? neighborIds[0] : neighborIds[neighborIds.length - 1], crossesDay: true };
+}

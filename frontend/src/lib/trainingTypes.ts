@@ -79,6 +79,8 @@ export interface ScenarioPublic {
   blind_default: boolean;
   active: boolean;
   created_at: string;
+  /** The trade a Critique/Debrief drill was authored from (null when blind). Older servers omit it. */
+  source_trade_id?: number | null;
 }
 
 /** GET /api/training/scenarios/{id}/session — the drill replay payload. */
