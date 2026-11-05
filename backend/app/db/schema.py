@@ -180,6 +180,10 @@ trades = Table(
     # so integer FKs to trades.id never orphan. NULL for sim/training trades.
     # Unique index `uq_trades_trade_key` is created in connection.py.
     Column("trade_key", String),
+    # When the trade was marked reviewed (naive UTC); NULL = not reviewed yet. Set by
+    # PUT /api/trades/{id}/reviewed or by finishing a debrief. Carried across a rebuild
+    # via trade_key like the stop. Added by an idempotent ALTER TABLE in connection.py.
+    Column("reviewed_at", DateTime),
     Index("uq_trades_trade_key", "trade_key", unique=True),
 )
 

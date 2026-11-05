@@ -84,6 +84,7 @@ class LoadedPosition:
     plan: Plan | None = None
     off_plan: bool = True
     call_source: str | None = None  # "mentor" | "own" | None
+    reviewed_at: datetime | None = None  # naive UTC; None = not reviewed yet
 
 
 def _fill_cash(side: str, qty: float, px: float, mult: float, fees: float) -> float:
@@ -144,6 +145,7 @@ def _load_positions(conn, rules: Rules, rows) -> dict[date, list[LoadedPosition]
             LoadedPosition(
                 t["id"], t["trade_key"], t["contract_label"], pos,
                 call_source=sources.get(t["id"]),
+                reviewed_at=t.get("reviewed_at"),
             )
         )
     for lst in by_day.values():

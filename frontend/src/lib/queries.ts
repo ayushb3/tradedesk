@@ -21,6 +21,7 @@ import {
   type CreateTagRequest,
   type CriticResponse,
   type DailyReview,
+  type DayFields,
   type DayTradesResponse,
   type Health,
   type ImportResult,
@@ -325,6 +326,33 @@ export function useDeskDay(date: string | null) {
     queryFn: () => api.deskDay(date as string),
     enabled: Boolean(date),
     retry: false,
+  });
+}
+
+/** The day journal (why / how it felt / notes); null until something is written. */
+export function useDayFields(date: string | null) {
+  return useQuery<DayFields | null>({
+    queryKey: ["day-fields", date],
+    queryFn: () => api.dayFields(date as string),
+    enabled: Boolean(date),
+    retry: false,
+  });
+}
+
+/**
+ * Mark a trade reviewed (or put it back in the queue). Refreshes the trade, its review
+ * payload, the desk day rows and the Days home counts.
+ */
+export function useSetReviewed() {
+  const qc = useQueryClient();
+  return useMutation<Trade, unknown, { id: number | string; reviewed: boolean }>({
+    mutationFn: ({ id, reviewed }) => api.setReviewed(id, reviewed),
+    onSuccess: (trade) => {
+      qc.setQueryData(["trade", trade.id], trade);
+      void qc.invalidateQueries({ queryKey: ["trade-review"] });
+      void qc.invalidateQueries({ queryKey: ["desk-day", trade.session_date] });
+      void qc.invalidateQueries({ queryKey: ["desk-days"] });
+    },
   });
 }
 

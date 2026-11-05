@@ -455,7 +455,7 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
     """Snapshot per-trade enrichment keyed by a STABLE `trade_key`.
 
     Called BEFORE the delete in `_rebuild_trades`. For every existing non-sim
-    trade we capture its user-entered enrichment — ``stop_price``, the
+    trade we capture its user-entered enrichment — ``stop_price``, ``reviewed_at``, the
     ``trade_enrichment`` row (notes/grade/checklist/screenshots) and its
     ``trade_tags`` — keyed by ``trade_key`` = the ``provider_fill_id`` of the
     trade's opening fill (seq=0 in ``trade_fills``). That key is immutable and
@@ -481,9 +481,10 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
     ).fetchall()
     for trade_id, trade_key in keyed:
         trade_row = conn.execute(
-            select(trades_t.c.stop_price).where(trades_t.c.id == trade_id)
+            select(trades_t.c.stop_price, trades_t.c.reviewed_at).where(trades_t.c.id == trade_id)
         ).first()
         stop_price = trade_row[0] if trade_row is not None else None
+        reviewed_at = trade_row[1] if trade_row is not None else None
 
         enrich_row = conn.execute(
             select(
@@ -508,11 +509,12 @@ def _snapshot_enrichment(conn) -> dict[str, dict]:
         has_enrichment = enrich_row is not None and any(
             v is not None for v in enrich_row
         )
-        if stop_price is None and not has_enrichment and not tag_ids:
+        if stop_price is None and reviewed_at is None and not has_enrichment and not tag_ids:
             continue
 
         snapshot[trade_key] = {
             "stop_price": stop_price,
+            "reviewed_at": reviewed_at,
             "enrichment": (
                 {
                     "notes": enrich_row[0],
@@ -593,6 +595,11 @@ def _restore_enrichment(conn, trade_id: int, row: dict, snap: dict) -> None:
         # (app.desk.ledger.resolve_r), so only the stop itself is restored.
         conn.execute(
             trades_t.update().where(trades_t.c.id == trade_id).values(stop_price=stop_price)
+        )
+    reviewed_at = snap.get("reviewed_at")
+    if reviewed_at is not None:
+        conn.execute(
+            trades_t.update().where(trades_t.c.id == trade_id).values(reviewed_at=reviewed_at)
         )
 
     enrichment = snap.get("enrichment")

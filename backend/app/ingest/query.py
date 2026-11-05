@@ -19,7 +19,7 @@ they are NOT excluded. Only context='training' is filtered out.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -218,6 +218,7 @@ def _hydrate(conn, row) -> Trade:
         hold_time_s=m["hold_time_s"],
         status=TradeStatus(m["status"]),
         simulated=bool(m["simulated"]),
+        reviewed_at=m.get("reviewed_at"),
         tags=_load_tags(conn, trade_id),
         enrichment=_load_enrichment(conn, trade_id),
     )
@@ -400,3 +401,37 @@ def update_trade(
             conn.execute(trades_t.update().where(trades_t.c.id == trade_id).values(**values))
 
     return get_trade(trade_id, engine=engine)
+
+
+def set_reviewed(
+    trade_id: int, reviewed: bool, engine: Engine | None = None
+) -> Trade | None:
+    """Mark a trade reviewed (stamps ``reviewed_at`` now, UTC) or clear it.
+
+    Marking an already-reviewed trade keeps its first timestamp. None if the
+    trade doesn't exist.
+    """
+    engine = engine or get_engine()
+    init_db(engine)
+    with engine.begin() as conn:
+        row = conn.execute(
+            select(trades_t.c.reviewed_at).where(trades_t.c.id == trade_id)
+        ).first()
+        if row is None:
+            return None
+        if reviewed and row[0] is None:
+            mark_reviewed(conn, trade_id)
+        elif not reviewed:
+            conn.execute(
+                trades_t.update().where(trades_t.c.id == trade_id).values(reviewed_at=None)
+            )
+    return get_trade(trade_id, engine=engine)
+
+
+def mark_reviewed(conn, trade_id: int) -> None:
+    """Stamp ``reviewed_at`` on a trade that has none (no-op when already set)."""
+    conn.execute(
+        trades_t.update()
+        .where(trades_t.c.id == trade_id, trades_t.c.reviewed_at.is_(None))
+        .values(reviewed_at=datetime.now(timezone.utc).replace(tzinfo=None))
+    )

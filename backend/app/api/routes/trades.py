@@ -148,3 +148,18 @@ def set_call_source(trade_id: int, body: CallSourceBody) -> Trade:
     if t is None:
         raise HTTPException(status_code=404, detail="trade not found")
     return t
+
+
+class ReviewedBody(BaseModel):
+    reviewed: bool
+
+
+@router.put("/trades/{trade_id}/reviewed", response_model=Trade)
+def set_reviewed(trade_id: int, body: ReviewedBody) -> Trade:
+    """Mark a trade reviewed (stamps ``reviewed_at``) or put it back in the review queue."""
+    from app.ingest.query import set_reviewed as _set
+
+    t = _set(trade_id, body.reviewed)
+    if t is None:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return t

@@ -203,6 +203,8 @@ export interface TradeRow {
   open: boolean;
   broken: RuleResult[];
   keptCount: number;
+  /** Marked reviewed (undefined reviewed_at on older payloads counts as not reviewed). */
+  reviewed: boolean;
 }
 
 export function contractLabel(p: DeskPosition): string {
@@ -224,6 +226,7 @@ export function tradeRows(positions: DeskPosition[]): TradeRow[] {
       open: p.status !== "closed" && p.pnl == null,
       broken: p.rule_results.filter((r) => r.kept === false),
       keptCount: p.rule_results.filter((r) => r.kept === true).length,
+      reviewed: p.reviewed_at != null,
     }));
 }
 
@@ -250,4 +253,35 @@ export function linePoints(
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
+}
+
+/**
+ * Replay links. `from` is where Replay's back link returns to; Replay ignores `day` and
+ * `from` until it supports them, so these are safe to emit now. Values are dates and
+ * numeric ids, so no escaping is needed.
+ */
+export function replayDayHref(date: string): string {
+  return `/replay?day=${date}&from=/journal/${date}`;
+}
+
+export function replayTradeHref(tradeId: number, from?: string, lead = 15): string {
+  return `/replay?trade=${tradeId}&lead=${lead}${from ? `&from=${from}` : ""}`;
+}
+
+/** True when a key press comes from a text field, where page shortcuts must not fire. */
+export function isTypingTarget(t: EventTarget | null): boolean {
+  if (!t || typeof (t as HTMLElement).tagName !== "string") return false;
+  const el = t as HTMLElement;
+  const tag = el.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable === true;
+}
+
+/** Day page shortcut: `[` / Alt+← is the previous trading day, `]` / Alt+→ the next. */
+export function dayNavKey(e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): -1 | 1 | null {
+  if (e.ctrlKey || e.metaKey) return null;
+  if (e.key === "[" && !e.altKey) return -1;
+  if (e.key === "]" && !e.altKey) return 1;
+  if (e.altKey && e.key === "ArrowLeft") return -1;
+  if (e.altKey && e.key === "ArrowRight") return 1;
+  return null;
 }

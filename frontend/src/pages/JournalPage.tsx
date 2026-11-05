@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Table2 } from "lucide-react";
+import { ClipboardCheck, Download, Table2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,16 @@ import { Breakdown } from "@/components/journal/Breakdowns";
 import { GroupedTradesTable } from "@/components/journal/GroupedTradesTable";
 import { RuleScoreboard } from "@/components/days/RuleScoreboard";
 import { PatternsSection } from "@/components/days/PatternsSection";
-import { calendarFromDays, calendarMarks, lastTradingDay, tradeRange, inMonth, ruleBreaks, ruleScoreboard } from "@/lib/daysHome";
+import {
+  calendarFromDays,
+  calendarMarks,
+  inMonth,
+  lastTradingDay,
+  reviewQueue,
+  ruleBreaks,
+  ruleScoreboard,
+  tradeRange,
+} from "@/lib/daysHome";
 import { ApiError, type TradesParams } from "@/lib/api";
 import {
   useAnalyticsBy,
@@ -112,6 +121,7 @@ export function JournalPage() {
   const lastDay = lastTradingDay(deskDays.data?.days ?? []);
   const month = pickedMonth ?? (lastDay ? lastDay.slice(0, 7) : currentMonth());
 
+  const queue = reviewQueue(deskDays.data?.days ?? []);
   const monthDays = (deskDays.data?.days ?? []).filter((d) => inMonth(d.date, month));
   const board = ruleScoreboard(monthDays);
   const marks = calendarMarks(monthDays);
@@ -131,6 +141,27 @@ export function JournalPage() {
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
         <h1 className="font-semibold tracking-tight">Days</h1>
+        {queue.total > 0 && queue.oldest && (
+          <div className="flex items-center gap-2">
+            <span
+              className="num inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-label font-medium text-primary"
+              data-testid="review-badge"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              {queue.total} to review
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => navigate(`/journal/${queue.oldest}`)}
+              title={`Opens ${formatDayMonth(queue.oldest)}, the oldest day with unreviewed trades`}
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              Start review
+            </Button>
+          </div>
+        )}
 
         <div className="ml-auto flex items-center gap-3">
           <div className="hidden items-center gap-2 sm:flex">
@@ -194,6 +225,7 @@ export function JournalPage() {
               onMonthChange={setMonth}
               onSelectDay={(date) => navigate(`/journal/${date}`)}
               marks={marks}
+              reviewDue={queue.byDate}
             />
             <div className="grid gap-4">
               <Breakdown
