@@ -103,7 +103,7 @@ export function ReplayPage() {
   const tradeRow = useTrade(tradeId);
   const daySoFar = useReplayDaySoFar(tradeId);
 
-  // Trade mode: contract premium (top) stacked over SPY (bottom). The old
+  // Trade mode: SPY on top (the main pane), contract premium stacked below it. The old
   // Underlying|Contract toggle and its `view` param are gone; a stale `view`
   // in the URL is ignored.
   const contractReplay = useReplayContract(tradeId, lead, tradeId !== null);
@@ -542,6 +542,7 @@ export function ReplayPage() {
                 fills={windowed.contractCandles ? revealedFills : []}
                 playheadLabel={useSeconds ? formatClockSecondsPt(secs.playSec) : undefined}
                 mainPane="bottom"
+                contractBelow
                 fillLabels="arrows"
               />
             </div>
