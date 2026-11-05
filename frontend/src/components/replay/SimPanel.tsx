@@ -43,16 +43,16 @@ export function SimPanel({ candle, bars, state, enabled, onBuy, onSell, onCloseA
   const addedLowerCount = p.fills.filter((f) => f.addedLower).length;
 
   return (
-    <div className="flex flex-col gap-4 border-b border-border p-3">
-      <div className="label-caps text-label font-semibold text-muted-foreground">Sim</div>
-
+    <div className="flex flex-col gap-2 border-b border-border px-3 py-2">
       <div className="flex items-baseline gap-3">
-        <span className="num text-key">{mark !== null ? px(mark) : "-"}</span>
-        {open && r !== null && <span className={`num text-key ${tone(r)}`}>{formatR(r)}</span>}
+        <span className="label-caps text-label font-semibold text-muted-foreground">Sim</span>
+        <span className="num text-value">{mark !== null ? px(mark) : "-"}</span>
+        {open && r !== null && <span className={`num text-value ${tone(r)}`}>{formatR(r)}</span>}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-1.5">
         <Button
+          size="sm"
           disabled={!canAct}
           onClick={onBuy}
           className="bg-gain text-white hover:bg-gain/90"
@@ -60,16 +60,17 @@ export function SimPanel({ candle, bars, state, enabled, onBuy, onSell, onCloseA
           Buy 1
         </Button>
         <Button
+          size="sm"
           disabled={!canAct || !open}
           onClick={onSell}
           className="bg-loss text-white hover:bg-loss/90"
         >
           Sell 1
         </Button>
+        <Button size="sm" variant="outline" disabled={!canAct || !open} onClick={onCloseAll}>
+          Close all
+        </Button>
       </div>
-      <Button variant="outline" disabled={!canAct || !open} onClick={onCloseAll}>
-        Close all
-      </Button>
       {!enabled && (
         <p className="text-label text-muted-foreground">
           No option bars for this trade, so there is no premium to trade.
@@ -77,7 +78,7 @@ export function SimPanel({ candle, bars, state, enabled, onBuy, onSell, onCloseA
       )}
 
       {open ? (
-        <dl className="num grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-value">
+        <dl className="num grid grid-cols-[auto_1fr] gap-x-3 text-label">
           <dt className="text-label text-muted-foreground">Open</dt>
           <dd className="text-right">
             {p.qty} contract{p.qty === 1 ? "" : "s"}

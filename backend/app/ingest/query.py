@@ -85,6 +85,8 @@ def get_trade_fills(
                 fills_t.c.price,
                 fills_t.c.ts_utc,
                 fills_t.c.fees,
+                fills_t.c.multiplier,
+                fills_t.c.raw_json,
             )
             .select_from(
                 trade_fills_t.join(
@@ -99,6 +101,7 @@ def get_trade_fills(
     for row in rows:
         m = row._mapping
         side = Side(m["side"])
+        raw = m["raw_json"] if isinstance(m["raw_json"], dict) else {}
         review_fills.append(
             ReviewFill(
                 id=m["id"],
@@ -109,6 +112,8 @@ def get_trade_fills(
                 ts=m["ts_utc"],
                 fees=m["fees"] or 0.0,
                 role=_fill_role(side, direction),
+                order_type=raw.get("order_type"),
+                multiplier=float(m["multiplier"] or 1.0),
             )
         )
     return review_fills

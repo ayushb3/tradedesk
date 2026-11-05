@@ -119,6 +119,41 @@ export function fillChipText(side: "buy" | "sell", clock: string): string {
   return `${side === "buy" ? "B" : "S"} ${clock}`;
 }
 
+/** Broker order type for display: "LMT" / "MKT" / "STOP"; "" when the broker didn't say. */
+export function orderTypeLabel(t: string | null | undefined): string {
+  if (!t) return "";
+  const k = t.toLowerCase();
+  return k === "limit" ? "LMT" : k === "market" ? "MKT" : k === "stop" ? "STOP" : k.toUpperCase();
+}
+
+/**
+ * Dollar value of a fill: whole dollars when it is whole ("$250"), cents otherwise ("$1,000.50").
+ * "—" when the server did not send one (an older backend during a deploy).
+ */
+export function fillValueText(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Readout line for one fill: "B 2 @ 1.25 07:30:05 PT LMT". `price: false` drops "@ price"
+ * (the underlying pane must not show an option price on its axis).
+ */
+export function fillDetailText(
+  f: { side: "buy" | "sell"; qty: number; price: number; order_type?: string | null },
+  clock: string,
+  opts: { price?: boolean } = {},
+): string {
+  const head = opts.price === false ? `${f.side === "buy" ? "B" : "S"} ${f.qty}` : `${f.side === "buy" ? "B" : "S"} ${f.qty} @ ${f.price.toFixed(2)}`;
+  const type = orderTypeLabel(f.order_type);
+  return type ? `${head} ${clock} ${type}` : `${head} ${clock}`;
+}
+
+/** Fills in time order (ties keep FIFO `seq` order), for the one-row-per-fill list. */
+export function fillsInTimeOrder<T extends { ts: string; seq: number }>(fills: T[]): T[] {
+  return [...fills].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts) || a.seq - b.seq);
+}
+
 const CHAR_PX = 7.4; // 12px monospace
 const CHIP_PAD_PX = 12;
 /** Approximate rendered width of a chip, px. */

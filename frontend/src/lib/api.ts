@@ -140,6 +140,10 @@ export interface ReplayFill {
   ts: string;
   /** Display-zone time, already labelled, e.g. "07:30:00 PT". */
   time_pt: string;
+  /** Broker order type ("market" | "limit" | "stop"); null when the broker didn't say. */
+  order_type: string | null;
+  /** Gross dollars: qty x price x multiplier (x100 for options), before fees. */
+  value: number;
 }
 
 /**
@@ -508,6 +512,10 @@ export interface ReviewFill {
   ts: string;
   fees: number;
   role: FillRole;
+  /** Broker order type ("market" | "limit" | "stop"); null when the broker didn't say. */
+  order_type: string | null;
+  /** Contract multiplier: 100 for equity options, 1 for shares. */
+  multiplier: number;
 }
 
 /** Ticker + timeframe descriptor for the underlying chart. */

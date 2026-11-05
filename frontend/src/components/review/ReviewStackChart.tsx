@@ -7,9 +7,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ReplayFill, ReviewFill, Trade } from "@/lib/api";
 import { isoToUtcSeconds } from "@/lib/chart";
-import { DISPLAY_TZ_LABEL, formatClock } from "@/lib/format";
+import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import { useReplayContract, useReplayTrade } from "@/lib/queries";
 import { LEAD_MIN, revealBound, reviewWindow } from "@/lib/reviewChart";
+import { formatClockSecondsPt } from "@/lib/secondsReplay";
 import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,9 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
         qty: f.qty,
         price: f.price,
         ts: f.ts,
-        time_pt: `${formatClock(f.ts)} ${DISPLAY_TZ_LABEL}`,
+        time_pt: formatClockSecondsPt(isoToUtcSeconds(f.ts)),
+        order_type: f.order_type,
+        value: Math.round(f.qty * f.price * f.multiplier * 100) / 100,
       })),
     [fills],
   );

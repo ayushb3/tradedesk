@@ -98,6 +98,51 @@ def test_fills_endpoint_gates_and_labels_pt(client, trade_id):
     assert r2.json()["fills"] == []
 
 
+def test_fills_carry_order_type_and_value(client, isolated_db):
+    """Each revealed fill says how it was ordered and what it was worth (qty x px x 100 for an
+    option), sourced like the day API (raw_json order_type, fills.multiplier). Synthetic values."""
+    from app.db.connection import get_engine
+
+    def opt(i, side, price, minute, qty, otype, second=0):
+        return Fill(
+            provider_fill_id=f"o-{i}", account="TEST", symbol="SPY", side=side, qty=qty,
+            price=price, ts=BASE + timedelta(minutes=minute, seconds=second), multiplier=100.0,
+            option_type="CALL", strike=500.0, expiry="2026-06-10",
+            raw_json={"order_type": otype} if otype else None,
+        )
+
+    # Two buys in the same minute (overlap on one candle), then a stop sell.
+    fills = [
+        opt(1, Side.buy, 1.25, 60, 2, "limit", second=5),
+        opt(2, Side.buy, 1.30, 60, 1, "market", second=41),
+        opt(3, Side.sell, 0.90, 75, 3, "stop"),
+    ]
+    import_fills(_FillProvider(fills), engine=get_engine())
+    tid = list_trades(engine=get_engine())[0].id
+
+    r = client.get(f"/api/replay/trade/{tid}/fills", params={"playhead": _iso(75)})
+    assert r.status_code == 200
+    got = [
+        (f["side"], f["time_pt"], f["qty"], f["price"], f["value"], f["order_type"])
+        for f in r.json()["fills"]
+    ]
+    assert got == [
+        ("buy", "07:30:05 PT", 2, 1.25, 250.0, "limit"),
+        ("buy", "07:30:41 PT", 1, 1.30, 130.0, "market"),
+        ("sell", "07:45:00 PT", 3, 0.90, 270.0, "stop"),
+    ]
+    # Same fields on the full replay payload; the playhead gate still hides the exit.
+    early = client.get(f"/api/replay/trade/{tid}", params={"playhead": _iso(70)}).json()["fills"]
+    assert [(f["order_type"], f["value"]) for f in early] == [("limit", 250.0), ("market", 130.0)]
+
+
+def test_share_fill_value_and_missing_order_type(client, trade_id):
+    """A share fill is worth qty x price (multiplier 1); no broker order type -> null."""
+    f = client.get(f"/api/replay/trade/{trade_id}/fills", params={"playhead": _iso(60)}).json()["fills"][0]
+    assert f["value"] == 1000.0
+    assert f["order_type"] is None
+
+
 def test_naive_playhead_treated_as_utc(client, trade_id):
     r = client.get(f"/api/replay/trade/{trade_id}/fills", params={"playhead": "2026-06-10T14:30:00"})
     assert len(r.json()["fills"]) == 1

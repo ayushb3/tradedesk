@@ -20,6 +20,7 @@ import {
   revealedLineData,
   valueAt,
 } from "@/lib/chart";
+import { orderTypeLabel } from "@/lib/priceChart";
 
 // Keep in sync with the dark theme in index.css.
 const CHART_THEME = {
@@ -487,7 +488,7 @@ export function ReplayChart({
         position: isBuy ? "belowBar" : "aboveBar",
         color: isBuy ? CHART_THEME.up : CHART_THEME.down,
         shape: isBuy ? "arrowUp" : "arrowDown",
-        text: `${f.role} ${f.qty} @ ${f.price.toFixed(2)} ${f.time_pt}`,
+        text: `${f.role} ${f.qty} @ ${f.price.toFixed(2)} ${f.time_pt}${f.order_type ? ` ${orderTypeLabel(f.order_type)}` : ""}`,
       });
     }
     markers.sort((a, b) => (a.time as number) - (b.time as number));

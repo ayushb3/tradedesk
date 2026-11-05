@@ -178,6 +178,8 @@ def revealed_fills(trade_id: int, playhead: datetime) -> list[ReplayFill]:
                     price=f.price,
                     ts=f.ts,
                     time_pt=_as_utc(f.ts).astimezone(_PT).strftime("%H:%M:%S PT"),
+                    order_type=f.order_type,
+                    value=round(f.qty * f.price * f.multiplier, 2),
                 )
             )
     return out
