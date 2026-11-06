@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ServerCrash } from "lucide-react";
 
@@ -7,7 +7,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
 import { RuleSummary } from "@/components/replay/RuleBar";
-import { TradePicker } from "@/components/replay/TradePicker";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import { DayReplay } from "@/components/replay/DayReplay";
 import {
@@ -72,17 +71,43 @@ function previousWeekday(): string {
 }
 
 /**
- * /replay: a trade (?trade=<id>&lead=<min>), a whole day (?day=YYYY-MM-DD), the trade
- * picker, or (behind a link) free symbol + date. `from=<path>` is where Exit goes.
+ * /replay: a trade (?trade=<id>&lead=<min>), a whole day (?day=YYYY-MM-DD) or (by URL
+ * only) free symbol + date (?mode=symbol). `from=<path>` is where Exit goes. Replay is an
+ * action on a trade or a day, not a page: bare /replay goes to the Days calendar.
  */
 export function ReplayPage() {
   const [params] = useSearchParams();
   const day = params.get("day");
   if (isDay(day) && !params.get("trade")) return <DayReplay day={day} />;
+  const trade = Number(params.get("trade"));
+  const hasTrade = Number.isInteger(trade) && trade > 0;
+  if (!hasTrade && params.get("mode") !== "symbol") return <Navigate to="/days" replace />;
   return <TradeOrFreeReplay />;
 }
 
-function TradeOrFreeReplay() {
+/**
+ * The trade player, embedded on the trade page (/trades/:id): no URL params, its own lead,
+ * Exit closes it, and prev/next go to the neighbouring trade page (still replaying).
+ */
+export function InlineTradeReplay({
+  tradeId,
+  onExit,
+  onGoTrade,
+}: {
+  tradeId: number;
+  onExit: () => void;
+  onGoTrade: (id: number) => void;
+}) {
+  return <TradeOrFreeReplay embed={{ tradeId, onExit, onGoTrade }} />;
+}
+
+interface Embed {
+  tradeId: number;
+  onExit: () => void;
+  onGoTrade: (id: number) => void;
+}
+
+function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const navigate = useNavigate();
   const [speed, setSpeedState] = useState<number>(() => loadSpeed());
   const setSpeed = (s: number) => {
@@ -98,12 +123,16 @@ function TradeOrFreeReplay() {
   // 'Replay my trade' mode: ?trade=<id>&lead=<minutes>
   const [params, setParams] = useSearchParams();
   const tradeParam = Number(params.get("trade"));
-  const tradeId = Number.isInteger(tradeParam) && tradeParam > 0 ? tradeParam : null;
-  const lead = Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
-  const from = safeFrom(params.get("from"));
-  // No trade: a picker of recent trades, or (behind a link) symbol + date.
-  const freeMode = tradeId === null && params.get("mode") === "symbol";
-  const picking = tradeId === null && !freeMode;
+  const tradeId = embed
+    ? embed.tradeId
+    : Number.isInteger(tradeParam) && tradeParam > 0
+      ? tradeParam
+      : null;
+  const [embedLead, setEmbedLead] = useState(15);
+  const lead = embed ? embedLead : Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
+  const from = embed ? null : safeFrom(params.get("from"));
+  // No trade: (by URL only) free symbol + date. Bare /replay never gets here.
+  const freeMode = tradeId === null;
 
   const freeSession = useReplaySession({
     symbol,
@@ -469,27 +498,20 @@ function TradeOrFreeReplay() {
     lead: String(l),
     ...(from ? { from } : {}),
   });
-  const setLead = (l: number) => setParams(tradeParams(tradeId as number, l));
+  const setLead = (l: number) =>
+    embed ? setEmbedLead(l) : setParams(tradeParams(tradeId as number, l));
   const neighbors = useQuery({
     queryKey: ["replay-neighbors", tradeId],
     queryFn: () => api.replayTradeNeighbors(tradeId as number),
     enabled: tradeId !== null,
     staleTime: 60_000,
   });
-  const goTrade = (id: number | null | undefined) => (id ? () => setParams(tradeParams(id, lead)) : null);
+  const goTrade = (id: number | null | undefined) =>
+    id ? () => (embed ? embed.onGoTrade(id) : setParams(tradeParams(id, lead))) : null;
   const exit = () => {
-    const to = exitTarget(from, tradeId);
-    if (to) navigate(to);
-    else setParams({});
+    if (embed) return embed.onExit();
+    navigate(exitTarget(from, tradeId) ?? "/days");
   };
-
-  if (picking) {
-    return (
-      <div className="h-full overflow-y-auto">
-        <TradePicker onSymbolMode={() => setParams({ mode: "symbol" })} />
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -524,9 +546,9 @@ function TradeOrFreeReplay() {
             <button
               type="button"
               className="text-label text-muted-foreground underline-offset-4 hover:underline"
-              onClick={() => setParams({})}
+              onClick={() => navigate("/days")}
             >
-              Replay a trade instead
+              Back to Days
             </button>
           }
         />

@@ -154,7 +154,7 @@ export function JournalPage() {
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={() => navigate(`/journal/${queue.oldest}`)}
+              onClick={() => navigate(`/days/${queue.oldest}`)}
               title={`Opens ${formatDayMonth(queue.oldest)}, the oldest day with unreviewed trades`}
             >
               <ClipboardCheck className="h-4 w-4" />
@@ -223,7 +223,7 @@ export function JournalPage() {
               data={calendarFromDays(monthDays)}
               loading={deskDays.isLoading}
               onMonthChange={setMonth}
-              onSelectDay={(date) => navigate(`/journal/${date}`)}
+              onSelectDay={(date) => navigate(`/days/${date}`)}
               marks={marks}
               reviewDue={queue.byDate}
             />

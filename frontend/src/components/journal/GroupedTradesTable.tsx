@@ -45,7 +45,9 @@ export function GroupedTradesTable({
             <TableHead>Entry</TableHead>
             {cols.has("exit") && <TableHead>Exit</TableHead>}
             <TableHead>Net P&amp;L</TableHead>
-            {cols.has("r") && <TableHead>R</TableHead>}
+            {cols.has("r") && (
+              <TableHead title="R = P&L / the written max loss. Blank when no stop was written.">R (with stop)</TableHead>
+            )}
             {cols.has("grade") && <TableHead>Grade</TableHead>}
             {cols.has("tags") && <TableHead>Tags</TableHead>}
             {cols.has("rules") && <TableHead>Rules broken</TableHead>}
@@ -92,10 +94,7 @@ export function GroupedTradesTable({
                     </TableCell>
                     {cols.has("r") && (
                       <TableCell className={cn("num", pnlColorClass(t.r_multiple))}>
-                        {t.r_multiple != null ? formatR(t.r_multiple) : ""}
-                        {t.r_basis === "assumed" && t.r_multiple != null && (
-                          <span className="ml-1 text-label text-muted-foreground">assumed</span>
-                        )}
+                        {t.r_multiple != null && t.r_basis !== "assumed" ? formatR(t.r_multiple) : ""}
                       </TableCell>
                     )}
                     {cols.has("grade") && (

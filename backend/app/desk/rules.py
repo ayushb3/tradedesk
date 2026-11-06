@@ -31,6 +31,15 @@ class Window(BaseModel):
     end: str = "08:30"
 
 
+class ExtraWindow(BaseModel):
+    """A later session in which entries are allowed too (e.g. an afternoon session).
+
+    PT wall-clock like ``window``. Fills inside ``[start, end]`` are not late."""
+    start: str
+    end: str
+    label: str = ""
+
+
 class LossLine(BaseModel):
     amount: float
     start_date: date
@@ -54,6 +63,8 @@ class LessonLink(BaseModel):
 class Rules(BaseModel):
     timezone: str = TZ_NAME
     window: Window = Field(default_factory=Window)
+    # Optional later sessions; an entry inside any of them is not after the cutoff.
+    extra_windows: list[ExtraWindow] = Field(default_factory=list)
     daily_stop: float
     daily_target: float
     loss_line: LossLine
@@ -111,6 +122,15 @@ def validate(text: str) -> list[str]:
             )
     except ValueError:
         errors.append("window start/end must be HH:MM")
+    for i, w in enumerate(model.extra_windows):
+        name = f"extra_windows[{i}]" + (f" ({w.label})" if w.label else "")
+        try:
+            ws, we = _parse_hhmm(w.start), _parse_hhmm(w.end)
+        except ValueError:
+            errors.append(f"{name}: start/end must be HH:MM")
+            continue
+        if we <= ws:
+            errors.append(f"{name}: end {w.end} is not after start {w.start}")
     if model.daily_stop >= 0:
         errors.append("daily_stop must be negative")
     if model.daily_target <= 0:
@@ -165,6 +185,8 @@ def load_rules(path: str | os.PathLike | None = None) -> Rules:
 def dump_rules(rules: Rules) -> str:
     """Serialize to YAML that ``validate`` accepts and the loader reads back equal."""
     data = json.loads(rules.model_dump_json())
+    if not data.get("extra_windows"):
+        data.pop("extra_windows", None)  # keep files without extra windows unchanged
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
@@ -175,6 +197,45 @@ def window_bounds(rules: Rules, day: date) -> tuple[datetime, datetime]:
         datetime.combine(day, _parse_hhmm(rules.window.start), tzinfo=tz),
         datetime.combine(day, _parse_hhmm(rules.window.end), tzinfo=tz),
     )
+
+
+def extra_window_bounds(rules: Rules, day: date) -> list[tuple[datetime, datetime, str]]:
+    """Aware (start, end, label) of each extra window on ``day``; DST-correct."""
+    tz = ZoneInfo(rules.timezone)
+    return [
+        (
+            datetime.combine(day, _parse_hhmm(w.start), tzinfo=tz),
+            datetime.combine(day, _parse_hhmm(w.end), tzinfo=tz),
+            w.label,
+        )
+        for w in rules.extra_windows
+    ]
+
+
+def entry_window(rules: Rules, ts: datetime, day: date) -> tuple[bool, str | None]:
+    """Is an entry at ``ts`` allowed? ``(True, None)`` at or before the main window's end,
+    ``(True, label)`` inside an extra window, ``(False, None)`` otherwise (late)."""
+    if ts <= window_bounds(rules, day)[1]:
+        return True, None
+    for start, end, label in extra_window_bounds(rules, day):
+        if start <= ts <= end:
+            return True, label or f"{_hhmm(start, rules)}–{_hhmm(end, rules)} session"
+    return False, None
+
+
+def is_after_window(rules: Rules, ts: datetime, day: date) -> bool:
+    """True for a fill after the main window that is in no extra window either."""
+    return not entry_window(rules, ts, day)[0]
+
+
+def last_window_end(rules: Rules, day: date) -> datetime:
+    """When the day's last window (main or extra) ends."""
+    ends = [window_bounds(rules, day)[1]] + [e for _, e, _ in extra_window_bounds(rules, day)]
+    return max(ends)
+
+
+def _hhmm(dt: datetime, rules: Rules) -> str:
+    return dt.astimezone(ZoneInfo(rules.timezone)).strftime("%H:%M")
 
 
 def account_size(rules: Rules, base_dir: Path | None = None) -> float:

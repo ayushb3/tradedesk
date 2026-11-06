@@ -10,7 +10,8 @@ Every result is ``RuleResult(code, kept, detail)``:
 
 Rules (codes are stable, the UI maps them to labels):
 - ``before_cutoff``    the trade was entered (opening fill) at or before the window end
-                       (``rules.window.end``, PT) on its session date.
+                       (``rules.window.end``, PT) on its session date, or inside one of
+                       ``rules.extra_windows`` (e.g. an afternoon session).
 - ``daily_stop``       the trade was not entered after the day's stop was hit. The stop is
                        hit when the day's realized net (closed positions, fees in, summed
                        fill by fill in time order) reaches ``rules.daily_stop``. Rules on
@@ -44,7 +45,7 @@ from zoneinfo import ZoneInfo
 from app.desk.ledger import (
     CONTRACT_MULT, EPS, R_ASSUMED, R_WRITTEN, PositionAnalysis, resolve_r,
 )
-from app.desk.rules import Rules, window_bounds
+from app.desk.rules import Rules, entry_window, window_bounds
 from app.models.plans import Plan
 
 __all__ = [
@@ -158,13 +159,16 @@ def _rollup(code: str, results: list[RuleResult], ok: str, bad: str, unknown: st
 
 # --------------------------------------------------------------- per trade
 
-def _before_cutoff(a: PositionAnalysis, end: datetime, rules: Rules) -> RuleResult:
+def _before_cutoff(a: PositionAnalysis, end: datetime, rules: Rules, day: date) -> RuleResult:
     ts = _open_ts(a)
     if ts is None:
         return RuleResult("before_cutoff", None, "No fills")
     when, cut = _pt(ts, rules, seconds=True), _pt(end, rules)
     if ts <= end:
         return RuleResult("before_cutoff", True, f"Entered {when}, by the {cut} cutoff")
+    ok, label = entry_window(rules, ts, day)
+    if ok:
+        return RuleResult("before_cutoff", True, f"Entered {when}, inside the {label}")
     return RuleResult("before_cutoff", False, f"Entered {when}, after the {cut} cutoff")
 
 
@@ -244,12 +248,14 @@ def _size_within_plan(t: TradeInput) -> RuleResult:
     )
 
 
-def _trade_results(t: TradeInput, end: datetime, stop: StopResult, rules: Rules) -> TradeRules:
+def _trade_results(
+    t: TradeInput, end: datetime, stop: StopResult, rules: Rules, day: date
+) -> TradeRules:
     a = t.analysis
     return TradeRules(
         trade_id=t.trade_id, r=a.r, risk=a.risk, r_basis=a.r_basis,
         results=[
-            _before_cutoff(a, end, rules),
+            _before_cutoff(a, end, rules, day),
             _daily_stop(t, stop, rules),
             _max_loss_written(t, rules),
             _call_source(t),
@@ -279,7 +285,7 @@ def evaluate_day(day: date, inputs: list[TradeInput], rules: Rules) -> DayRules:
         crossed_by=crossed_by, crossed_net=crossed_net, blown_past=blown_past,
         tolerance_pct=tol, break_limit=break_limit, past_tolerance=past_tolerance,
     )
-    trades = {t.trade_id: _trade_results(t, end, stop, rules) for t in inputs}
+    trades = {t.trade_id: _trade_results(t, end, stop, rules, day) for t in inputs}
 
     def col(code: str) -> list[RuleResult]:
         return [tr.results[RULE_CODES.index(code)] for tr in trades.values()]

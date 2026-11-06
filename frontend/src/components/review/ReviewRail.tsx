@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import { MoreHorizontal, Play, Plus } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 import { DayJournalField } from "@/components/days/DayJournal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { Trade, TradeExcursions } from "@/lib/api";
-import { replayTradeHref } from "@/lib/dayPage";
 import { formatDayMonth } from "@/lib/format";
 import { useCreateTag, usePatchTrade, useSetCallSource, useTags } from "@/lib/queries";
 import { writtenBeforeEntry } from "@/lib/reviewChart";
@@ -17,6 +15,9 @@ interface Props {
   trade: Trade;
   excursions: TradeExcursions | null | undefined;
   onOpenMore: () => void;
+  /** Opens the replay inline on this page (the chart becomes the player). */
+  onReplay: () => void;
+  replaying?: boolean;
 }
 
 /**
@@ -24,15 +25,14 @@ interface Props {
  * setup tag, one line of lesson and the day note (the same note as the Day page journal).
  * Everything else (grade, checklist, screenshots, the Debrief chat) sits behind "More".
  */
-export function ReviewRail({ trade, excursions, onOpenMore }: Props) {
-  const navigate = useNavigate();
+export function ReviewRail({ trade, excursions, onOpenMore, onReplay, replaying }: Props) {
   const rows = writtenBeforeEntry(trade, excursions);
 
   return (
     <aside className="flex flex-col gap-4 rounded-lg border border-border bg-card/40 p-4" data-testid="review-rail">
-      <Button size="lg" className="w-full gap-2" onClick={() => navigate(replayTradeHref(trade.id, `/trades/${trade.id}`))}>
+      <Button size="lg" className="w-full gap-2" onClick={onReplay} disabled={replaying}>
         <Play className="h-4 w-4" />
-        Replay this trade
+        {replaying ? "Replaying above" : "Replay this trade"}
       </Button>
 
       <section className="space-y-2" data-testid="written-before-entry">

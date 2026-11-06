@@ -28,7 +28,7 @@ from app.db.schema import plans as plans_t
 from app.db.schema import trade_fills as trade_fills_t
 from app.db.schema import trades as trades_t
 from app.desk.plans import _naive_utc, _to_model
-from app.desk.rules import Rules, load_rules, window_bounds
+from app.desk.rules import Rules, last_window_end, load_rules
 from app.models.plans import Plan
 
 STRIKE_EPS = 1e-6
@@ -68,7 +68,7 @@ def day_is_over(day: date_type, rules: Rules | None, now: datetime | None = None
         return True
     if day > today or rules is None:
         return False
-    return now > window_bounds(rules, day)[1]
+    return now > last_window_end(rules, day)
 
 
 def effective_status(plan: Plan, rules: Rules | None, now: datetime | None = None) -> str:

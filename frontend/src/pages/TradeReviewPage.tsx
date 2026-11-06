@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FillTable } from "@/components/review/FillTable";
 import { ReviewRail } from "@/components/review/ReviewRail";
 import { ReviewStackChart } from "@/components/review/ReviewStackChart";
+import { InlineTradeReplay } from "@/pages/ReplayPage";
 import { ExcursionReadout } from "@/components/review/ExcursionReadout";
 import { StoryStrip } from "@/components/review/StoryStrip";
 import { VerdictBand } from "@/components/review/VerdictBand";
@@ -74,6 +75,8 @@ export function TradeReviewPage() {
           option={data.option}
           excursion={data.excursion}
           initialTab={initialTab}
+          // Remount per trade so the inline replay starts fresh on prev/next.
+          key={data.trade.id}
         />
       ) : null}
     </div>
@@ -97,6 +100,35 @@ function ReviewContent({
   initialTab: RightTab;
 }) {
   const navigate = useNavigate();
+  // ?replay=1: the trade plays inline, in place of the static chart. Replay is an action on
+  // the trade, not a separate page; Exit closes it and leaves you on the trade.
+  const [params, setParams] = useSearchParams();
+  const replaying = params.get("replay") === "1";
+  const setReplaying = (on: boolean) =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        if (on) n.set("replay", "1");
+        else n.delete("replay");
+        return n;
+      },
+      { replace: true },
+    );
+  // P opens the player (outside text fields); the player owns Space/arrows/B/S while open.
+  useEffect(() => {
+    if (replaying) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "p" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable) return;
+      e.preventDefault();
+      setReplaying(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replaying]);
   const [rightTab, setRightTab] = useState<RightTab>(initialTab);
   // ?debrief=1 (old debrief links) opens the drawer straight on the Debrief tab.
   const [moreOpen, setMoreOpen] = useState(initialTab === "debrief");
@@ -170,7 +202,7 @@ function ReviewContent({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(`/journal/${trade.session_date}`)}
+          onClick={() => navigate(`/days/${trade.session_date}`)}
           className="gap-1.5"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -212,7 +244,7 @@ function ReviewContent({
             variant="outline"
             size="sm"
             disabled={prev == null}
-            onClick={() => prev && navigate(`/trades/${prev.id}`)}
+            onClick={() => prev && navigate(`/trades/${prev.id}${replaying ? "?replay=1" : ""}`)}
             title={prev?.crossesDay && prevDay ? `Last trade of ${formatDayMonth(prevDay)}` : undefined}
             className="gap-1"
           >
@@ -228,7 +260,7 @@ function ReviewContent({
             variant="outline"
             size="sm"
             disabled={next == null}
-            onClick={() => next && navigate(`/trades/${next.id}`)}
+            onClick={() => next && navigate(`/trades/${next.id}${replaying ? "?replay=1" : ""}`)}
             title={next?.crossesDay && nextDay ? `First trade of ${formatDayMonth(nextDay)}` : undefined}
             className="gap-1"
           >
@@ -253,11 +285,31 @@ function ReviewContent({
             />
           )}
 
+          {replaying && (
+            <section
+              className="h-[min(78vh,760px)] min-h-[520px] overflow-hidden rounded-lg border border-border bg-card"
+              data-testid="inline-replay"
+            >
+              <InlineTradeReplay
+                tradeId={trade.id}
+                onExit={() => setReplaying(false)}
+                onGoTrade={(tid) => navigate(`/trades/${tid}?replay=1`)}
+              />
+            </section>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
             {/* Chart + fills column. minmax(0, …) + min-w-0: the column is sized by the page,
                 never by its content, so the chart cannot grow (and resize) as its readout changes. */}
             <div className="flex min-w-0 flex-col gap-4">
-              <ReviewStackChart trade={trade} fills={fills} hasOption={option != null} />
+              {!replaying && (
+                <ReviewStackChart
+                  trade={trade}
+                  fills={fills}
+                  hasOption={option != null}
+                  onPlay={() => setReplaying(true)}
+                />
+              )}
 
               {/* Share trades carry their MFE/MAE here (basis: underlying); option trades
                   show it in the story strip above. */}
@@ -299,7 +351,13 @@ function ReviewContent({
               )}
             </div>
 
-            <ReviewRail trade={trade} excursions={excursions.data} onOpenMore={() => setMoreOpen(true)} />
+            <ReviewRail
+              trade={trade}
+              excursions={excursions.data}
+              onOpenMore={() => setMoreOpen(true)}
+              onReplay={() => setReplaying(true)}
+              replaying={replaying}
+            />
           </div>
         </div>
       </div>
@@ -374,7 +432,7 @@ function ErrorBody({ error }: { error: unknown }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/journal")}
+          onClick={() => navigate("/days")}
           className="gap-1.5"
         >
           <ArrowLeft className="h-4 w-4" />

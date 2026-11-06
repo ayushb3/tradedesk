@@ -373,7 +373,7 @@ def replay_day_so_far(trade_id: int) -> DaySoFarResponse:
     strictly before this trade's entry; this trade is never counted. Carries no
     end-of-day flag and no final day net."""
     from app.desk import days as desk_days
-    from app.desk.rules import load_rules, window_bounds
+    from app.desk.rules import is_after_window, load_rules
 
     trade = _load_trade_or_404(trade_id)
     base = dict(trade_id=trade_id, session_date=trade.session_date)
@@ -399,7 +399,6 @@ def replay_day_so_far(trade_id: int) -> DaySoFarResponse:
             if max(_as_utc(f.ts) for f in a.fills) < entry:
                 net += a.pnl
                 prior += 1
-    cutoff_end = window_bounds(rules, trade.session_date)[1]
     return DaySoFarResponse(
         **base,
         net_so_far=round(net, 2),
@@ -407,7 +406,7 @@ def replay_day_so_far(trade_id: int) -> DaySoFarResponse:
         daily_stop=rules.daily_stop,
         daily_target=rules.daily_target,
         cutoff=rules.window.end,
-        entry="before" if entry <= cutoff_end else "after",
+        entry="after" if is_after_window(rules, entry, trade.session_date) else "before",
         call_source=own_source or plan_caller or None,
     )
 

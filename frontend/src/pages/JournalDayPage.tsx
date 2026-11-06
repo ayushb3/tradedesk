@@ -58,7 +58,7 @@ export function JournalDayPage() {
       if (dir == null) return;
       const to = dir < 0 ? prevDay : nextDay;
       e.preventDefault(); // Alt+arrow is also browser back/forward
-      if (to) navigate(`/journal/${to}`);
+      if (to) navigate(`/days/${to}`);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -74,7 +74,7 @@ export function JournalDayPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/journal")}
+          onClick={() => navigate("/days")}
           className="gap-1.5"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -87,7 +87,7 @@ export function JournalDayPage() {
             size="icon"
             className="h-8 w-8"
             disabled={!prevDay}
-            onClick={() => prevDay && navigate(`/journal/${prevDay}`)}
+            onClick={() => prevDay && navigate(`/days/${prevDay}`)}
             aria-label={prevDay ? `Previous trading day, ${formatDayMonth(prevDay)}` : "No earlier trading day"}
             title="Previous trading day ( [ or Alt+← )"
           >
@@ -96,14 +96,14 @@ export function JournalDayPage() {
           <DayPicker
             date={date}
             tradingDates={tradingDays(allDays)}
-            onPick={(d) => navigate(`/journal/${d}`)}
+            onPick={(d) => navigate(`/days/${d}`)}
           />
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
             disabled={!nextDay}
-            onClick={() => nextDay && navigate(`/journal/${nextDay}`)}
+            onClick={() => nextDay && navigate(`/days/${nextDay}`)}
             aria-label={nextDay ? `Next trading day, ${formatDayMonth(nextDay)}` : "No later trading day"}
             title="Next trading day ( ] or Alt+→ )"
           >
@@ -149,7 +149,7 @@ export function JournalDayPage() {
             <>
               <VerdictBand verdict={dayVerdict(day)} />
               <SessionStrip date={date} positions={positions} />
-              <TradeRows rows={tradeRows(positions)} from={`/journal/${date}`} />
+              <TradeRows rows={tradeRows(positions)} />
               <DayPlans plans={day.plans ?? []} notTaken={day.plans_not_taken ?? 0} />
               <DayCallouts report={callouts.data} />
             </>

@@ -3,7 +3,7 @@
  * Pure helpers (checked in replayNav.check.ts).
  */
 
-/** `from=` is only honoured for an in-app path ("/journal/2026-11-04"), never another origin. */
+/** `from=` is only honoured for an in-app path ("/days/2026-11-04"), never another origin. */
 export function safeFrom(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const v = raw.trim();
@@ -12,7 +12,7 @@ export function safeFrom(raw: string | null | undefined): string | null {
   return v;
 }
 
-/** Exit: the `from` path; else the trade's page; else null (back to the trade picker). */
+/** Exit: the `from` path; else the trade's page; else null (the caller goes to the Days calendar). */
 export function exitTarget(from: string | null, tradeId: number | null): string | null {
   if (from) return from;
   if (tradeId !== null) return `/trades/${tradeId}`;

@@ -4,14 +4,14 @@ import { BookOpen, CalendarDays, CandlestickChart, Settings } from "lucide-react
 import { cn } from "@/lib/utils";
 
 /**
- * The three jobs: review a day (Days), replay a trade (Replay), learn (Learn).
- * `prefixes` keeps an item lit on its sub-pages (a trade review is part of Days).
+ * Two jobs: review a day (Days), learn (Learn). Replay is an action on a trade or a
+ * day, not a destination, so it has no nav item; the player (/replay?trade=… or ?day=…)
+ * keeps Days lit. `prefixes` keeps an item lit on its sub-pages.
  * Leaks, progress and scenario drills live under Learn (/learn/*); Concepts is
  * hidden until it has content (its route still works).
  */
 const NAV_ITEMS = [
-  { to: "/journal", label: "Days", icon: CalendarDays, prefixes: ["/journal", "/trades"] },
-  { to: "/replay", label: "Replay", icon: CandlestickChart, prefixes: ["/replay"] },
+  { to: "/days", label: "Days", icon: CalendarDays, prefixes: ["/days", "/trades", "/replay"] },
   { to: "/learn", label: "Learn", icon: BookOpen, prefixes: ["/learn", "/knowledge"] },
 ] as const;
 

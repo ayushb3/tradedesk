@@ -194,7 +194,7 @@ eq("PDT close", new Date(ptWallToMs("2026-10-14", "13:00")).toISOString(), "2026
 }
 
 // ---- replay links and day shortcuts
-eq("replay day link", replayDayHref("2026-03-04"), "/replay?day=2026-03-04&from=/journal/2026-03-04");
+eq("replay day link", replayDayHref("2026-03-04"), "/replay?day=2026-03-04&from=/days/2026-03-04");
 eq("replay trade link", replayTradeHref(7, "/trades/7"), "/replay?trade=7&lead=15&from=/trades/7");
 eq("replay trade link, no from", replayTradeHref(7), "/replay?trade=7&lead=15");
 const k = (key: string, altKey = false, ctrlKey = false) => dayNavKey({ key, altKey, ctrlKey, metaKey: false });

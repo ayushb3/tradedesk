@@ -4,6 +4,9 @@ timezone: America/Los_Angeles
 window:
   start: "06:30"   # PT wall-clock
   end: "08:30"     # PT wall-clock; fills after this are late
+# Optional later sessions where entries are allowed too (fills inside are not late):
+# extra_windows:
+#   - {start: "11:00", end: "12:00", label: "afternoon session"}
 daily_stop: -100
 daily_target: 200
 loss_line:
