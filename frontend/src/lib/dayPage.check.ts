@@ -4,6 +4,7 @@
  */
 import type { DeskDayDetail, DeskPosition, RuleResult } from "./api";
 import {
+  calloutGap,
   clockPt,
   dayNavKey,
   dayVerdict,
@@ -206,6 +207,9 @@ eq("ctrl+] does nothing", k("]", false, true), null);
 eq("typing target: none", isTypingTarget(null), false);
 eq("typing target: textarea", isTypingTarget({ tagName: "TEXTAREA" } as unknown as EventTarget), true);
 eq("typing target: div", isTypingTarget({ tagName: "DIV", isContentEditable: false } as unknown as EventTarget), false);
+eq("gap: at the call", calloutGap(3), "at the call");
+eq("gap: seconds after", calloutGap(40), "40s after the call");
+eq("gap: minutes before", calloutGap(-125), "2m 05s before the call");
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

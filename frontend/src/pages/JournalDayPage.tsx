@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { DayCallouts } from "@/components/days/DayCallouts";
 import { DayJournal } from "@/components/days/DayJournal";
 import { DayPlans } from "@/components/days/DayPlans";
 import { SessionStrip } from "@/components/days/SessionStrip";
@@ -16,7 +17,7 @@ import { ApiError } from "@/lib/api";
 import { dayNavKey, dayVerdict, isTypingTarget, replayDayHref, tradeRows } from "@/lib/dayPage";
 import { adjacentTradingDay, tradingDays } from "@/lib/daysHome";
 import { formatDayMonth } from "@/lib/format";
-import { useDailyReview, useDeskDay, useDeskDays } from "@/lib/queries";
+import { useDailyReview, useDayCallouts, useDeskDay, useDeskDays } from "@/lib/queries";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -43,6 +44,7 @@ export function JournalDayPage() {
   const { data: day, isLoading, isError, error } = useDeskDay(date);
   // Reflection prompts come from the review payload, keyed on the same :date.
   const review = useDailyReview(date);
+  const callouts = useDayCallouts(date);
   const days = useDeskDays();
 
   const allDays = days.data?.days ?? [];
@@ -149,6 +151,7 @@ export function JournalDayPage() {
               <SessionStrip date={date} positions={positions} />
               <TradeRows rows={tradeRows(positions)} from={`/journal/${date}`} />
               <DayPlans plans={day.plans ?? []} notTaken={day.plans_not_taken ?? 0} />
+              <DayCallouts report={callouts.data} />
             </>
           )}
           {validDate && !isLoading && (

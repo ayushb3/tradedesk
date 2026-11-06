@@ -788,6 +788,41 @@ export interface DeskPlan {
   matched_trade_id: number | null;
 }
 
+/** One captured callout (GET /api/days/{date}/callouts). */
+export interface CalloutRef {
+  type: string; // entry | trim | exit
+  ticker: string; // as called
+  side: "long" | "short" | null;
+  ts: string;
+  ts_pt: string;
+}
+
+/** One fill next to its nearest callout; `callout` null = none within the window. */
+export interface FillCallout {
+  trade_id: number;
+  label: string | null;
+  ticker: string;
+  side: "B" | "S";
+  qty: number;
+  px: number;
+  ts: string;
+  ts_pt: string;
+  callout: CalloutRef | null;
+  gap_s: number | null; // fill minus call; positive = fill after the call
+}
+
+/** GET /api/days/{date}/callouts: post-close fill <-> callout report (report only). */
+export interface DayCalloutReport {
+  date: string;
+  callouts_found: boolean;
+  window_min: number;
+  n_callouts: number;
+  matched: number;
+  unmatched: number;
+  fills: FillCallout[];
+  calls_not_taken: CalloutRef[];
+}
+
 /** GET/PUT /api/days/{date}/fields: the day journal (self-report). */
 export interface DayFields {
   date: string;
@@ -1482,6 +1517,10 @@ export const api = {
 
   deskDay(date: string): Promise<DeskDayDetail> {
     return request<DeskDayDetail>(`/days/${date}`);
+  },
+
+  dayCallouts(date: string): Promise<DayCalloutReport> {
+    return request<DayCalloutReport>(`/days/${date}/callouts`);
   },
 
   dayFields(date: string): Promise<DayFields | null> {

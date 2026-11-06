@@ -327,3 +327,38 @@ class LineResponse(BaseModel):
     trades_counted: int
     state: str  # before_window | in_window | closed
     today: LineToday
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/days/{date}/callouts: post-close fill <-> callout report (report only)
+# --------------------------------------------------------------------------- #
+class CalloutRefOut(BaseModel):
+    type: str  # entry | trim | exit
+    ticker: str  # as called (SPX, QQQ, ...)
+    side: str | None = None  # long | short (entries)
+    ts: UtcDatetime
+    ts_pt: str
+
+
+class FillCalloutOut(BaseModel):
+    trade_id: int
+    label: str | None = None
+    ticker: str
+    side: str  # "B" | "S"
+    qty: int
+    px: float
+    ts: UtcDatetime
+    ts_pt: str
+    callout: CalloutRefOut | None = None  # None: no matching call within the window
+    gap_s: int | None = None  # fill minus call, seconds; positive = fill after the call
+
+
+class DayCalloutReport(BaseModel):
+    date: date_type
+    callouts_found: bool  # False: no listener file for the day
+    window_min: int
+    n_callouts: int
+    matched: int
+    unmatched: int
+    fills: list[FillCalloutOut] = Field(default_factory=list)
+    calls_not_taken: list[CalloutRefOut] = Field(default_factory=list)

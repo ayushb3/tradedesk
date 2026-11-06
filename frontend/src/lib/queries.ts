@@ -21,6 +21,7 @@ import {
   type CreateTagRequest,
   type CriticResponse,
   type DailyReview,
+  type DayCalloutReport,
   type DayFields,
   type DayTradesResponse,
   type Health,
@@ -326,6 +327,16 @@ export function useDeskDay(date: string | null) {
   return useQuery<DeskDayDetail>({
     queryKey: ["desk-day", date],
     queryFn: () => api.deskDay(date as string),
+    enabled: Boolean(date),
+    retry: false,
+  });
+}
+
+/** Each fill next to the nearest captured callout (post-close report). */
+export function useDayCallouts(date: string | null) {
+  return useQuery<DayCalloutReport>({
+    queryKey: ["day-callouts", date],
+    queryFn: () => api.dayCallouts(date as string),
     enabled: Boolean(date),
     retry: false,
   });
