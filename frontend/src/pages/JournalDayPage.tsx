@@ -9,17 +9,26 @@ import { SessionStrip } from "@/components/days/SessionStrip";
 import { TradeRows } from "@/components/days/TradeRows";
 import { VerdictBand } from "@/components/days/VerdictBand";
 import { Button } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiErrorState, EmptyState } from "@/components/journal/ApiStates";
-import { ApiError } from "@/lib/api";
+import { ApiError, type DeskPosition } from "@/lib/api";
 import { dayNavKey, dayVerdict, isTypingTarget, replayDayHref, tradeRows } from "@/lib/dayPage";
 import { adjacentTradingDay, tradingDays } from "@/lib/daysHome";
 import { formatDayMonth } from "@/lib/format";
 import { useDailyReview, useDayCallouts, useDeskDay, useDeskDays } from "@/lib/queries";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "4 trades · 2 rule breaks" for the folded Trades header. */
+function tradesSummary(positions: DeskPosition[]): string {
+  const n = positions.length;
+  const broken = positions.filter((p) => p.rule_results.some((r) => r.kept === false)).length;
+  const head = `${n} ${n === 1 ? "trade" : "trades"}`;
+  return broken > 0 ? `${head} · ${broken} with a rule break` : `${head} · no rule breaks`;
+}
 
 /** Local-midnight Date for a `YYYY-MM-DD` (what react-day-picker works in). */
 function isoToLocal(iso: string): Date | undefined {
@@ -147,10 +156,19 @@ export function JournalDayPage() {
             <ApiErrorState error={error} />
           ) : (
             <>
+              {/* Summary first: net, R and rule chips, then the plans line. The long
+                  sections below fold (remembered per viewer). */}
               <VerdictBand verdict={dayVerdict(day)} />
-              <SessionStrip date={date} positions={positions} />
-              <TradeRows rows={tradeRows(positions)} />
               <DayPlans plans={day.plans ?? []} notTaken={day.plans_not_taken ?? 0} />
+              <SessionStrip date={date} positions={positions} />
+              <CollapsibleSection
+                id="day.trades"
+                title="Trades"
+                summary={tradesSummary(positions)}
+                testId="day-trades"
+              >
+                <TradeRows rows={tradeRows(positions)} />
+              </CollapsibleSection>
               <DayCallouts report={callouts.data} />
             </>
           )}

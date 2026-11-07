@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { RuleChip } from "@/components/days/RuleChip";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import type { CalloutRef, DayCalloutReport } from "@/lib/api";
 import { calloutGap } from "@/lib/dayPage";
 
@@ -9,29 +10,40 @@ function callLabel(c: CalloutRef): string {
   return `${c.type} ${c.ticker}${dir}`;
 }
 
+/** One line for the folded section: "3 of 5 fills near a call · 2 unmatched · 1 call not taken". */
+export function calloutsSummary(report: DayCalloutReport): string {
+  const n = report.fills.length;
+  const parts = n > 0 ? [`${report.matched} of ${n} fills near a call`] : ["no fills"];
+  if (n - report.matched > 0) parts.push(`${n - report.matched} unmatched`);
+  const nt = report.calls_not_taken.length;
+  if (nt > 0) parts.push(`${nt} ${nt === 1 ? "call" : "calls"} not taken`);
+  return parts.join(" · ");
+}
+
 /**
  * Post-close report: each fill next to the nearest captured callout (same ticker group
- * and direction, within the window). Report only, read after the close.
+ * and direction, within the window). Report only, read after the close. With no captured
+ * callouts it is a single muted line; with callouts it folds to a one-line summary.
  */
 export function DayCallouts({ report }: { report: DayCalloutReport | undefined }) {
   if (!report) return null;
   const { fills, calls_not_taken: notTaken } = report;
+  if (!report.callouts_found) {
+    return (
+      <p className="text-label text-muted-foreground" data-testid="day-callouts">
+        Fills vs. callouts: no callouts captured this day (run callout-listener during the call).
+      </p>
+    );
+  }
   return (
-    <section className="space-y-2" data-testid="day-callouts">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Fills vs. callouts</h2>
-        {report.callouts_found && fills.length > 0 && (
-          <span className="text-label text-muted-foreground">
-            {report.matched} of {fills.length} fills near a call · within {report.window_min} min
-          </span>
-        )}
-      </div>
-      {!report.callouts_found ? (
-        <p className="text-label text-muted-foreground">
-          No captured callouts for this day. Run callout-listener during the call to fill this in.
-        </p>
-      ) : (
-        <>
+    <CollapsibleSection
+      id="day.callouts"
+      title="Fills vs. callouts"
+      summary={`${calloutsSummary(report)} · within ${report.window_min} min`}
+      defaultOpen={false}
+      testId="day-callouts"
+    >
+      <div className="space-y-2">
           {fills.length > 0 && (
             <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card">
               {fills.map((f, i) => (
@@ -60,8 +72,7 @@ export function DayCallouts({ report }: { report: DayCalloutReport | undefined }
               Calls not taken: {notTaken.map((c) => `${callLabel(c)} ${c.ts_pt}`).join(" · ")}
             </p>
           )}
-        </>
-      )}
-    </section>
+      </div>
+    </CollapsibleSection>
   );
 }

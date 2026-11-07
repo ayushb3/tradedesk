@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardCheck, Download, Table2 } from "lucide-react";
+import { BarChart3, CalendarDays, ClipboardCheck, Download, Table2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -217,16 +218,35 @@ export function JournalPage() {
           </p>
           <StatCards summary={summary.data} loading={summary.isLoading} />
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <PnlCalendar
-              month={month}
-              data={calendarFromDays(monthDays)}
-              loading={deskDays.isLoading}
-              onMonthChange={setMonth}
-              onSelectDay={(date) => navigate(`/days/${date}`)}
-              marks={marks}
-              reviewDue={queue.byDate}
-            />
+          {/* Compact month calendar (the way into a day) beside the breakdowns, which
+              fold away; the full trades table and patterns are folded by default. */}
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <CollapsibleSection
+              id="days.calendar"
+              title="Calendar"
+              icon={<CalendarDays className="h-4 w-4 text-muted-foreground" />}
+              summary={monthName}
+              testId="days-calendar"
+            >
+              <PnlCalendar
+                month={month}
+                data={calendarFromDays(monthDays)}
+                loading={deskDays.isLoading}
+                onMonthChange={setMonth}
+                onSelectDay={(date) => navigate(`/days/${date}`)}
+                marks={marks}
+                reviewDue={queue.byDate}
+                compact
+              />
+            </CollapsibleSection>
+            <CollapsibleSection
+              id="days.breakdowns"
+              title="Breakdowns"
+              icon={<BarChart3 className="h-4 w-4 text-muted-foreground" />}
+              summary={`by ticker · by time of day (${DISPLAY_TZ_LABEL})`}
+              defaultOpen={false}
+              testId="days-breakdowns"
+            >
             <div className="grid gap-4">
               <Breakdown
                 title="By ticker"
@@ -243,18 +263,17 @@ export function JournalPage() {
                 isError={byTod.isError}
               />
             </div>
+            </CollapsibleSection>
           </div>
 
-          <section className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Table2 className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold tracking-tight">Trades</h2>
-              {hasTrades && (
-                <span className="tabular text-xs text-muted-foreground">
-                  {tradeList.length}
-                </span>
-              )}
-            </div>
+          <CollapsibleSection
+            id="days.trades"
+            title="All trades"
+            icon={<Table2 className="h-4 w-4 text-muted-foreground" />}
+            summary={hasTrades ? `${tradeList.length} ${tradeList.length === 1 ? "trade" : "trades"}` : undefined}
+            defaultOpen={false}
+            testId="days-trades"
+          >
 
             {trades.isLoading ||
             (importFills.isPending && !hasTrades) ||
@@ -282,7 +301,7 @@ export function JournalPage() {
                 }}
               />
             )}
-          </section>
+          </CollapsibleSection>
 
           <PatternsSection breaks={breaks} />
         </div>

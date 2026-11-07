@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { RuleChip } from "@/components/days/RuleChip";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import type { DeskPlan } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 
@@ -11,22 +12,34 @@ function contract(p: DeskPlan): string {
 
 const usd0 = (n: number) => formatCurrency(n).replace(/\.00$/, "");
 
+/** One line for the day summary: "2 written · 1 not taken · 1 late". */
+export function plansSummary(plans: DeskPlan[], notTaken: number): string {
+  if (plans.length === 0) return "none written";
+  const late = plans.filter((p) => p.late).length;
+  return [
+    `${plans.length} written`,
+    notTaken > 0 ? `${notTaken} not taken` : null,
+    late > 0 ? `${late} written late` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /**
  * The plan cards written for the day, compact: time, caller, contract, size and max
  * loss, and whether it was taken. A plan not taken is a good outcome, not a miss.
+ * Folds to its one-line summary (remembered per viewer).
  */
 export function DayPlans({ plans, notTaken }: { plans: DeskPlan[]; notTaken: number }) {
   const sorted = [...plans].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
   return (
-    <section className="space-y-2" data-testid="day-plans">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Plans</h2>
-        {plans.length > 0 && (
-          <span className="text-label text-muted-foreground">
-            {plans.length} written{notTaken > 0 ? ` · ${notTaken} not taken` : ""}
-          </span>
-        )}
-      </div>
+    <CollapsibleSection
+      id="day.plans"
+      title="Plans"
+      summary={plansSummary(plans, notTaken)}
+      defaultOpen={false}
+      testId="day-plans"
+    >
       {plans.length === 0 ? (
         <p className="text-label text-muted-foreground">No plan written for this day.</p>
       ) : (
@@ -60,6 +73,6 @@ export function DayPlans({ plans, notTaken }: { plans: DeskPlan[]; notTaken: num
           ))}
         </ul>
       )}
-    </section>
+    </CollapsibleSection>
   );
 }
