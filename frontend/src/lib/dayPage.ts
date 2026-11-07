@@ -261,7 +261,7 @@ export function linePoints(
  * numeric ids, so no escaping is needed.
  */
 export function replayDayHref(date: string): string {
-  return `/replay?day=${date}&from=/journal/${date}`;
+  return `/replay?day=${date}&from=/days/${date}`;
 }
 
 export function replayTradeHref(tradeId: number, from?: string, lead = 15): string {

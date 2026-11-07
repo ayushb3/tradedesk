@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.desk.rules import Rules, window_bounds
+from app.desk.rules import Rules, is_after_window
 
 CONTRACT_MULT = 100
 EPS = 1e-9
@@ -382,12 +382,11 @@ def analyze_day(
     ratio = rr(avg_win, avg_loss)
     max_risk = max([0.0] + [a.cost for a in ps])
 
-    end = window_bounds(rules, day.date)[1]
     tz = ZoneInfo(rules.timezone)
     day_fills = [
         f.ts for a in ps for f in a.position.fills if f.ts.astimezone(tz).date() == day.date
     ]
-    late = sum(1 for ts in day_fills if ts > end)
+    late = sum(1 for ts in day_fills if is_after_window(rules, ts, day.date))
 
     stats = DayStats(
         date=day.date,

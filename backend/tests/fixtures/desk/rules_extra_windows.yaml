@@ -1,0 +1,18 @@
+# Synthetic rules for the extra_windows tests. Placeholder numbers, not real rules.
+timezone: America/Los_Angeles
+window:
+  start: "06:30"
+  end: "08:30"
+extra_windows:
+  - {start: "11:00", end: "12:00", label: "afternoon session"}
+  - {start: "12:30", end: "13:00", label: "close session"}
+daily_stop: -100
+daily_target: 200
+loss_line:
+  amount: 1000
+  start_date: 2026-01-01
+default_risk_pct: 30
+account_size:
+  fallback: 5000
+rules:
+  - {number: 1, text: "Rule 1: example rule text"}

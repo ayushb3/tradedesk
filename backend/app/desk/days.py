@@ -36,7 +36,7 @@ from app.desk.day_fields import get_day_fields
 from app.desk.matching import effective_status
 from app.desk.plans import list_plans
 from app.desk.ledger import DayInput, DayResult, Fill, Position, StopUsage
-from app.desk.rules import Rules, account_size, load_rules, window_bounds
+from app.desk.rules import Rules, account_size, extra_window_bounds, load_rules, window_bounds
 from app.models.desk import DayFields
 from app.models.plans import Plan
 
@@ -348,7 +348,15 @@ def line_status(
     today_net = sum(float(r.net_pnl or 0.0) for r in rows if r.session_date == today)
     left = rules.loss_line.amount + min(0.0, pnl)
     start, end = window_bounds(rules, today)
-    state = "before_window" if now < start else "in_window" if now <= end else "closed"
+    extras = extra_window_bounds(rules, today)
+    if now < start:
+        state = "before_window"
+    elif now <= end or any(s <= now <= e for s, e, _ in extras):
+        state = "in_window"
+    elif any(now < s for s, _, _ in extras):
+        state = "before_window"  # between the morning window and a later session
+    else:
+        state = "closed"
     return LineStatus(
         rules=rules, now=now, pnl=pnl, fees=fees, pnl_before_fees=round(pnl + fees, 2), left=left, trades_counted=len(rows), state=state,
         today=today, today_net=today_net,

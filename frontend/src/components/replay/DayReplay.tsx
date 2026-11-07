@@ -106,7 +106,7 @@ export function DayReplay({ day }: { day: string }) {
   };
 
   const here = `/replay?${params.toString()}`;
-  const exit = () => navigate(exitTarget(from, null) ?? `/journal/${day}`);
+  const exit = () => navigate(exitTarget(from, null) ?? `/days/${day}`);
   const ready = !q.isLoading && !q.isError && played !== undefined && replay.total > 0;
   const count = q.data?.trade_count ?? 0;
 

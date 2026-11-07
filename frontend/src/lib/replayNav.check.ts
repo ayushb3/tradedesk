@@ -13,7 +13,7 @@ function eq(name: string, got: unknown, want: unknown) {
 }
 
 // ---- from= is an in-app path only
-eq("plain path", safeFrom("/journal/2026-06-10"), "/journal/2026-06-10");
+eq("plain path", safeFrom("/days/2026-06-10"), "/days/2026-06-10");
 eq("path with query", safeFrom("/trades/3?tab=review"), "/trades/3?tab=review");
 eq("other origin", safeFrom("https://example.com"), null);
 eq("protocol-relative", safeFrom("//example.com/x"), null);
@@ -22,12 +22,12 @@ eq("control chars", safeFrom("/a\nb"), null);
 eq("empty", [safeFrom(""), safeFrom(null), safeFrom(undefined)], [null, null, null]);
 
 // ---- Exit
-eq("exit to from", exitTarget("/journal/2026-06-10", 7), "/journal/2026-06-10");
+eq("exit to from", exitTarget("/days/2026-06-10", 7), "/days/2026-06-10");
 eq("exit to the trade", exitTarget(null, 7), "/trades/7");
-eq("exit to the picker", exitTarget(null, null), null);
+eq("exit with nothing to go back to", exitTarget(null, null), null);
 
 // ---- links
-eq("trade link keeps from", tradeReplayHref(7, "/journal/2026-06-10"), "/replay?trade=7&lead=15&from=%2Fjournal%2F2026-06-10");
+eq("trade link keeps from", tradeReplayHref(7, "/days/2026-06-10"), "/replay?trade=7&lead=15&from=%2Fdays%2F2026-06-10");
 eq("trade link drops a bad from", tradeReplayHref(7, "https://x.y", 5), "/replay?trade=7&lead=5");
 eq("day param", [isDay("2026-06-10"), isDay("2026-6-10"), isDay(null)], [true, false, false]);
 

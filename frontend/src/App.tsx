@@ -60,7 +60,16 @@ function DailyReviewRedirect() {
   const days = useDeskDays();
   if (days.isLoading) return null;
   const last = lastTradingDay(days.data?.days ?? []);
-  return <Navigate to={last ? `/journal/${last}` : "/journal"} replace />;
+  return <Navigate to={last ? `/days/${last}` : "/days"} replace />;
+}
+
+/**
+ * Redirect for the retired /journal URLs: the calendar is /days and a day is /days/:date
+ * ("journal" read as the whole app). Keeps old links, query string included, working.
+ */
+function JournalRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={`${pathname.replace(/^\/journal/, "/days")}${search}`} replace />;
 }
 
 export function App() {
@@ -68,11 +77,15 @@ export function App() {
     <Routes>
       <Route element={<AppShell />}>
         {/* The app opens on Days (the home shows the last trading day's month). */}
-        <Route index element={<Navigate to="/journal" replace />} />
+        <Route index element={<Navigate to="/days" replace />} />
+        {/* Replay is an action on a trade or a day (?trade= / ?day=), not a page:
+            bare /replay redirects to the Days calendar. */}
         <Route path="/replay" element={<ReplayPage />} />
-        <Route path="/journal" element={<JournalPage />} />
+        <Route path="/days" element={<JournalPage />} />
         {/* M7a — day drill-in + per-trade review (share trades) */}
-        <Route path="/journal/:date" element={<JournalDayPage />} />
+        <Route path="/days/:date" element={<JournalDayPage />} />
+        {/* The calendar used to live at /journal; old links redirect. */}
+        <Route path="/journal/*" element={<JournalRedirect />} />
         <Route path="/trades/:id" element={<TradeReviewPage />} />
         {/* Daily Review is merged into Days: old route goes to the last trading day */}
         <Route path="/daily-review" element={<DailyReviewRedirect />} />
@@ -102,7 +115,7 @@ export function App() {
         <Route path="/learn/progress" element={<ProgressPage />} />
         {/* Rules: a small settings page, reached from the gear in the nav footer */}
         <Route path="/settings/rules" element={<RulesSettingsPage />} />
-        <Route path="*" element={<Navigate to="/journal" replace />} />
+        <Route path="*" element={<Navigate to="/days" replace />} />
       </Route>
     </Routes>
   );

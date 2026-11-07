@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Play } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
 import { paneLevels, smaLines } from "@/lib/indicatorLines";
@@ -21,6 +21,8 @@ interface Props {
   fills: ReviewFill[];
   /** Option trades get the contract pane; share trades show the stock alone. */
   hasOption: boolean;
+  /** Play the trade here, in place of this static chart. */
+  onPlay?: () => void;
 }
 
 /**
@@ -29,7 +31,7 @@ interface Props {
  * is the amber line, and the bars after the exit are grey behind a toggle. This is post-trade,
  * so the exit is visible (Replay never shows it early).
  */
-export function ReviewStackChart({ trade, fills, hasOption }: Props) {
+export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
   const [showAfterExit, setShowAfterExit] = useState(false);
   const session = useReplayTrade(trade.id, LEAD_MIN);
   const contract = useReplayContract(trade.id, LEAD_MIN, hasOption);
@@ -139,6 +141,17 @@ export function ReviewStackChart({ trade, fills, hasOption }: Props) {
               )}
             >
               {showAfterExit ? "Hide after exit" : "Show after exit"}
+            </button>
+          )}
+          {onPlay && (
+            <button
+              type="button"
+              onClick={onPlay}
+              title="Replay this trade here (P)"
+              className="inline-flex items-center gap-1.5 rounded-md border border-play/50 bg-play/15 px-3 py-1 text-label font-medium text-play transition-colors hover:bg-play/25"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Play
             </button>
           )}
         </div>

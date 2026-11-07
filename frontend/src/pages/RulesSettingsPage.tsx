@@ -26,7 +26,7 @@ export function RulesSettingsPage() {
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
         <h1 className="font-semibold tracking-tight">Settings · Rules</h1>
-        <Link to="/journal" className="ml-auto text-body text-primary hover:underline">
+        <Link to="/days" className="ml-auto text-body text-primary hover:underline">
           Back to Days
         </Link>
       </header>
