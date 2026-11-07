@@ -19,6 +19,8 @@ interface PnlCalendarProps {
   marks?: Record<string, DayMark>;
   /** Trades not reviewed yet, per date: a small dot beside the day number. */
   reviewDue?: Record<string, number>;
+  /** Short cells (P&L only; W/L stays in the tooltip) so the month takes less height. */
+  compact?: boolean;
 }
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -48,6 +50,7 @@ export function PnlCalendar({
   onSelectDay,
   marks,
   reviewDue,
+  compact = false,
 }: PnlCalendarProps) {
   const [y, m] = month.split("-").map(Number);
   const year = y ?? new Date().getUTCFullYear();
@@ -106,7 +109,7 @@ export function PnlCalendar({
 
       <div className="p-3">
         {loading ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton className={compact ? "h-40 w-full" : "h-56 w-full"} />
         ) : (
           <>
             <div className="mb-1 grid grid-cols-7 gap-1">
@@ -138,6 +141,7 @@ export function PnlCalendar({
                     mark={marks?.[iso]}
                     due={reviewDue?.[iso]}
                     onSelect={onSelectDay}
+                    compact={compact}
                   />
                 );
               })}
@@ -160,7 +164,9 @@ function DayCell({
   mark,
   due,
   onSelect,
+  compact = false,
 }: {
+  compact?: boolean;
   day: number;
   iso: string;
   pnl: number | undefined;
@@ -201,7 +207,8 @@ function DayCell({
       onClick={interactive ? () => onSelect?.(iso) : undefined}
       style={bg ? { backgroundColor: bg } : undefined}
       className={cn(
-        "flex min-h-[4.75rem] flex-col items-start justify-between rounded-md border p-1.5 text-left transition-colors",
+        "flex flex-col items-start justify-between rounded-md border text-left transition-colors",
+        compact ? "min-h-[3rem] p-1" : "min-h-[4.75rem] p-1.5",
         mark?.stopBreach
           ? "border-2 border-loss"
           : hasTrades
@@ -250,9 +257,11 @@ function DayCell({
           <span className="num block truncate text-value font-semibold leading-tight">
             {compactPnl(pnl)}
           </span>
-          <span className="tabular block text-label leading-tight text-foreground/70">
-            {wlLabel}
-          </span>
+          {!compact && (
+            <span className="tabular block text-label leading-tight text-foreground/70">
+              {wlLabel}
+            </span>
+          )}
         </span>
       )}
     </button>
