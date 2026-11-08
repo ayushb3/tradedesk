@@ -10,7 +10,7 @@ import { RuleSummary } from "@/components/replay/RuleBar";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import { DayReplay } from "@/components/replay/DayReplay";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
-import { PriceChart } from "@/components/chart/PriceChart";
+import { PriceChart, type ChartPosition } from "@/components/chart/PriceChart";
 import { RealTradeCard } from "@/components/replay/RealTradeCard";
 import { SimPanel } from "@/components/replay/SimPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
@@ -42,6 +42,7 @@ import {
   replaySeries,
 } from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
+import { openPnl, positionAt } from "@/lib/positionAt";
 import { isoToUtcSeconds } from "@/lib/chart";
 import {
   candlesInWindow,
@@ -450,6 +451,21 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     writtenStop: contractData?.stop_price ?? null,
   });
   const simPos = sim.state.position;
+  // Positions on the chart, marked at the playhead bar's close (Seconds mode: the latest print):
+  // the real trade from the fills revealed so far, and the practice position.
+  const mark = playCandle?.close ?? null;
+  const chartPositions = useMemo((): ChartPosition[] => {
+    const out: ChartPosition[] = [];
+    const real = positionAt(revealedFills, Number.POSITIVE_INFINITY); // already gated at the playhead
+    if (real.qty > 0) out.push({ key: "real", kind: "real", qty: real.qty, avg: real.avg, pnl: openPnl(real, mark) });
+    if (simPos.qty > 0) {
+      const p = { qty: simPos.qty, avg: simPos.avg, realized: 0 };
+      const firstQty = simPos.fills[0]?.qty ?? 0;
+      const riskPerShare = simPos.risk != null && firstQty > 0 ? simPos.risk / (100 * firstQty) : null;
+      out.push({ key: "sim", kind: "sim", qty: simPos.qty, avg: simPos.avg, pnl: openPnl(p, mark), riskPerShare });
+    }
+    return out;
+  }, [revealedFills, simPos.qty, simPos.avg, simPos.risk, simPos.fills, mark]);
   // Stop moves are stamped with the playhead bar they were made on.
   const { setPlayTs } = sim;
   useEffect(() => setPlayTs(playCandle?.ts ?? null), [setPlayTs, playCandle?.ts]);
@@ -603,7 +619,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                 mode={{ kind: "replay" }}
                 stopPrice={windowed.contractCandles ? simPos.stop : null}
                 stopAssumed={simPos.stopAssumed}
-                avgPrice={windowed.contractCandles && simPos.qty > 0 ? simPos.avg : null}
+                positions={windowed.contractCandles ? chartPositions : []}
+                targetPrice={windowed.contractCandles ? simPos.target : null}
+                onTargetChange={(price) => sim.onSetTarget(price)}
                 simFills={windowed.contractCandles ? simFills : []}
                 onStopChange={sim.onSetStop}
                 fills={windowed.contractCandles ? revealedFills : []}

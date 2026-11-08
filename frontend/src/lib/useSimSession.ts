@@ -9,6 +9,7 @@ import {
   MULTIPLIER,
   sell,
   setStop,
+  setTarget,
   type RoundTrip,
   type SimState,
 } from "@/lib/simPosition";
@@ -117,5 +118,10 @@ export function useSimSession({ resetKey, symbol, sessionDate, writtenStop }: Op
     [apply],
   );
 
-  return { state, onBuy, onSell, onCloseAll, onSetStop, setPlayTs, logError, logged };
+  const onSetTarget = useCallback(
+    (price: number | null) => apply(setTarget(stateRef.current, price)),
+    [apply],
+  );
+
+  return { state, onBuy, onSell, onCloseAll, onSetStop, onSetTarget, setPlayTs, logError, logged };
 }

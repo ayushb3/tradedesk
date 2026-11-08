@@ -48,6 +48,8 @@ import {
 } from "@/lib/stackedReplay";
 import { LEVEL_SLATE, lineLook, type LineStyleName } from "@/lib/chartColors";
 import { CHART_THEME } from "@/lib/chartTheme";
+import { FillTag, LinePill, PositionPill } from "@/components/chart/ChartPills";
+import { formatPnl } from "@/lib/positionAt";
 import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
 import { bucketOf, INTERVALS, RANGES, rollUp, rollUpLine } from "@/lib/chartInterval";
 
@@ -119,8 +121,16 @@ interface Props {
   /** The stop (amber; draggable when `onStopChange` is given); null while flat. */
   stopPrice: number | null;
   stopAssumed?: boolean;
-  /** Blended average entry of the open sim position; null while flat. */
-  avgPrice?: number | null;
+  /**
+   * Open positions drawn on the contract pane: a dotted line at each blended average with a
+   * pill showing the qty and live P&L at the playhead. The caller computes them from fills at
+   * or before the playhead only.
+   */
+  positions?: ChartPosition[];
+  /** The practice profit target (green); draggable when `onTargetChange` is given. */
+  targetPrice?: number | null;
+  /** Called while dragging the target (final = false), on release (true); null clears it. */
+  onTargetChange?: (price: number | null, final: boolean) => void;
   /** Fills of the user's sim buys/sells on the contract pane. */
   simFills?: SimFill[];
   /** Called while dragging the stop (final = false) and on release (final = true). */
@@ -180,12 +190,29 @@ interface Props {
   interval?: { value: string; options: readonly string[]; onChange: (label: string) => void };
 }
 
+export interface ChartPosition {
+  key: string;
+  /** "real" draws grey; "sim" (practice) draws blue. */
+  kind: "real" | "sim";
+  qty: number;
+  avg: number;
+  /** Open P&L in dollars at the playhead; null when there is no mark. */
+  pnl: number | null;
+  /** 1R per share, fixed at the first buy (practice only): the "+ Target" button sets 2R off it. */
+  riskPerShare?: number | null;
+}
+
 interface Layout {
   width: number;
   playX: number | null;
   entryX: number | null;
   exitX: number | null;
   stopY: number | null;
+  targetY: number | null;
+  /** Contract pane: the y of each position's average line. */
+  posYs: { key: string; y: number }[];
+  /** Contract pane, replay: one tag per fill drawn so far, at its bar and price. */
+  fillTags: { key: string; x: number; y: number; side: "buy" | "sell"; sim: boolean; text: string; details: string[] }[];
   height: number;
   levelYs: { label: string; price: number; y: number; color?: string }[];
   markYs: { key: string; label: string; y: number }[];
@@ -198,12 +225,18 @@ interface Layout {
   to: number | null;
 }
 
+/** Pills stay below the legend rows at the top of the pane. */
+const PILL_TOP_PX = 46;
+
 const EMPTY_LAYOUT: Layout = {
   width: 0,
   playX: null,
   entryX: null,
   exitX: null,
   stopY: null,
+  targetY: null,
+  posYs: [],
+  fillTags: [],
   height: 0,
   levelYs: [],
   markYs: [],
@@ -268,7 +301,9 @@ function PriceChartCore({
   mode,
   stopPrice: stopPriceProp,
   stopAssumed = false,
-  avgPrice = null,
+  positions = [],
+  targetPrice = null,
+  onTargetChange,
   simFills = [],
   onStopChange,
   fills,
@@ -310,8 +345,10 @@ function PriceChartCore({
   const bottomEl = useRef<HTMLDivElement>(null);
   const panes = useRef<{ top: PaneRuntime | null; bottom: PaneRuntime } | undefined>(undefined);
   const stopLine = useRef<IPriceLine | null>(null);
-  const avgLine = useRef<IPriceLine | null>(null);
-  const dragging = useRef<number | null>(null);
+  const avgLines = useRef<IPriceLine[]>([]);
+  const targetLine = useRef<IPriceLine | null>(null);
+  /** The plan line being dragged and its latest price. */
+  const dragging = useRef<{ kind: "stop" | "target"; price: number; moved: boolean; grabDy: number } | null>(null);
   /** Last autoscaled domain per pane; frozen while the stop is dragged so the pane cannot run away. */
   const lastDomain = useRef<{ top: PriceDomain | null; bottom: PriceDomain | null }>({ top: null, bottom: null });
   const frozen = useRef<PriceDomain | null>(null);
@@ -364,7 +401,7 @@ function PriceChartCore({
     isReplay,
     playIdx,
     lastIdx: Math.max(0, lastIdx),
-    extras: [stopPrice, avgPrice],
+    extras: [stopPrice, targetPrice, ...positions.map((ps) => ps.avg)],
     onPriceClick,
     tradingView,
     initialBars,
@@ -774,7 +811,8 @@ function PriceChartCore({
       for (const p of all) p.chart.remove();
       panes.current = undefined;
       stopLine.current = null;
-      avgLine.current = null;
+      avgLines.current = [];
+      targetLine.current = null;
     };
   }, [hasTop, contractBelow]);
   const refitRef = useRef<(() => void) | null>(null);
@@ -932,32 +970,53 @@ function PriceChartCore({
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: stopAssumed ? "STOP (assumed)" : "STOP",
+        // A draggable stop gets a pill instead of the line title.
+        title: onStopChange ? "" : stopAssumed ? "STOP (assumed)" : "STOP",
       });
     }
     rt.chart.priceScale("right").applyOptions({ autoScale: true }); // re-run the autoscale with the new stop
-  }, [stopPrice, stopAssumed, hasTop]);
+  }, [stopPrice, stopAssumed, hasTop, !!onStopChange]);
 
-  // ---- blended average entry (grey dotted), contract pane only ----------------
+  // ---- practice target (green dashed), contract pane only ------------------------
   useEffect(() => {
     const rt = panes.current?.top;
     if (!rt) return;
-    if (avgLine.current) {
-      rt.series.removePriceLine(avgLine.current);
-      avgLine.current = null;
+    if (targetLine.current) {
+      rt.series.removePriceLine(targetLine.current);
+      targetLine.current = null;
     }
-    if (avgPrice != null) {
-      avgLine.current = rt.series.createPriceLine({
-        price: avgPrice,
-        color: THEME.avg,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
+    if (targetPrice != null) {
+      targetLine.current = rt.series.createPriceLine({
+        price: targetPrice,
+        color: THEME.up,
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: "AVG",
+        title: onTargetChange ? "" : "TARGET",
       });
     }
     rt.chart.priceScale("right").applyOptions({ autoScale: true });
-  }, [avgPrice, hasTop]);
+  }, [targetPrice, hasTop, !!onTargetChange]);
+
+  // ---- blended average entry per open position (dotted), contract pane only -------
+  const avgKey = positions.map((ps) => `${ps.kind}:${ps.avg}`).join("|");
+  useEffect(() => {
+    const rt = panes.current?.top;
+    if (!rt) return;
+    for (const l of avgLines.current) rt.series.removePriceLine(l);
+    avgLines.current = positions.map((ps) =>
+      rt.series.createPriceLine({
+        price: ps.avg,
+        color: ps.kind === "sim" ? THEME.play : THEME.avg,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: "",
+      }),
+    );
+    rt.chart.priceScale("right").applyOptions({ autoScale: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avgKey, hasTop]);
 
   // ---- fill markers: short arrows only (details go to the hover readout) -----
   // Real fills mark the fill minute on BOTH panes (arrow at that bar, no option price on the
@@ -1034,9 +1093,47 @@ function PriceChartCore({
       });
       return [...(hi ? [tag("H", hi)] : []), ...(lo ? [tag("L", lo)] : [])];
     };
-    p.top?.series.setMarkers([...realMarkers(side), ...sim, ...extra(top), ...hiLo(top)].sort(byTime));
+    // Replay ("arrows" mode) draws real and practice fills on the contract pane as DOM tags
+    // (details on hover), so the canvas arrows there would only double them.
+    const tagged = fillLabels === "arrows";
+    p.top?.series.setMarkers(
+      [...(tagged ? [] : [...realMarkers(side), ...sim]), ...extra(top), ...hiLo(top)].sort(byTime),
+    );
     p.bottom.series.setMarkers([...realMarkers(side), ...extra(bottom), ...hiLo(bottom)].sort(byTime));
-  }, [fills, simFills, playheadSec, hasTop, timeline, top, bottom]);
+  }, [fills, simFills, playheadSec, hasTop, timeline, top, bottom, fillLabels]);
+
+  // ---- fill tags (contract pane, replay): real and practice fills drawn so far ----
+  const tagSources = useMemo(() => {
+    const real = fills.flatMap((f) => {
+      const exact = isoToUtcSeconds(f.ts);
+      const sec = onBar(exact);
+      if (sec > playheadSec) return [];
+      return [{
+        key: `r${f.seq}`,
+        sec,
+        price: f.price,
+        side: f.side,
+        sim: false,
+        text: `${f.side === "buy" ? "B" : "S"} ${f.qty}`,
+        details: [fillDetailText(f, ptClockSec(exact)), `${f.role === "entry" ? "Entry" : "Exit"} · your real fill`],
+      }];
+    });
+    const practice = simFills.flatMap((f, i) => {
+      const sec = onBar(isoToUtcSeconds(f.ts));
+      if (sec > playheadSec) return [];
+      return [{
+        key: `s${i}`,
+        sec,
+        price: f.price,
+        side: f.side,
+        sim: true,
+        text: `${f.side === "buy" ? "B" : "S"} ${f.qty}`,
+        details: [fillDetailText(f, ptClock(sec)), "Practice fill (TradeDesk only)"],
+      }];
+    });
+    return [...real, ...practice];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fills, simFills, playheadSec, startSec, barSec]);
 
   // ---- overlay geometry (px) for the shaded future / hold / chips ------------
   const chipSources = useMemo(
@@ -1091,6 +1188,25 @@ function PriceChartCore({
           rt === p.top && stopPrice != null
             ? (rt.series.priceToCoordinate(stopPrice) as number | null)
             : null,
+        targetY:
+          rt === p.top && targetPrice != null
+            ? (rt.series.priceToCoordinate(targetPrice) as number | null)
+            : null,
+        posYs:
+          rt === p.top
+            ? positions.flatMap((ps) => {
+                const y = rt.series.priceToCoordinate(ps.avg) as number | null;
+                return y === null ? [] : [{ key: ps.key, y }];
+              })
+            : [],
+        fillTags:
+          rt === p.top && fillLabels === "arrows"
+            ? tagSources.flatMap((t) => {
+                const tx = x(t.sec);
+                const ty = rt.series.priceToCoordinate(t.price) as number | null;
+                return tx === null || ty === null || tx < 0 || tx > width ? [] : [{ ...t, x: tx, y: ty }];
+              })
+            : [],
         chips: chipSources.flatMap((c) => {
           const cx = x(c.sec);
           return cx === null || cx < -4 || cx > width + 4 ? [] : [{ x: cx, text: c.text, side: c.side }];
@@ -1098,14 +1214,14 @@ function PriceChartCore({
       };
     };
     setLayouts({ top: measure(p.top, top), bottom: measure(p.bottom, bottom) });
-  }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, hasTop, top, bottom, chipSources]);
+  }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, targetPrice, avgKey, hasTop, top, bottom, chipSources, tagSources]);
 
   // ---- dragging the stop ---------------------------------------------------------
-  const priceAtPointer = (e: React.PointerEvent): number | null => {
+  const priceAtPointer = (e: React.PointerEvent, grabDy = 0): number | null => {
     const rt = panes.current?.top;
     const el = topEl.current;
     if (!rt || !el) return null;
-    const y = e.clientY - el.getBoundingClientRect().top;
+    const y = e.clientY - el.getBoundingClientRect().top - grabDy; // where the line is, not the finger
     const raw = rt.series.coordinateToPrice(y);
     if (raw == null) return null;
     // Stay inside the frozen domain so a drag never rescales the pane.
@@ -1119,35 +1235,112 @@ function PriceChartCore({
     frozen.current = null;
     panes.current?.top?.chart.priceScale("right").applyOptions({ autoScale: true });
   };
-  const stopHandle =
-    stopPrice != null && layouts.top.stopY != null && onStopChange ? (
-      <div
-        role="slider"
-        aria-label="Stop price"
-        aria-valuenow={stopPrice}
-        className="pointer-events-auto absolute inset-x-0 z-10 h-4 cursor-row-resize touch-none"
-        style={{ top: layouts.top.stopY - 8 }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          dragging.current = stopPrice;
-          frozen.current = lastDomain.current.top;
-        }}
-        onPointerMove={(e) => {
-          if (dragging.current === null) return;
-          const price = priceAtPointer(e);
-          if (price === null) return;
-          dragging.current = price;
-          onStopChange(price, false);
-        }}
-        onPointerUp={() => {
-          if (dragging.current === null) return;
-          const price = dragging.current;
-          endDrag();
-          onStopChange(price, true);
-        }}
-        onPointerCancel={endDrag}
-      />
-    ) : null;
+  /** Pointer handlers that drag one plan line (stop or target) on the contract pane. */
+  const dragHandlers = (kind: "stop" | "target", price: number, onChange: (p: number, final: boolean) => void) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      // Keep the grab offset, so the line does not jump to the pointer.
+      const lineY = panes.current?.top?.series.priceToCoordinate(price) as number | null | undefined;
+      const el = topEl.current;
+      const grabDy = lineY != null && el ? e.clientY - el.getBoundingClientRect().top - lineY : 0;
+      dragging.current = { kind, price, moved: false, grabDy };
+      frozen.current = lastDomain.current.top;
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = dragging.current;
+      if (d?.kind !== kind) return;
+      const p = priceAtPointer(e, d.grabDy);
+      if (p === null || p === d.price) return;
+      dragging.current = { ...d, price: p, moved: true };
+      onChange(p, false);
+    },
+    onPointerUp: () => {
+      const d = dragging.current;
+      if (d?.kind !== kind) return;
+      endDrag();
+      if (d.moved) onChange(d.price, true); // a click without a move is not a stop move
+    },
+    onPointerCancel: endDrag,
+  });
+  const topLayout = layouts.top;
+  const tradeOverlay = (
+    <>
+      {(() => {
+        // One row per position: the pill, then "+ Target" beside the practice one. Rows closer
+        // than a pill's height are nudged apart so two positions never overlap.
+        const rows = positions
+          .flatMap((ps) => {
+            const y = topLayout.posYs.find((v) => v.key === ps.key)?.y;
+            return y === undefined ? [] : [{ ps, y: Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, y)) }];
+          })
+          .sort((a, b) => a.y - b.y);
+        for (let i = 1; i < rows.length; i++) rows[i].y = Math.max(rows[i].y, rows[i - 1].y + 20);
+        return rows.map(({ ps, y }) => {
+          const risk = ps.riskPerShare;
+          const suggested =
+            ps.kind === "sim" && targetPrice == null && onTargetChange && risk != null && risk > 0
+              ? Math.round((ps.avg + 2 * risk) * 100) / 100
+              : null;
+          return (
+            <div key={ps.key} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ top: y, left: 44 }}>
+              <PositionPill
+                y={0}
+                qty={ps.qty}
+                pnl={ps.pnl}
+                pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
+                avgText={`${ps.kind === "sim" ? "Practice" : "Your"} position: ${ps.qty} @ ${ps.avg.toFixed(2)} avg`}
+                inline
+              />
+              {suggested !== null && (
+                <button
+                  type="button"
+                  className="pointer-events-auto rounded border border-up/60 bg-chart px-1.5 text-label text-up hover:bg-up/15"
+                  onClick={() => onTargetChange?.(suggested, true)}
+                  title={`Set a practice target at ${suggested.toFixed(2)} (2R off the risk at your first buy); drag it to move`}
+                  data-testid="add-target"
+                >
+                  + Target
+                </button>
+              )}
+            </div>
+          );
+        });
+      })()}
+      {stopPrice != null && topLayout.stopY != null && onStopChange && (
+        <LinePill
+          y={topLayout.stopY}
+          kind="stop"
+          label={stopAssumed ? "Stop (assumed)" : "Stop"}
+          priceText={stopPrice.toFixed(2)}
+          draggable
+          {...dragHandlers("stop", stopPrice, onStopChange)}
+        />
+      )}
+      {targetPrice != null && topLayout.targetY != null && onTargetChange && (
+        <LinePill
+          y={topLayout.targetY}
+          kind="target"
+          label="Target"
+          priceText={targetPrice.toFixed(2)}
+          draggable
+          {...dragHandlers("target", targetPrice, onTargetChange)}
+          onClear={() => onTargetChange(null, true)}
+        />
+      )}
+      {topLayout.fillTags.map((t) => (
+        <FillTag
+          key={t.key}
+          x={t.x}
+          y={t.y}
+          side={t.side}
+          sim={t.sim}
+          text={t.text}
+          details={t.details}
+          placeAbove={t.side === "sell"}
+        />
+      ))}
+    </>
+  );
 
   // ---- dragging a mark on the underlying pane (Learn: your level, stop, target) ----
   // The drag listens on the window, not the handle: the handle re-renders as the line moves,
@@ -1328,7 +1521,7 @@ function PriceChartCore({
           timeframe={timeframeLabel(barSec)}
           lastOnly
           showTicks
-          overlay={stopHandle}
+          overlay={tradeOverlay}
           details={detailFor("top", shown)}
           detailsAsBox={fillLabels === "arrows"}
           noData={noDataFor(top)}
@@ -1717,8 +1910,13 @@ function Pane({
               {noData}
             </span>
           )}
-          {overlay}
         </div>
+        {/* Interactive pieces (pills, tags, drag handles) sit above the chart canvas. */}
+        {overlay && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10" style={{ width: layout.width }}>
+            {overlay}
+          </div>
+        )}
         {/* Legend, top left: symbol and timeframe, OHLC and change for the hovered (or
             latest) bar, then the indicator values at that bar. Fill details stack below it.
             Kept outside the plot overlay so it never depends on the measured plot width. */}
