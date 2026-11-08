@@ -28,7 +28,7 @@
  * `ReplaySession` shape that lib/sessionChart turns into chart props.
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, List, ServerCrash } from "lucide-react";
 
@@ -86,8 +86,13 @@ function serializePlaylist(ids: number[]): string {
 // Adapters: DrillSession → ReplaySession (the shape lib/sessionChart reads)
 // --------------------------------------------------------------------------- //
 
+/** Cached per session object, so the chart's memoized input stays stable across renders. */
+const shapeCache = new WeakMap<DrillSession, ReplaySession>();
+
 function toReplaySessionShape(session: DrillSession): ReplaySession {
-  return {
+  const hit = shapeCache.get(session);
+  if (hit) return hit;
+  const shaped = {
     symbol: session.symbol ?? "BLIND",
     session_date: session.session_date ?? "",
     candles: session.candles,
@@ -98,6 +103,8 @@ function toReplaySessionShape(session: DrillSession): ReplaySession {
       tz: (session.meta.tz as string | undefined) ?? "America/New_York",
     },
   } as unknown as ReplaySession;
+  shapeCache.set(session, shaped);
+  return shaped;
 }
 
 // --------------------------------------------------------------------------- //
@@ -186,7 +193,8 @@ const RESOLVE_INTERVAL_MS = 200;
 
 /** Auto-advance one bar per `intervalMs` while `active`, on the shared playback clock. */
 function useBarTimer(active: boolean, intervalMs: number, onTick: () => void) {
-  usePlayClock({ playing: active, speed: 1000 / intervalMs, unitSec: 1, onSteps: () => onTick() });
+  // One step per tick: the tick handlers advance a single bar (so the decision bar is never overshot).
+  usePlayClock({ playing: active, speed: 1000 / intervalMs, unitSec: 1, maxSpeed: 1000, onSteps: () => onTick() });
 }
 
 // --------------------------------------------------------------------------- //
@@ -796,7 +804,7 @@ function PlayerError({
 
 /** The drill tape on the shared chart (no contract pane, no fills). */
 function SessionPriceChart({ session, index }: { session: ReplaySession; index: number }) {
-  const c = sessionChart(session, index, { label: session.symbol });
+  const c = useMemo(() => sessionChart(session, index, { label: session.symbol }), [session, index]);
   if (!c) return null;
   return (
     <PriceChart

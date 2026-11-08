@@ -3,7 +3,7 @@
  * Run: npm run check:sim
  */
 import {
-  advance, clampSpeed, DEFAULT_SPEED, engineFor, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
+  advance, clampSpeed, DEFAULT_SPEED, engineFor, FAST_DEFAULT_SPEED, FAST_MAX_SPEED, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
   minuteLabel, saveSpeed, secondsRes, snapSpeed, SPEED_STEPS, stepSpeed,
 } from "./replaySpeed";
 
@@ -38,7 +38,7 @@ eq("100 -> 64", snapSpeed(100), 64);
 eq("30 -> 32", snapSpeed(30), 32);
 eq("5 -> 4", snapSpeed(5), 4);
 eq("10 -> 8", snapSpeed(10), 8);
-eq("every step is its own snap", SPEED_STEPS.map(snapSpeed), [...SPEED_STEPS]);
+eq("every step is its own snap", SPEED_STEPS.map((s) => snapSpeed(s)), [...SPEED_STEPS]);
 
 // ---- labels
 eq("format", [formatSpeed(64), formatSpeed(0.5), formatSpeed(1)], ["64x", "0.5x", "1x"]);
@@ -68,6 +68,14 @@ eq("64x minute bars: 1 bar per 937.5 ms", advance(0, 938, 64, 60).steps, 1);
 eq("a request above the cap plays at 64x", advance(0, 1000, 600, 1).steps, 64);
 eq("late timer catches up, same speed", advance(0, 500, 64, 1).steps, 32);
 eq("negative elapsed ignored", advance(0, -100, 64, 1).steps, 0);
+
+// ---- whole-bar players (free replay, author): same doubling steps, a higher ceiling
+eq("fast ceiling and start", [FAST_MAX_SPEED, FAST_DEFAULT_SPEED], [1024, 64]);
+eq("fast: up from 64", stepSpeed(64, 1, FAST_MAX_SPEED), 128);
+eq("fast: up at 1024 stays", stepSpeed(1024, 1, FAST_MAX_SPEED), 1024);
+eq("fast: 15m bar at 1024x every ~0.9 s", advance(0, 879, 1024, 900, FAST_MAX_SPEED).steps, 1);
+eq("default ceiling still 64", stepSpeed(64, 1), 64);
+eq("fast format", formatSpeed(512, FAST_MAX_SPEED), "512x");
 
 // ---- remembered speed survives a broken storage
 const mem = new Map<string, string>();

@@ -34,6 +34,7 @@ import {
   type ReplayConfig,
 } from "@/lib/replayConfig";
 import { overlaySpecs, LEVEL_META, CALLER_LEVELS_KEY } from "@/lib/sessionChart";
+import { CALLER_STYLE } from "@/lib/chartColors";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 
 interface ReplayControlBarProps {
@@ -41,6 +42,8 @@ interface ReplayControlBarProps {
   /** Chart-seconds per real second (the shared speed steps). */
   speed: number;
   onSpeedChange: (speed: number) => void;
+  /** Top speed for the speed control. */
+  maxSpeed?: number;
   disabled?: boolean;
   config: ReplayConfig;
   onConfigChange: (c: ReplayConfig) => void;
@@ -56,6 +59,7 @@ export function ReplayControlBar({
   replay,
   speed,
   onSpeedChange,
+  maxSpeed,
   disabled = false,
   config,
   onConfigChange,
@@ -108,7 +112,7 @@ export function ReplayControlBar({
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
 
-        <SpeedSlider value={speed} onChange={onSpeedChange} disabled={off} />
+        <SpeedSlider value={speed} onChange={onSpeedChange} disabled={off} max={maxSpeed} />
 
         {/* Timeframe Select — triggers refetch via queryKey upstream */}
         <Select
@@ -388,7 +392,7 @@ function IndicatorsPopover({
               <ToggleRow
                 label="Somesh levels"
                 on={!config.hiddenLevels.has(CALLER_LEVELS_KEY)}
-                color="#facc15"
+                color={CALLER_STYLE.level.color}
                 onToggle={() => toggleLevel(CALLER_LEVELS_KEY)}
               />
             </div>

@@ -27,7 +27,7 @@ import {
 import { ruleBarState } from "@/lib/ruleBar";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
-import { engineFor, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
+import { engineFor, FAST_DEFAULT_SPEED, FAST_MAX_SPEED, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
 import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
 import { useReplay, type ReplayState } from "@/lib/useReplay";
 import { isInputFocused } from "@/lib/replayKeys";
@@ -106,6 +106,8 @@ interface Embed {
 function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const navigate = useNavigate();
   const [speed, setSpeedState] = useState<number>(() => loadSpeed());
+  // Free replay plays whole bars with no trade to study: its own speed, up to 1024x.
+  const [freeSpeed, setFreeSpeed] = useState<number>(FAST_DEFAULT_SPEED);
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(s);
@@ -274,7 +276,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const minuteReplay = useReplay(data, {
     keyboardEnabled: !useSeconds,
     // The speed control drives the minute clock (64x ≈ one 1m bar per second).
-    chartSpeed: speed,
+    chartSpeed: inTrade ? speed : freeSpeed,
+    maxSpeed: inTrade ? undefined : FAST_MAX_SPEED,
   });
 
   // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
@@ -481,10 +484,10 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
 
   const ready = !isLoading && !isError && data && replay.total > 0;
 
-  const visibility: ChartVisibility = {
-    hiddenOverlays: config.hiddenOverlays,
-    hiddenLevels: config.hiddenLevels,
-  };
+  const visibility: ChartVisibility = useMemo(
+    () => ({ hiddenOverlays: config.hiddenOverlays, hiddenLevels: config.hiddenLevels }),
+    [config.hiddenOverlays, config.hiddenLevels],
+  );
 
   // Reset the trade log whenever the session changes.
   const sessionKey = `${symbol}:${date}`;
@@ -626,8 +629,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
           ) : (
             <ReplayControlBar
               replay={replay}
-              speed={speed}
-              onSpeedChange={setSpeed}
+              speed={freeSpeed}
+              onSpeedChange={setFreeSpeed}
+              maxSpeed={FAST_MAX_SPEED}
               disabled={!ready}
               config={config}
               onConfigChange={setConfig}
@@ -697,11 +701,16 @@ function FreeReplayChart({
   visibility: ChartVisibility;
   trades: SimTrade[];
 }) {
-  const c = sessionChart(session, index, {
-    visibility,
-    trades,
-    label: session.meta.source_label ? `${session.symbol} · ${session.meta.source_label}` : session.symbol,
-  });
+  // Memoized: a new pane object makes PriceChart refeed every series.
+  const c = useMemo(
+    () =>
+      sessionChart(session, index, {
+        visibility,
+        trades,
+        label: session.meta.source_label ? `${session.symbol} · ${session.meta.source_label}` : session.symbol,
+      }),
+    [session, index, visibility, trades],
+  );
   if (!c) return null;
   return (
     <div className="absolute inset-0 pb-24">

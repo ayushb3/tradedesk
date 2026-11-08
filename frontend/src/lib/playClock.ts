@@ -13,6 +13,7 @@ export function usePlayClock({
   speed,
   unitSec,
   onSteps,
+  maxSpeed,
 }: {
   playing: boolean;
   /** Chart-seconds per real second. */
@@ -21,18 +22,22 @@ export function usePlayClock({
   unitSec: number;
   /** Called with the number of whole steps due (always > 0). */
   onSteps: (steps: number) => void;
+  /** Speed ceiling (default: the replay's 64x; whole-bar players allow more). */
+  maxSpeed?: number;
 }): void {
   const speedRef = useRef(speed);
   speedRef.current = speed;
   const stepsRef = useRef(onSteps);
   stepsRef.current = onSteps;
+  const maxRef = useRef(maxSpeed);
+  maxRef.current = maxSpeed;
   useEffect(() => {
     if (!playing) return;
     let last = performance.now();
     let carry = 0;
     const id = window.setInterval(() => {
       const now = performance.now();
-      const r = advance(carry, now - last, speedRef.current, unitSec);
+      const r = advance(carry, now - last, speedRef.current, unitSec, maxRef.current);
       last = now;
       carry = r.carry;
       if (r.steps > 0) stepsRef.current(r.steps);

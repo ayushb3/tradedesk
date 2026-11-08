@@ -13,7 +13,7 @@
  * - The drill player (6.1.2) will later call /api/training/scenarios/{id}/session
  *   to get the sliced, optionally-blinded view — that's separate from this page.
  */
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -43,6 +43,7 @@ import { ReplayTransport } from "@/components/replay/ReplayTransport";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { useReplayKeys } from "@/lib/replayKeys";
+import { FAST_DEFAULT_SPEED, FAST_MAX_SPEED } from "@/lib/replaySpeed";
 import { barSecOf, sessionChart } from "@/lib/sessionChart";
 import { SYMBOLS, type Symbol } from "@/components/replay/ReplayToolbar";
 import { ApiError, type ReplaySession } from "@/lib/api";
@@ -121,7 +122,11 @@ export function ScenarioAuthorPage() {
   // Load the full replay session (same endpoint as ReplayPage)
   const { data, isLoading, isError, error } = useReplaySession({ symbol, date });
   const total = data?.candles.length ?? 0;
-  const engine = useReplayEngine(total, { barSec: data ? barSecOf(data.candles) : 60 });
+  const engine = useReplayEngine(total, {
+    barSec: data ? barSecOf(data.candles) : 60,
+    maxSpeed: FAST_MAX_SPEED,
+    defaultSpeed: FAST_DEFAULT_SPEED,
+  });
   useReplayKeys({
     onToggle: engine.toggle,
     onStep: (dir) => (dir > 0 ? engine.stepForward() : engine.stepBack()),
@@ -274,7 +279,7 @@ export function ScenarioAuthorPage() {
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
             <ReplayTransport engine={engine} disabled={!ready} showRestart />
-            <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} />
+            <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} max={FAST_MAX_SPEED} />
           </div>
         </div>
       </div>
@@ -679,7 +684,7 @@ function BarOverlay({
   if (startBar !== null)
     markers.push({ label: "Start", bar: startBar, color: CHART_THEME.up });
   if (decisionBar !== null)
-    markers.push({ label: "Decision", bar: decisionBar, color: "#f5a623" });
+    markers.push({ label: "Decision", bar: decisionBar, color: CHART_THEME.stop });
   if (endBar !== null)
     markers.push({ label: "End", bar: endBar, color: CHART_THEME.down });
 
@@ -780,7 +785,8 @@ function ChartError({ error }: { error: unknown }) {
 
 /** The tape on the shared chart. */
 function AuthorChart({ session, index }: { session: ReplaySession; index: number }) {
-  const c = sessionChart(session, index);
+  // Memoized: typing in the form must not refeed the chart.
+  const c = useMemo(() => sessionChart(session, index), [session, index]);
   if (!c) return null;
   return (
     <div className="absolute inset-0 pb-12 pt-10">

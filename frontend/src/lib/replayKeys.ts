@@ -16,8 +16,9 @@ export function isInputFocused(target: EventTarget | null): boolean {
   if (!target || !(target instanceof Element)) return false;
   if (SUPPRESS_TAGS.has(target.tagName)) return true;
   if (target.hasAttribute("contenteditable")) return true;
-  // Anywhere inside a dialog (shadcn Dialog/Sheet).
-  if (target.closest('[role="dialog"]')) return true;
+  // Anywhere inside a dialog (shadcn Dialog/Sheet), or on an open-able control (a select
+  // trigger, menu or listbox), where Space and the arrows belong to the control.
+  if (target.closest('[role="dialog"], [role="combobox"], [role="listbox"], [role="menu"], [role="option"], [role="menuitem"]')) return true;
   return false;
 }
 

@@ -9,7 +9,7 @@
 import type { PaneSpec } from "@/components/chart/PriceChart";
 import type { Candle, IndicatorKey, LevelKey, ReplaySession, SimTrade } from "@/lib/api";
 import { isoToUtcSeconds, valueAt } from "@/lib/chart";
-import { CALLER_STYLE, callerStyle, LEVEL_COLORS, lineLook, type LineStyleName } from "@/lib/chartColors";
+import { callerStyle, LEVEL_COLORS, lineLook, type LineStyleName } from "@/lib/chartColors";
 
 export interface OverlaySpec {
   key: string; // a key in session.indicators, e.g. "ema9"
@@ -52,9 +52,6 @@ export const LEVEL_META: { key: LevelKey; label: string; color: string }[] = [
 
 /** Visibility key for the caller-levels group (lives in hiddenLevels). */
 export const CALLER_LEVELS_KEY = "caller";
-export const CALLER_COLORS: Record<string, string> = Object.fromEntries(
-  Object.entries(CALLER_STYLE).map(([k, v]) => [k, v.color]),
-);
 
 /** Keys the user toggled OFF; anything absent is shown. */
 export interface ChartVisibility {
@@ -62,7 +59,7 @@ export interface ChartVisibility {
   hiddenLevels: Set<string>;
 }
 
-export const SHOW_ALL: ChartVisibility = { hiddenOverlays: new Set(), hiddenLevels: new Set() };
+const SHOW_ALL: ChartVisibility = { hiddenOverlays: new Set(), hiddenLevels: new Set() };
 
 /** Bar size in seconds: the smallest gap between consecutive bars (60 when unknown). */
 export function barSecOf(candles: Candle[]): number {
@@ -75,7 +72,7 @@ export function barSecOf(candles: Candle[]): number {
 }
 
 /** Floor a time onto the bar grid that starts at `startSec`. */
-export function onGrid(sec: number, startSec: number, barSec: number): number {
+function onGrid(sec: number, startSec: number, barSec: number): number {
   return startSec + Math.floor((sec - startSec) / barSec) * barSec;
 }
 

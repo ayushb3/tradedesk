@@ -74,13 +74,15 @@ export function useReplay(
     keyboardEnabled?: boolean;
     /** Speed (chart-seconds per real second); omitted, the engine keeps its own. */
     chartSpeed?: number;
+    /** Speed ceiling (free replay plays whole bars and goes past 64x). */
+    maxSpeed?: number;
   },
 ): ReplayState {
   const keyboardEnabled = options?.keyboardEnabled ?? true;
 
   const total = session?.candles.length ?? 0;
   const barSec = useMemo(() => (session ? barSecOf(session.candles) : 60), [session]);
-  const engine = useReplayEngine(total, { chartSpeed: options?.chartSpeed, barSec });
+  const engine = useReplayEngine(total, { chartSpeed: options?.chartSpeed, barSec, maxSpeed: options?.maxSpeed });
 
   // --- barLabel -----------------------------------------------------------
   // "09:12 PT" — the current bar's display-zone (PT) wall-clock time. The scrubber already

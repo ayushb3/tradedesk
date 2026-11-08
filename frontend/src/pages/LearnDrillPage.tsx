@@ -512,6 +512,13 @@ export function LearnDrillPage() {
         setIdx((i) => (dir > 0 ? stepIndex(i, n) : Math.max(0, i - 1)));
       },
       onToggle: phase === "decision" ? undefined : () => setPlaying((p) => !p),
+      // ↑/↓: the next faster / slower of Learn's bar-per-second speeds.
+      onSpeed: (dir) =>
+        setSpeed((cur) => {
+          const i = PLAY_SPEEDS.indexOf(cur as (typeof PLAY_SPEEDS)[number]);
+          const j = Math.max(0, Math.min(PLAY_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir));
+          return PLAY_SPEEDS[j];
+        }),
       onEnd:
         phase === "decision"
           ? undefined
@@ -829,7 +836,7 @@ export function LearnDrillPage() {
               {fullBarsLoading ? " · loading the rest" : ""}
             </span>
             <span className="ml-auto hidden text-label text-muted-foreground md:inline">
-              ArrowLeft / ArrowRight step · Space plays or pauses · End skips
+              ←/→ step · ↑/↓ speed · Space plays or pauses · End skips
             </span>
           </div>
         </div>

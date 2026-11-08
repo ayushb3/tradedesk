@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { usePlayClock } from "@/lib/playClock";
-import { DEFAULT_SPEED } from "@/lib/replaySpeed";
+import { DEFAULT_SPEED, MAX_SPEED } from "@/lib/replaySpeed";
 
 /**
  * Bar-replay engine. The engine owns exactly one piece of truth: `currentIndex`.
@@ -41,13 +41,17 @@ export interface EngineOptions {
   chartSpeed?: number;
   /** Bar length in seconds (default 60: minute bars). */
   barSec?: number;
+  /** Speed ceiling and the engine's own starting speed (whole-bar players go faster). */
+  maxSpeed?: number;
+  defaultSpeed?: number;
 }
 
 export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngine {
   const barSec = opts?.barSec ?? 60;
   const [currentIndex, setIndexState] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [ownSpeed, setOwnSpeed] = useState<number>(DEFAULT_SPEED);
+  const maxSpeed = opts?.maxSpeed ?? MAX_SPEED;
+  const [ownSpeed, setOwnSpeed] = useState<number>(opts?.defaultSpeed ?? DEFAULT_SPEED);
   const speed = opts?.chartSpeed ?? ownSpeed;
 
   // A new session (different length) resets the playhead to the first bar.
@@ -75,6 +79,7 @@ export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngi
     playing: isPlaying && total > 0,
     speed,
     unitSec: barSec,
+    maxSpeed,
     onSteps: (n) => setIndexState((i) => Math.min(i + n, lastIndex)),
   });
 
