@@ -1,85 +1,51 @@
 /**
- * Replay speed: one continuous, log-scale number, x = chart-seconds per real second
- * (60x = one chart-minute per second). Pure helpers, no DOM; the slider, both clocks and
- * the seconds/minutes switch all read these.
+ * Replay speed: x = chart-seconds per real second (60x would be one chart-minute per second).
+ * Speeds are powers of two, 0.5x to 64x: ↑ doubles, ↓ halves (owner, 2026-11-08: "each step
+ * should only double or halve"). Pure helpers, no DOM; the stepper and both clocks read these.
  */
 
-export const MIN_SPEED = 0.5;
-/** 100x is the fastest anyone can follow (owner, 2026-11-08: 600x was unwatchable). */
-export const MAX_SPEED = 100;
-export const DEFAULT_SPEED = 60;
-/** Snap points on the slider (Shift-drag skips them). `[` / `]` step between them. */
-export const SPEED_NOTCHES = [1, 2, 5, 10, 30, 60, 100] as const;
-/** Below this speed the replay plays second bars (when the trade has them). */
-export const SECONDS_BELOW = 60;
-/** Slider resolution: positions 0..SLIDER_STEPS map onto MIN..MAX on a log scale. */
-export const SLIDER_STEPS = 1000;
+/** Every speed the replay plays at, slowest first. */
+export const SPEED_STEPS = [0.5, 1, 2, 4, 8, 16, 32, 64] as const;
+export const MIN_SPEED = SPEED_STEPS[0];
+/** 64x is the top (owner: ~100x is the fastest he would use). */
+export const MAX_SPEED = SPEED_STEPS[SPEED_STEPS.length - 1];
+/** A fresh replay (no saved speed) starts at real time. */
+export const DEFAULT_SPEED = 1;
 /** Clock tick, ms. The playhead advances by speed x elapsed time, not one step per tick. */
 export const CLOCK_TICK_MS = 50;
-/** A drag snaps to a notch within this distance, in log-speed units (~12%). */
-const SNAP_LOG = 0.12;
 const STORAGE_KEY = "tradedesk.replay.speed";
-
-const LO = Math.log(MIN_SPEED);
-const HI = Math.log(MAX_SPEED);
 
 export const clampSpeed = (s: number): number =>
   Number.isFinite(s) ? Math.min(MAX_SPEED, Math.max(MIN_SPEED, s)) : DEFAULT_SPEED;
 
-export function speedToPos(s: number): number {
-  return Math.round(((Math.log(clampSpeed(s)) - LO) / (HI - LO)) * SLIDER_STEPS);
-}
-
-export function posToSpeed(pos: number): number {
-  const p = Math.min(SLIDER_STEPS, Math.max(0, pos)) / SLIDER_STEPS;
-  return tidy(Math.exp(LO + p * (HI - LO)));
-}
-
-/** Two significant figures, so a free (shift-dragged) speed reads cleanly. */
-export function tidy(s: number): number {
-  const c = clampSpeed(s);
-  const mag = Math.pow(10, Math.floor(Math.log10(c)) - 1);
-  return clampSpeed(Math.round(c / mag) * mag);
-}
-
-/** The nearest notch when within snapping distance, else the speed itself. */
+/** The nearest step (on a log scale, so 3x -> 4x and 0.7x -> 0.5x... ties go up). */
 export function snapSpeed(s: number): number {
-  const c = clampSpeed(s);
-  let best: number = c;
-  let bestD = SNAP_LOG;
-  for (const n of SPEED_NOTCHES) {
-    const d = Math.abs(Math.log(c) - Math.log(n));
-    if (d <= bestD) {
-      best = n;
-      bestD = d;
-    }
-  }
-  return best;
+  const c = Math.log2(clampSpeed(s));
+  return clampSpeed(Math.pow(2, Math.round(c + 1e-9)));
 }
 
-/** The next notch up (dir 1) or down (-1); MIN_SPEED below the lowest notch. */
-export function stepNotch(s: number, dir: 1 | -1): number {
-  const c = clampSpeed(s);
-  const stops = [MIN_SPEED, ...SPEED_NOTCHES];
-  if (dir > 0) return stops.find((n) => n > c + 1e-9) ?? MAX_SPEED;
-  for (let i = stops.length - 1; i >= 0; i--) if (stops[i] < c - 1e-9) return stops[i];
-  return MIN_SPEED;
+/** Double (dir 1) or halve (-1), clamped at the ends. */
+export function stepSpeed(s: number, dir: 1 | -1): number {
+  return snapSpeed(snapSpeed(s) * (dir > 0 ? 2 : 0.5));
 }
 
 const trim = (n: number): string => (n >= 10 ? String(Math.round(n)) : String(Math.round(n * 10) / 10));
 
-/** "60x", "2.5x", "0.5x". */
+/** "64x", "1x", "0.5x". */
 export const formatSpeed = (s: number): string => `${trim(clampSpeed(s))}x`;
 
-/** "1 min ≈ 2 s" at 30x; "1 min ≈ 0.6 s" at 100x; "1 min ≈ 2 min" at 0.5x. */
+/** "1 min ≈ 4 s" at 16x; "1 min ≈ 0.9 s" at 64x; "1 min ≈ 2 min" at 0.5x. */
 export function minuteLabel(s: number): string {
   const real = 60 / clampSpeed(s);
   return real > 60 ? `1 min ≈ ${trim(real / 60)} min` : `1 min ≈ ${trim(real)} s`;
 }
 
-/** Which clock plays at this speed: second bars below 60x when available, else minute bars. */
-export function engineFor(s: number, secondsAvailable: boolean): "seconds" | "minutes" {
-  return clampSpeed(s) < SECONDS_BELOW && secondsAvailable ? "seconds" : "minutes";
+/**
+ * Which clock plays: second bars whenever the trade has them (at every speed, so Shift+arrow
+ * can always step one second), else minute bars.
+ */
+export function engineFor(_s: number, secondsAvailable: boolean): "seconds" | "minutes" {
+  return secondsAvailable ? "seconds" : "minutes";
 }
 
 /** Second-bar resolution to ask for: 5s bars once a clock tick moves >= 5 chart-seconds. */
@@ -103,12 +69,12 @@ export function advance(
   return { steps, carry: Math.max(0, owed - steps * unitSec) };
 }
 
-/** The last speed used (a saved speed above the cap reads as the cap), or the default. Storage may be missing or blocked. */
+/** The last speed used, snapped to a step (an old 60x reads as 64x), or the default. Storage may be missing or blocked. */
 export function loadSpeed(storage: Pick<Storage, "getItem"> | null = safeStorage()): number {
   try {
     const raw = storage?.getItem(STORAGE_KEY);
     const n = raw == null ? NaN : Number(raw);
-    return Number.isFinite(n) && n > 0 ? clampSpeed(n) : DEFAULT_SPEED;
+    return Number.isFinite(n) && n > 0 ? snapSpeed(n) : DEFAULT_SPEED;
   } catch {
     return DEFAULT_SPEED;
   }
@@ -116,7 +82,7 @@ export function loadSpeed(storage: Pick<Storage, "getItem"> | null = safeStorage
 
 export function saveSpeed(s: number, storage: Pick<Storage, "setItem"> | null = safeStorage()): void {
   try {
-    storage?.setItem(STORAGE_KEY, String(clampSpeed(s)));
+    storage?.setItem(STORAGE_KEY, String(snapSpeed(s)));
   } catch {
     // private mode or a full quota: the speed just is not remembered
   }

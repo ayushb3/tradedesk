@@ -40,6 +40,8 @@ OPTION_HISTORY_START = date(2024, 2, 1)
 SIP_DELAY = timedelta(minutes=15)
 # Hard stop on trade-print pagination (10k prints a page) so a busy window stays bounded.
 _MAX_TRADE_PAGES = 80
+# How far back a bid/ask lookup searches for the latest quote before the asked time.
+QUOTE_LOOKBACK = timedelta(minutes=10)
 
 
 def _parse_ts(s: str) -> datetime:
@@ -82,6 +84,7 @@ class AlpacaProvider:
         if self.feed not in _FEEDS:
             self.feed = "iex"
         self.last_feed_used: str | None = None
+        self._quote_memo: dict[tuple[str, datetime], dict | None] = {}
 
     # -- plumbing ------------------------------------------------------- #
     def _eng(self) -> Engine:
@@ -219,6 +222,61 @@ class AlpacaProvider:
         if _is_closed(day):
             self._write_option(key, timeframe, bars)
         return bars
+
+    # -- historical stock quotes (bid/ask) ------------------------------- #
+    def get_stock_quote(self, symbol: str, at: datetime) -> dict | None:
+        """The latest quote for the stock (or its labelled proxy) at or before ``at``.
+
+        One request: the quotes in the ``QUOTE_LOOKBACK`` before ``at``, newest first,
+        limit 1. ``None`` when nothing printed in that window or the plan has no quotes
+        for it. Answers for closed sessions are memoized in-process.
+        """
+        at = at.astimezone(UTC).replace(microsecond=0)
+        sym, label = stock_symbol_for(symbol.upper())
+        key = (sym, at)
+        if key in self._quote_memo:
+            return self._quote_memo[key]
+        # The free plan 403s requests that end inside the latest 15 minutes.
+        if at > _now() - SIP_DELAY - timedelta(minutes=1):
+            return None
+        feed = self.feed
+        params = {
+            "start": rfc3339(at - QUOTE_LOOKBACK),
+            "end": rfc3339(at),
+            "limit": 1,
+            "sort": "desc",
+            "feed": feed,
+        }
+        path = f"/v2/stocks/{sym}/quotes"
+        try:
+            body = self.client.get(path, params)
+        except AlpacaHTTPError as exc:
+            if exc.status == 403 and feed != "iex":
+                params["feed"] = "iex"
+                try:
+                    body = self.client.get(path, params)
+                except AlpacaHTTPError:
+                    return None
+            elif exc.status in (400, 403, 404, 422):
+                return None
+            else:
+                raise
+        rows = body.get("quotes") or []
+        out = None
+        if rows:
+            q = rows[0]
+            ts = _parse_ts(q["t"])
+            if ts <= at:
+                out = {
+                    "bid": q.get("bp"), "ask": q.get("ap"),
+                    "bid_size": q.get("bs"), "ask_size": q.get("as"),
+                    "ts": ts, "source_label": label,
+                }
+        if _is_closed(at.astimezone(ET).date()):
+            if len(self._quote_memo) > 5000:
+                self._quote_memo.clear()
+            self._quote_memo[key] = out
+        return out
 
     # -- second bars (aggregated from tick trades) ----------------------- #
     def get_second_bars(self, symbol: str, start: datetime, end: datetime) -> list[Candle]:

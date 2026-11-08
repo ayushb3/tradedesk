@@ -169,6 +169,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const sessionEndSec =
     spyAll && spyAll.length > 0 ? isoToUtcSeconds(spyAll[spyAll.length - 1].ts) : startSec;
   const initialEndSec = Math.min(startSec + INITIAL_WINDOW_MIN * 60, sessionEndSec);
+  // The chart holds the whole session from its first bar (premarket), so it can zoom out to
+  // it; it opens on the lead window. The replay engine still plays from the lead start.
+  const sessionStartSec = spyAll && spyAll.length > 0 ? floorMinute(isoToUtcSeconds(spyAll[0].ts)) : startSec;
   const [revealedEnd, setRevealedEnd] = useState<{ key: string; sec: number } | null>(null);
   const endKey = `${tradeId}:${lead}`;
   const revealedEndSec = revealedEnd?.key === endKey ? revealedEnd.sec : 0;
@@ -204,11 +207,15 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     const contractCandles = hasContract
       ? candlesInWindow(contractData!.candles, startSec, endSec)
       : null;
-    // EMAs 9/21/50 (greens) and SMAs 200/400 (red dashed), minute-keyed; toggled in spyPane.
+    // What the chart draws: the same bars back to the session's first bar (history before the
+    // lead start is never after the playhead, so it is safe to show when zoomed out).
+    const chartSpy = candlesInWindow(tradeSession.candles, sessionStartSec, endSec);
+    const chartContract = hasContract ? candlesInWindow(contractData!.candles, sessionStartSec, endSec) : null;
+    // EMAs 9/21/50 and SMAs 200/400 (looks from INDICATOR_LOOK), minute-keyed; toggled in spyPane.
     const emas = emaLines(tradeSession);
     const smas = smaLines(tradeSession);
-    return { spyCandles, vwap, emas, smas, contractCandles };
-  }, [tradeSession, startSec, endSec, hasContract, contractData]);
+    return { spyCandles, vwap, emas, smas, contractCandles, chartSpy, chartContract };
+  }, [tradeSession, startSec, endSec, sessionStartSec, hasContract, contractData]);
 
   // What the panes may show. In Seconds mode the current minute is the candle formed from the
   // seconds played so far, later minutes are dropped, and the causal minute-keyed lines stop
@@ -222,6 +229,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       contractCandles: windowedAll.contractCandles
         ? replaySeries(windowedAll.contractCandles, secs.contract, ph)
         : null,
+      chartSpy: replaySeries(windowedAll.chartSpy, secs.underlying, ph),
+      chartContract: windowedAll.chartContract ? replaySeries(windowedAll.chartContract, secs.contract, ph) : null,
       vwap: finishedOnly(windowedAll.vwap, ph),
       emas: windowedAll.emas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
       smas: windowedAll.smas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
@@ -288,6 +297,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
         toggle: secs.toggle,
         stepForward: secs.stepForward,
         stepBack: secs.stepBack,
+        stepFine: secs.stepFine,
         restart: secs.restart,
         setIndex: (i: number) => {
           const c = data?.candles[i];
@@ -355,10 +365,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     const lines = [...(stackInd.ema ? windowed.emas : []), ...(stackInd.sma ? windowed.smas : [])];
     return {
       label: spyLabel,
-      candles: windowed.spyCandles,
+      candles: windowed.chartSpy,
       vwap: stackInd.vwap ? windowed.vwap : undefined,
       levels,
       emas: lines.length > 0 ? lines : undefined,
+      quoteSymbol: tradeSession.symbol,
     };
   }, [tradeSession, windowed, playheadSec, stackInd, spyLabel, useSeconds]);
   const fillsQuery = useReplayTradeFills(tradeId, playheadTs);
@@ -531,7 +542,6 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             speed={speed}
             onSpeedChange={setSpeed}
             minuteTag={minuteTag}
-            fineSteps={useSeconds}
             nav={{ onPrev: goTrade(neighbors.data?.prev_id), onNext: goTrade(neighbors.data?.next_id) }}
             daySoFar={<RuleSummary state={bar} loading={daySoFar.isLoading} />}
           />
@@ -579,18 +589,20 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             <div className="absolute inset-x-0 bottom-10 top-0">
               <PriceChart
                 top={
-                  windowed.contractCandles
+                  windowed.chartContract
                     ? {
                         label: `${contractData?.symbol ?? "Contract"} premium`,
-                        candles: windowed.contractCandles,
+                        candles: windowed.chartContract,
                         badge: contractData?.estimated ? <EstimatedBadge /> : undefined,
                       }
                     : null
                 }
                 bottom={spyPane}
-                startSec={startSec}
+                startSec={sessionStartSec}
                 endSec={endSec}
+                defaultView={{ fromSec: startSec }}
                 playheadSec={playheadSec}
+                revealSec={useSeconds ? secs.playSec : playheadSec + 59}
                 mode={{ kind: "replay" }}
                 stopPrice={windowed.contractCandles ? simPos.stop : null}
                 stopAssumed={simPos.stopAssumed}

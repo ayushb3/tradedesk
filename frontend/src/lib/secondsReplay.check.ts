@@ -4,7 +4,7 @@
  */
 import type { Candle } from "./api";
 import {
-  arrowDelta, barsUpTo, finishedOnly, formatClockSeconds, formingCandle, liveCandle, mergeBars,
+  arrowStep, barsUpTo, candleStepSec, finishedOnly, formatClockSeconds, formingCandle, liveCandle, mergeBars,
   minuteIndexAt, newestTs, pollDue, replaySeries, stepSec,
 } from "./secondsReplay";
 
@@ -83,10 +83,19 @@ eq("step 1s", stepSec(100, 1, 0, 1000), 101);
 eq("step back clamps at start", stepSec(2, -60, 0, 1000), 0);
 eq("step forward clamps at end", stepSec(990, 60, 0, 1000), 1000);
 eq(
-  "arrow keys",
-  [arrowDelta("ArrowRight", false), arrowDelta("ArrowLeft", false), arrowDelta("ArrowRight", true), arrowDelta("ArrowLeft", true)],
-  [1, -1, 60, -60],
+  "arrow keys: plain = one candle, Shift = one second",
+  [arrowStep("ArrowRight", false), arrowStep("ArrowLeft", true)],
+  [{ dir: 1, fine: false }, { dir: -1, fine: true }],
 );
+// candle steps land on a candle's last second (:59), so that candle is complete
+eq("candle forward from mid-minute -> this minute's :59", candleStepSec(630, 1, 0, 10_000), 659);
+eq("candle forward from :59 -> next :59", candleStepSec(659, 1, 0, 10_000), 719);
+eq("candle forward from :00 -> same minute's :59", candleStepSec(660, 1, 0, 10_000), 719);
+eq("candle back from mid-minute -> previous :59", candleStepSec(690, -1, 0, 10_000), 659);
+eq("candle back from :59 -> previous :59", candleStepSec(719, -1, 0, 10_000), 659);
+eq("candle back from :00 -> previous :59", candleStepSec(720, -1, 0, 10_000), 719);
+eq("candle step clamps", [candleStepSec(10, -1, 5, 1000), candleStepSec(990, 1, 0, 1000)], [5, 1000]);
+eq("5m candles", candleStepSec(630, 1, 0, 10_000, 300), 899);
 
 // ---- readout and sim (14:00:07 UTC is 07:00:07 in Pacific daylight time)
 eq("PT clock with seconds", formatClockSeconds(BASE + 7), "07:00:07");

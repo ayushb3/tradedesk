@@ -39,11 +39,14 @@ export function indexOfSec(startSec: number, sec: number, lastIdx: number, stepS
   return Math.min(lastIdx, Math.max(0, i));
 }
 
+/** Replay: blank bars kept right of the latest candle while the view follows it. */
+export const RIGHT_MARGIN_BARS = 3;
+
 /**
  * The furthest right edge (timeline index) the view may reach.
- * Replay: the playhead bar, so the future cannot be panned or zoomed into. Until enough
- * bars have played to fill the pane at the widest bar spacing, the view is that many
- * bars wide with blank space right of the playhead (nothing is drawn there).
+ * Replay: the playhead bar plus `marginBars` of blank space, so the future cannot be panned
+ * or zoomed into (nothing is drawn right of the playhead). Until enough bars have played to
+ * fill the pane at the widest bar spacing, the view is that many bars wide.
  * Review: the whole window.
  */
 export function rightLimit(opts: {
@@ -51,9 +54,26 @@ export function rightLimit(opts: {
   playIdx: number;
   lastIdx: number;
   minBars: number;
+  marginBars?: number;
 }): number {
   if (!opts.replay) return opts.lastIdx;
-  return Math.min(opts.lastIdx, Math.max(opts.playIdx, opts.minBars - 1));
+  const m = opts.marginBars ?? 0;
+  return Math.min(opts.lastIdx + m, Math.max(opts.playIdx + m, opts.minBars - 1));
+}
+
+/** True when the latest (playhead) candle is inside the visible range. */
+export function latestInView(r: IndexRange, playIdx: number): boolean {
+  return playIdx >= r.from - 0.5 && playIdx <= r.to + 0.5;
+}
+
+/**
+ * Keep the latest candle in a followed view: the view keeps its width and only moves when
+ * the candle would leave it, landing it `marginBars` from the right edge.
+ */
+export function followShift(r: IndexRange, playIdx: number, marginBars: number = RIGHT_MARGIN_BARS): IndexRange {
+  if (playIdx + marginBars <= r.to && playIdx >= r.from) return r;
+  const shift = playIdx + marginBars - r.to;
+  return { from: r.from + shift, to: r.to + shift };
 }
 
 /**
@@ -69,9 +89,13 @@ export function clampRange(r: IndexRange, lim: { rightLimit: number; minBars: nu
   return { from, to };
 }
 
-/** The default view: the whole window (review) or lead start .. playhead (replay). */
-export function defaultRange(lim: { rightLimit: number }): IndexRange {
-  return { from: 0, to: lim.rightLimit };
+/**
+ * The default view: the whole window (review) or lead start .. playhead (replay). `fromIdx` /
+ * `toIdx` start it inside a longer timeline (the chart holds the whole session so it can
+ * zoom out, but opens on the trade window).
+ */
+export function defaultRange(lim: { rightLimit: number }, fromIdx = 0, toIdx: number | null = null): IndexRange {
+  return { from: fromIdx, to: toIdx === null ? lim.rightLimit : Math.min(toIdx, lim.rightLimit) };
 }
 
 /** Index range of [fromSec, toSec] on a timeline that starts at `startSec`. */
@@ -230,4 +254,36 @@ export function timeframeLabel(barSec: number): string {
   if (barSec < 60) return `${barSec}s`;
   if (barSec % 3600 === 0) return `${barSec / 3600}h`;
   return `${Math.round(barSec / 60)}m`;
+}
+
+/**
+ * An indicator's value at `sec`, or at the nearest earlier bar within `maxBack` bars (a
+ * forming minute in second-bar replay has no finished value yet). Never a later value.
+ */
+export function valueAtOrBefore(
+  m: Map<number, number> | undefined,
+  sec: number,
+  stepSec: number = MINUTE,
+  maxBack = 5,
+): number | undefined {
+  if (!m) return undefined;
+  for (let k = 0; k <= maxBack; k++) {
+    const v = m.get(sec - k * stepSec);
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/**
+ * When to read the bid/ask for the legend's bar: the bar's last second (it matches the close
+ * the legend shows), never past `limitSec` (Replay: the last second played).
+ */
+export function quoteAtSec(barOpenSec: number, barSec: number, limitSec: number | null): number {
+  const end = barOpenSec + barSec - 1;
+  return limitSec === null ? end : Math.min(end, limitSec);
+}
+
+/** "26.10 × 26.12": bid × ask to the cent. */
+export function formatBidAsk(bid: number, ask: number): string {
+  return `${bid.toFixed(2)} × ${ask.toFixed(2)}`;
 }
