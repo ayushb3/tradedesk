@@ -129,7 +129,7 @@ interface Props {
   positions?: ChartPosition[];
   /** The practice profit target (green); draggable when `onTargetChange` is given. */
   targetPrice?: number | null;
-  /** Extra buttons in the contract pane's header (replay: Buy to open / Sell to open). */
+  /** Extra buttons in the contract pane's header (replay: Buy to open / Sell to close). */
   topActions?: React.ReactNode;
   /** Called while dragging the target (final = false), on release (true); null clears it. */
   onTargetChange?: (price: number | null, final: boolean) => void;
@@ -294,6 +294,10 @@ interface ViewState {
  */
 const STOP_PREF_KEY = "td.chart.stopLine";
 
+// Stable defaults: a fresh [] each render would re-run the layout effect forever.
+const NO_POSITIONS: ChartPosition[] = [];
+const NO_SIM_FILLS: NonNullable<Props["simFills"]> = [];
+
 function PriceChartCore({
   top,
   bottom,
@@ -303,11 +307,11 @@ function PriceChartCore({
   mode,
   stopPrice: stopPriceProp,
   stopAssumed = false,
-  positions = [],
+  positions = NO_POSITIONS,
   targetPrice = null,
   onTargetChange,
   topActions,
-  simFills = [],
+  simFills = NO_SIM_FILLS,
   onStopChange,
   fills,
   noDataAfterSec = null,

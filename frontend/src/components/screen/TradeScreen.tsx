@@ -6,6 +6,9 @@
  */
 import type { ReactNode } from "react";
 
+/** Tailwind needs literal class names: the panel widths in use, applied from md up. */
+const MD_WIDTH: Record<string, string> = { "w-72": "md:w-72", "w-80": "md:w-80", "w-[360px]": "md:w-[360px]" };
+
 export function TradeScreen({
   bar,
   chart,
@@ -27,11 +30,12 @@ export function TradeScreen({
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="trade-screen">
       {bar}
-      <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">{chart}</div>
+      {/* Below md the panel stacks under the chart (the page scrolls) instead of disappearing. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+        <div className="relative flex min-h-[70vh] min-w-0 flex-1 flex-col md:min-h-0">{chart}</div>
         <aside
           aria-label={panelLabel}
-          className={`hidden shrink-0 overflow-y-auto border-l border-border bg-background md:block ${panelWidth}`}
+          className={`w-full shrink-0 border-t border-border bg-background md:overflow-y-auto md:border-l md:border-t-0 ${MD_WIDTH[panelWidth] ?? "md:w-80"}`}
           data-testid="trade-screen-panel"
         >
           {panel}

@@ -111,7 +111,7 @@ function ReviewContent({
       },
       { replace: true },
     );
-  // P opens the player (outside text fields); the player owns Space/arrows/B/S while open.
+  // P opens the player (outside text fields); the player owns Space, the arrows and Shift+B/S/Alt+F while open.
   useEffect(() => {
     if (replaying) return;
     const onKey = (e: KeyboardEvent) => {
@@ -130,6 +130,7 @@ function ReviewContent({
   // ?debrief=1 (old debrief links) opens the drawer straight on the Debrief tab.
   const [moreOpen, setMoreOpen] = useState(initialTab === "debrief");
   const critiqueRef = useRef<HTMLDivElement>(null);
+  const scrollToCritique = useRef(false);
 
   // ---- Trade Critic (PRD-M9 R6/R9) ----------------------------------------
   // Gated on agent availability: with TRADEDESK_LLM=none the status endpoint
@@ -155,11 +156,19 @@ function ReviewContent({
   // user is on the Debrief tab in the right column.
   const focusCritique = () => {
     if (!critique && !critic.isPending) runCritique();
-    // Defer the scroll so the critique section has a chance to mount.
-    requestAnimationFrame(() =>
-      critiqueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-    );
+    // The section mounts only once the critique (or its error) is back, so scroll then.
+    scrollToCritique.current = true;
+    requestAnimationFrame(() => {
+      if (!critiqueRef.current) return;
+      critiqueRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollToCritique.current = false;
+    });
   };
+  useEffect(() => {
+    if (!scrollToCritique.current || !critiqueRef.current) return;
+    critiqueRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollToCritique.current = false;
+  }, [critique, critic.isError]);
 
   const dayTrades = useDayTrades(trade.session_date);
   const ids = (dayTrades.data?.trades ?? []).map((t) => t.id);
@@ -293,7 +302,10 @@ function ReviewContent({
   return (
     <>
       {replaying ? (
+        // Replay swaps the review panel for the practice order panel; the header (Mark reviewed,
+        // Critique, Prev/Next) stays.
         <div className="flex h-full min-h-0 flex-col" data-testid="inline-replay">
+          {bar}
           <InlineTradeReplay
             tradeId={trade.id}
             onExit={() => setReplaying(false)}

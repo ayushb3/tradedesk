@@ -684,35 +684,35 @@ export function LearnDrillPage() {
       panelWidth="w-[360px]"
       bar={
         <>
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border px-3">
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={back}>
-            <ArrowLeft /> Back to Learn
-          </Button>
-          <h1 className="text-value font-semibold">
-            <span className="num">{drill.ticker}</span>
-            <span className="text-muted-foreground">
-              {" · "}
-              <Link to={topicPath(drill.topic)} className="hover:text-foreground hover:underline">
-                {topicName(drill.topic)}
-              </Link>
-            </span>
-          </h1>
-        </div>
-        <p className="truncate text-label text-muted-foreground">
-          Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}
-          {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
-        </p>
-      </div>
+          <div className="flex h-11 shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border px-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={back}>
+                <ArrowLeft /> Back to Learn
+              </Button>
+              <h1 className="min-w-0 truncate text-value font-semibold">
+                <span className="num">{drill.ticker}</span>
+                <span className="text-muted-foreground">
+                  {" · "}
+                  <Link to={topicPath(drill.topic)} className="hover:text-foreground hover:underline">
+                    {topicName(drill.topic)}
+                  </Link>
+                </span>
+              </h1>
+            </div>
+            <p className="truncate text-label text-muted-foreground">
+              Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}
+              {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
+            </p>
+          </div>
 
-      {drill.because ? (
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border bg-card px-3 py-1.5">
-          <BecauseLink because={drill.because} />
-          <span className="text-label text-muted-foreground">
-            ({becauseRuleText(drill.because.rule)}). {becauseFocus(drill.because)}
-          </span>
-        </div>
-      ) : null}
+          {drill.because ? (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border bg-card px-3 py-1.5">
+              <BecauseLink because={drill.because} />
+              <span className="text-label text-muted-foreground">
+                ({becauseRuleText(drill.because.rule)}). {becauseFocus(drill.because)}
+              </span>
+            </div>
+          ) : null}
 
         </>
       }
@@ -742,7 +742,7 @@ export function LearnDrillPage() {
               </div>
             )}
           </div>
-<div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-1.5">
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-1.5">
             <Button
               type="button"
               variant="outline"

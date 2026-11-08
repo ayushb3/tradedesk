@@ -603,13 +603,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   // useReplay). Ignored while focus is in an input, with Ctrl/Meta held, or with no premium.
   const canTrade = inTrade && windowed?.contractCandles != null;
   const [orderQty, setOrderQty] = useState(1);
-  const buyQty = () => {
-    for (let i = 0; i < orderQty; i++) sim.onBuy(playCandle);
-  };
-  const sellQty = () => {
-    for (let i = 0; i < Math.min(orderQty, simPos.qty); i++)
-      sim.onSell(playCandle);
-  };
+  // One practice order of `orderQty` contracts (one fill row, 1R from the whole first buy).
+  const buyQty = () => sim.onBuy(playCandle, orderQty);
+  const sellQty = () => sim.onSell(playCandle, orderQty); // sell() caps at the open qty
   const flatten = () => sim.onCloseAll(playCandle);
   const keyActs = useRef({ buy: () => {}, sell: () => {}, flatten: () => {} });
   keyActs.current = { buy: buyQty, sell: sellQty, flatten };

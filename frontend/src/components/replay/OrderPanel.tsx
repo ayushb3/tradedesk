@@ -264,7 +264,8 @@ export function OrderPanel({
         <Kbd>Shift+Alt+F</Kbd> flatten
       </p>
       <p className="text-label text-muted-foreground">
-        <Kbd>Space</Kbd> play/pause &middot; <Kbd>&rarr;</Kbd> step
+        <Kbd>Space</Kbd> play/pause &middot; <Kbd>&larr;</Kbd>/<Kbd>&rarr;</Kbd> step &middot;{" "}
+        <Kbd>Shift</Kbd>+arrow 1s &middot; <Kbd>&uarr;</Kbd>/<Kbd>&darr;</Kbd> speed
       </p>
       <p className="text-label text-muted-foreground">
         1R = (avg - stop) x {MULTIPLIER} at your first buy.
