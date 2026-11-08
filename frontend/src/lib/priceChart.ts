@@ -148,7 +148,7 @@ export function orderTypeLabel(t: string | null | undefined): string {
   if (!t) return "";
   const k = t.toLowerCase();
   // Short enough for the fills list's narrow type column; the full type stays in the row's title.
-  const short: Record<string, string> = { limit: "LMT", market: "MKT", stop: "STOP", stop_limit: "STPL", settlement: "SETL" };
+  const short: Record<string, string> = { limit: "LMT", market: "MKT", stop: "STOP", stop_limit: "STPL", trailing_stop: "TSTP", settlement: "SETL" };
   return short[k] ?? k.slice(0, 4).toUpperCase();
 }
 
@@ -301,12 +301,13 @@ export function spreadTags<T extends { x: number; y: number; side: "buy" | "sell
   w = 30,
   h = 18,
 ): T[] {
-  const placed: { x: number; y: number }[] = [];
+  if (!(height > 0)) height = Infinity; // pane not laid out yet
+  const placed: { x: number; y: number; side: "buy" | "sell" }[] = [];
   const out = tags.map((t) => ({ ...t }));
   const order = out.map((_, i) => i).sort((a, b) => out[a].x - out[b].x || out[a].y - out[b].y);
   for (const i of order) {
     const t = out[i];
-    const clashes = (y: number) => placed.some((p) => Math.abs(p.x - t.x) < w && Math.abs(p.y - y) < h);
+    const clashes = (y: number) => placed.some((p) => p.side === t.side && Math.abs(p.x - t.x) < w && Math.abs(p.y - y) < h);
     const inside = (y: number) => y >= h / 2 && y <= height - h / 2;
     const free = (step: number) => {
       let y = t.y;
@@ -316,7 +317,7 @@ export function spreadTags<T extends { x: number; y: number; side: "buy" | "sell
     const away = t.side === "sell" ? -h : h;
     const y = free(away);
     t.y = inside(y) ? y : free(-away); // no room past the pane edge: step the other way
-    placed.push({ x: t.x, y: t.y });
+    placed.push({ x: t.x, y: t.y, side: t.side }); // sells draw above the price, buys below: only the same side clashes
   }
   return out;
 }

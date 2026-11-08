@@ -137,7 +137,8 @@ eq("orderTypeLabel market", orderTypeLabel("market"), "MKT");
 eq("orderTypeLabel stop", orderTypeLabel("stop"), "STOP");
 eq("orderTypeLabel unknown", orderTypeLabel(null), "");
 eq("orderTypeLabel settlement", orderTypeLabel("settlement"), "SETL");
-eq("orderTypeLabel other", orderTypeLabel("trailing_stop"), "TRAI");
+eq("orderTypeLabel trailing", orderTypeLabel("trailing_stop"), "TSTP");
+eq("orderTypeLabel other", orderTypeLabel("market_on_close"), "MARK");
 {
   const out = spreadTags([
     { x: 100, y: 50, side: "buy" as const },
@@ -151,6 +152,8 @@ eq("orderTypeLabel other", orderTypeLabel("trailing_stop"), "TRAI");
   eq("spreadTags second sell steps up", out[3].y, 32);
   const edge = spreadTags([{ x: 0, y: 190, side: "buy" as const }, { x: 0, y: 190, side: "buy" as const }], 200);
   eq("spreadTags flips at the bottom edge", edge[1].y, 172);
+  eq("spreadTags buy and sell at one point stay", spreadTags([{ x: 0, y: 50, side: "buy" as const }, { x: 0, y: 50, side: "sell" as const }])[1].y, 50);
+  eq("spreadTags zero height ignored", spreadTags([{ x: 0, y: 50, side: "buy" as const }, { x: 0, y: 50, side: "buy" as const }], 0)[1].y, 68);
   eq("spreadTags far apart untouched", spreadTags([{ x: 0, y: 0, side: "buy" as const }, { x: 200, y: 0, side: "buy" as const }])[1].y, 0);
 }
 eq("fillValueText whole", fillValueText(250), "$250");
