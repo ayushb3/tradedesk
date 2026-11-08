@@ -369,16 +369,6 @@ export interface SimTrade {
   r_multiple?: number | null;
 }
 
-/** Net P&L from a returned trade, whichever field the backend used. */
-export function netPnl(t: SimTrade): number | null {
-  return t.net_pnl ?? t.pnl ?? null;
-}
-
-/** R multiple from a returned trade, whichever field the backend used. */
-export function rMultiple(t: SimTrade): number | null {
-  return t.r ?? t.r_multiple ?? null;
-}
-
 // ---------------------------------------------------------------------------
 // M3 — journal / trades / analytics contract
 // ---------------------------------------------------------------------------

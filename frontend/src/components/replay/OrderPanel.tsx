@@ -15,6 +15,12 @@ import {
 export const MIN_QTY = 1;
 export const MAX_QTY = 99;
 
+export interface QtyUnit {
+  one: string;
+  many: string;
+}
+const CONTRACT_UNIT: QtyUnit = { one: "contract", many: "contracts" };
+
 interface Props {
   /** Premium bar at the playhead; null before data loads. */
   candle: Candle | null;
@@ -31,6 +37,12 @@ interface Props {
   onSell: (qty: number) => void;
   onCloseAll: () => void;
   logError: string | null;
+  /** What one unit of quantity is called; defaults to option contracts. */
+  unit?: QtyUnit;
+  /** Show the Greeks line (options only; free replay trades the underlying). */
+  greeks?: boolean;
+  /** Shown while trading is off; defaults to the trade-replay "no option bars" note. */
+  disabledNote?: string;
 }
 
 const tone = (n: number) =>
@@ -55,6 +67,9 @@ export function OrderPanel({
   onSell,
   onCloseAll,
   logError,
+  unit = CONTRACT_UNIT,
+  greeks = true,
+  disabledNote = "No option bars for this trade, so there is no premium to trade.",
 }: Props) {
   const { position: p, trips } = state;
   const mark = candle?.close ?? null;
@@ -139,7 +154,7 @@ export function OrderPanel({
       </Button>
       {!enabled && (
         <p className="text-label text-muted-foreground">
-          No option bars for this trade, so there is no premium to trade.
+          {disabledNote}
         </p>
       )}
 
@@ -147,7 +162,7 @@ export function OrderPanel({
         <dl className="num grid grid-cols-[auto_1fr] gap-x-3 text-label">
           <dt className="text-muted-foreground">Open</dt>
           <dd className="text-right">
-            {p.qty} contract{p.qty === 1 ? "" : "s"} @ {px(p.avg)}
+            {p.qty} {p.qty === 1 ? unit.one : unit.many} @ {px(p.avg)}
           </dd>
           <dt className="text-muted-foreground">Mark</dt>
           <dd className="text-right">{mark !== null ? px(mark) : "-"}</dd>
@@ -186,9 +201,11 @@ export function OrderPanel({
         </p>
       )}
 
-      <p className="text-label text-muted-foreground">
-        Greeks: not available (no option quotes in history)
-      </p>
+      {greeks && (
+        <p className="text-label text-muted-foreground">
+          Greeks: not available (no option quotes in history)
+        </p>
+      )}
 
       <section aria-label="Recent orders" className="space-y-1">
         <div className="label-caps text-label font-semibold text-muted-foreground">

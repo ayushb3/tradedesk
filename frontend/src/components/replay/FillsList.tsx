@@ -31,11 +31,11 @@ export function FillsList({
         </span>
       </div>
       <ol className="num -mx-1 text-label">
-        {rows.map((f) => {
+        {rows.map((f, i) => {
           const isBuy = f.side === "buy";
           const type = orderTypeLabel(f.order_type);
           return (
-            <li key={`${f.seq}:${f.ts}`}>
+            <li key={`${f.seq}:${f.ts}:${i}`}>
               <button
                 type="button"
                 disabled={!onSeek}
