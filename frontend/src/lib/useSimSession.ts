@@ -86,16 +86,16 @@ export function useSimSession({ resetKey, symbol, sessionDate, writtenStop }: Op
   );
 
   const onBuy = useCallback(
-    (c: Candle | null) => {
+    (c: Candle | null, qty = 1) => {
       if (!c) return;
-      apply(buy(stateRef.current, { price: c.close, ts: c.ts }, writtenStop));
+      apply(buy(stateRef.current, { price: c.close, ts: c.ts, qty }, writtenStop));
     },
     [apply, writtenStop],
   );
   const onSell = useCallback(
-    (c: Candle | null) => {
+    (c: Candle | null, qty = 1) => {
       if (!c) return;
-      finish(stateRef.current, sell(stateRef.current, { price: c.close, ts: c.ts }));
+      finish(stateRef.current, sell(stateRef.current, { price: c.close, ts: c.ts, qty }));
     },
     [finish],
   );

@@ -120,8 +120,8 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
       : null;
 
   return (
-    <section className="space-y-2" data-testid="review-chart">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <section className="flex min-h-0 flex-1 flex-col gap-2 p-2" data-testid="review-chart">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
         <h2 className="text-body font-semibold tracking-tight">Trade window</h2>
         <span className="flex items-center gap-3 text-label text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -166,14 +166,14 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
       </div>
 
       {note && (
-        <Alert>
+        <Alert className="shrink-0">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Contract bars unavailable</AlertTitle>
           <AlertDescription>{note}. Showing the underlying only.</AlertDescription>
         </Alert>
       )}
 
-      <div className="h-[580px] rounded-lg border border-border bg-background/40 p-1">
+      <div className="min-h-0 flex-1 rounded-lg border border-border bg-background/40 p-1">
         {loading ? (
           <Skeleton className="h-full w-full" />
         ) : session.isError || !view || !bottom ? (

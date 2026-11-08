@@ -7,13 +7,17 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
 import { RuleSummary } from "@/components/replay/RuleBar";
-import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
+import {
+  TradeReplayBar,
+  TradeScrubber,
+} from "@/components/replay/TradeReplayBar";
 import { DayReplay } from "@/components/replay/DayReplay";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { PriceChart, type ChartPosition } from "@/components/chart/PriceChart";
 import { RealTradeCard } from "@/components/replay/RealTradeCard";
-import { SimPanel } from "@/components/replay/SimPanel";
+import { OrderPanel } from "@/components/replay/OrderPanel";
 import { TradePanel } from "@/components/replay/TradePanel";
+import { TradeScreen } from "@/components/screen/TradeScreen";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import {
   useReplayDaySoFar,
@@ -25,9 +29,18 @@ import {
   useTrade,
 } from "@/lib/queries";
 import { ruleBarState } from "@/lib/ruleBar";
-import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
+import {
+  DEFAULT_STACK_INDICATORS,
+  type StackIndicators,
+} from "@/lib/stackIndicators";
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
-import { DEFAULT_SPEED, engineFor, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
+import {
+  DEFAULT_SPEED,
+  engineFor,
+  loadSpeed,
+  saveSpeed,
+  secondsRes,
+} from "@/lib/replaySpeed";
 import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
 import { useReplay, type ReplayState } from "@/lib/useReplay";
 import { isInputFocused } from "@/lib/replayKeys";
@@ -52,11 +65,14 @@ import {
   spyPaneLabel,
 } from "@/lib/stackedReplay";
 import { formatClock } from "@/lib/format";
+import { DEFAULT_REPLAY_CONFIG, type ReplayConfig } from "@/lib/replayConfig";
 import {
-  DEFAULT_REPLAY_CONFIG,
-  type ReplayConfig,
-} from "@/lib/replayConfig";
-import { api, ApiError, REPLAY_TIMEFRAMES, type ReplaySession, type SimTrade } from "@/lib/api";
+  api,
+  ApiError,
+  REPLAY_TIMEFRAMES,
+  type ReplaySession,
+  type SimTrade,
+} from "@/lib/api";
 
 /** Free replay starts on SPY and the most recent weekday; there is no stored default. */
 const FREE_SYMBOL = "SPY";
@@ -78,7 +94,8 @@ export function ReplayPage() {
   if (isDay(day) && !params.get("trade")) return <DayReplay day={day} />;
   const trade = Number(params.get("trade"));
   const hasTrade = Number.isInteger(trade) && trade > 0;
-  if (!hasTrade && params.get("mode") !== "symbol") return <Navigate to="/days" replace />;
+  if (!hasTrade && params.get("mode") !== "symbol")
+    return <Navigate to="/days" replace />;
   return <TradeOrFreeReplay />;
 }
 
@@ -115,7 +132,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   };
   const [symbol, setSymbol] = useState<string>(FREE_SYMBOL);
   const [date, setDate] = useState<string>(previousWeekday);
-  const [stackInd, setStackInd] = useState<StackIndicators>(DEFAULT_STACK_INDICATORS);
+  const [stackInd, setStackInd] = useState<StackIndicators>(
+    DEFAULT_STACK_INDICATORS,
+  );
   const [config, setConfig] = useState<ReplayConfig>(DEFAULT_REPLAY_CONFIG);
   const [trades, setTrades] = useState<SimTrade[]>([]);
 
@@ -128,7 +147,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       ? tradeParam
       : null;
   const [embedLead, setEmbedLead] = useState(15);
-  const lead = embed ? embedLead : Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
+  const lead = embed
+    ? embedLead
+    : Math.min(240, Math.max(0, Number(params.get("lead") ?? 15) || 0));
   const from = embed ? null : safeFrom(params.get("from"));
   // No trade: (by URL only) free symbol + date. Bare /replay never gets here.
   const freeMode = tradeId === null;
@@ -156,31 +177,54 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const contractNote: string | null =
     tradeId !== null && !contractReplay.isLoading && !hasContract
       ? (contractData?.reason ??
-        (contractReplay.isError ? "option bars could not be loaded" : "option bars unavailable"))
+        (contractReplay.isError
+          ? "option bars could not be loaded"
+          : "option bars unavailable"))
       : null;
 
   const tradeSession = tradeReplay.data?.session;
   // x-range: lead start + a fixed 90 min (clamped to the session). That depends
   // only on the entry. The real end (exit + 30 min) arrives with /fills only once
   // the playhead reaches the exit; the range then extends if it is later.
-  const startSec = tradeReplay.data ? floorMinute(isoToUtcSeconds(tradeReplay.data.start_ts)) : 0;
+  const startSec = tradeReplay.data
+    ? floorMinute(isoToUtcSeconds(tradeReplay.data.start_ts))
+    : 0;
   const spyAll = tradeSession?.candles;
   const sessionEndSec =
-    spyAll && spyAll.length > 0 ? isoToUtcSeconds(spyAll[spyAll.length - 1].ts) : startSec;
-  const initialEndSec = Math.min(startSec + INITIAL_WINDOW_MIN * 60, sessionEndSec);
+    spyAll && spyAll.length > 0
+      ? isoToUtcSeconds(spyAll[spyAll.length - 1].ts)
+      : startSec;
+  const initialEndSec = Math.min(
+    startSec + INITIAL_WINDOW_MIN * 60,
+    sessionEndSec,
+  );
   // The chart holds the whole session from its first bar (premarket), so it can zoom out to
   // it; it opens on the lead window. The replay engine still plays from the lead start.
-  const sessionStartSec = spyAll && spyAll.length > 0 ? floorMinute(isoToUtcSeconds(spyAll[0].ts)) : startSec;
-  const [revealedEnd, setRevealedEnd] = useState<{ key: string; sec: number } | null>(null);
+  const sessionStartSec =
+    spyAll && spyAll.length > 0
+      ? floorMinute(isoToUtcSeconds(spyAll[0].ts))
+      : startSec;
+  const [revealedEnd, setRevealedEnd] = useState<{
+    key: string;
+    sec: number;
+  } | null>(null);
   const endKey = `${tradeId}:${lead}`;
   const revealedEndSec = revealedEnd?.key === endKey ? revealedEnd.sec : 0;
-  const endSec = Math.max(initialEndSec, Math.min(revealedEndSec, sessionEndSec));
+  const endSec = Math.max(
+    initialEndSec,
+    Math.min(revealedEndSec, sessionEndSec),
+  );
 
   // Below 60x the replay plays second bars when the trade has them (the speed slider is the
   // only switch); otherwise minute bars, with a "minute bars" tag saying why.
-  const secondsProbe = useReplaySecondsProbe(tradeId, lead, tradeReplay.data?.start_ts ?? null);
+  const secondsProbe = useReplaySecondsProbe(
+    tradeId,
+    lead,
+    tradeReplay.data?.start_ts ?? null,
+  );
   const secondsAvailable = secondsProbe.data?.available === true;
-  const useSeconds = tradeId !== null && engineFor(speed, secondsAvailable) === "seconds";
+  const useSeconds =
+    tradeId !== null && engineFor(speed, secondsAvailable) === "seconds";
   const secs = useSecondsReplay({
     enabled: useSeconds,
     tradeId,
@@ -195,7 +239,10 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       ? {
           reason: secondsProbe.isLoading
             ? "checking for second-level prints"
-            : (secondsProbe.data?.reason ?? (secondsProbe.isError ? "request failed" : "no second-level prints")),
+            : (secondsProbe.data?.reason ??
+              (secondsProbe.isError
+                ? "request failed"
+                : "no second-level prints")),
         }
       : null;
 
@@ -208,13 +255,34 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       : null;
     // What the chart draws: the same bars back to the session's first bar (history before the
     // lead start is never after the playhead, so it is safe to show when zoomed out).
-    const chartSpy = candlesInWindow(tradeSession.candles, sessionStartSec, endSec);
-    const chartContract = hasContract ? candlesInWindow(contractData!.candles, sessionStartSec, endSec) : null;
+    const chartSpy = candlesInWindow(
+      tradeSession.candles,
+      sessionStartSec,
+      endSec,
+    );
+    const chartContract = hasContract
+      ? candlesInWindow(contractData!.candles, sessionStartSec, endSec)
+      : null;
     // EMAs 9/21/50 and SMAs 200/400 (looks from INDICATOR_LOOK), minute-keyed; toggled in spyPane.
     const emas = emaLines(tradeSession);
     const smas = smaLines(tradeSession);
-    return { spyCandles, vwap, emas, smas, contractCandles, chartSpy, chartContract };
-  }, [tradeSession, startSec, endSec, sessionStartSec, hasContract, contractData]);
+    return {
+      spyCandles,
+      vwap,
+      emas,
+      smas,
+      contractCandles,
+      chartSpy,
+      chartContract,
+    };
+  }, [
+    tradeSession,
+    startSec,
+    endSec,
+    sessionStartSec,
+    hasContract,
+    contractData,
+  ]);
 
   // What the panes may show. In Seconds mode the current minute is the candle formed from the
   // seconds played so far, later minutes are dropped, and the causal minute-keyed lines stop
@@ -229,10 +297,18 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
         ? replaySeries(windowedAll.contractCandles, secs.contract, ph)
         : null,
       chartSpy: replaySeries(windowedAll.chartSpy, secs.underlying, ph),
-      chartContract: windowedAll.chartContract ? replaySeries(windowedAll.chartContract, secs.contract, ph) : null,
+      chartContract: windowedAll.chartContract
+        ? replaySeries(windowedAll.chartContract, secs.contract, ph)
+        : null,
       vwap: finishedOnly(windowedAll.vwap, ph),
-      emas: windowedAll.emas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
-      smas: windowedAll.smas.map((e) => ({ ...e, values: finishedOnly(e.values, ph) })),
+      emas: windowedAll.emas.map((e) => ({
+        ...e,
+        values: finishedOnly(e.values, ph),
+      })),
+      smas: windowedAll.smas.map((e) => ({
+        ...e,
+        values: finishedOnly(e.values, ph),
+      })),
     };
   }, [windowedAll, useSeconds, secs.playSec, secs.underlying, secs.contract]);
 
@@ -252,7 +328,12 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
         candles: windowedAll.contractCandles,
         indicators: {},
         levels: {},
-        meta: { ...meta, source_label: contractData.estimated ? "estimated premium" : "option premium" },
+        meta: {
+          ...meta,
+          source_label: contractData.estimated
+            ? "estimated premium"
+            : "option premium",
+        },
       };
     }
     return {
@@ -267,10 +348,14 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
 
   const inTrade = tradeId !== null;
   const active = inTrade ? tradeReplay : freeSession;
-  const isLoading = inTrade ? tradeReplay.isLoading || contractReplay.isLoading : freeSession.isLoading;
+  const isLoading = inTrade
+    ? tradeReplay.isLoading || contractReplay.isLoading
+    : freeSession.isLoading;
   const isError = active.isError;
   const error = active.error;
-  const data: ReplaySession | undefined = inTrade ? stackSession : freeSession.data;
+  const data: ReplaySession | undefined = inTrade
+    ? stackSession
+    : freeSession.data;
 
   // The session is already cut to the trade window, so the replay starts at bar 0
   // (the engine resets to the first bar whenever the bar count changes).
@@ -356,12 +441,16 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     // include seconds that have not played yet).
     const levelSec = useSeconds ? playheadSec - 60 : playheadSec;
     for (let i = 0; i < tradeSession.candles.length; i++) {
-      if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > levelSec) break;
+      if (floorMinute(isoToUtcSeconds(tradeSession.candles[i].ts)) > levelSec)
+        break;
       idx = i;
     }
     // Ladder levels (causal at idx) plus the caller's posted levels for the day.
     const levels = paneLevels(tradeSession, idx, stackInd);
-    const lines = [...(stackInd.ema ? windowed.emas : []), ...(stackInd.sma ? windowed.smas : [])];
+    const lines = [
+      ...(stackInd.ema ? windowed.emas : []),
+      ...(stackInd.sma ? windowed.smas : []),
+    ];
     return {
       label: spyLabel,
       candles: windowed.chartSpy,
@@ -376,7 +465,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   useEffect(() => {
     if (!windowEndTs) return;
     const sec = isoToUtcSeconds(windowEndTs);
-    setRevealedEnd((prev) => (prev?.key === endKey && prev.sec >= sec ? prev : { key: endKey, sec }));
+    setRevealedEnd((prev) =>
+      prev?.key === endKey && prev.sec >= sec ? prev : { key: endKey, sec },
+    );
   }, [windowEndTs, endKey]);
 
   // Extending the window changes the bar count, which resets the engine to bar 0;
@@ -386,7 +477,13 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   useEffect(() => {
     const prev = lastRun.current;
     const m = minuteReplay;
-    if (inTrade && !useSeconds && prev.total > 0 && m.total !== prev.total && m.total > prev.total) {
+    if (
+      inTrade &&
+      !useSeconds &&
+      prev.total > 0 &&
+      m.total !== prev.total &&
+      m.total > prev.total
+    ) {
       setIndex(prev.index);
       if (prev.playing) play();
     }
@@ -395,13 +492,23 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       index: m.total !== prev.total ? prev.index : m.currentIndex,
       playing: m.total !== prev.total ? prev.playing : m.isPlaying,
     };
-  }, [inTrade, useSeconds, minuteReplay.total, minuteReplay.currentIndex, minuteReplay.isPlaying, setIndex, play]);
+  }, [
+    inTrade,
+    useSeconds,
+    minuteReplay.total,
+    minuteReplay.currentIndex,
+    minuteReplay.isPlaying,
+    setIndex,
+    play,
+  ]);
 
   const revealedFills = useMemo(
     // Fills reveal at their exact second in Seconds mode, at the end of the playhead minute otherwise.
     () =>
       (fillsQuery.data?.fills ?? []).filter(
-        (f) => isoToUtcSeconds(f.ts) <= (useSeconds ? secs.playSec : playheadSec + 59),
+        (f) =>
+          isoToUtcSeconds(f.ts) <=
+          (useSeconds ? secs.playSec : playheadSec + 59),
       ),
     [fillsQuery.data, playheadSec, useSeconds, secs.playSec],
   );
@@ -427,7 +534,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     if (!inTrade || !data) return undefined;
     const idxOf = (sec: number | null) => {
       if (sec === null) return null;
-      const i = data.candles.findIndex((c) => floorMinute(isoToUtcSeconds(c.ts)) >= sec);
+      const i = data.candles.findIndex(
+        (c) => floorMinute(isoToUtcSeconds(c.ts)) >= sec,
+      );
       return i < 0 ? null : i;
     };
     return {
@@ -457,33 +566,69 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const chartPositions = useMemo((): ChartPosition[] => {
     const out: ChartPosition[] = [];
     const real = positionAt(revealedFills, Number.POSITIVE_INFINITY); // already gated at the playhead
-    if (real.qty > 0) out.push({ key: "real", kind: "real", qty: real.qty, avg: real.avg, pnl: openPnl(real, mark) });
+    if (real.qty > 0)
+      out.push({
+        key: "real",
+        kind: "real",
+        qty: real.qty,
+        avg: real.avg,
+        pnl: openPnl(real, mark),
+      });
     if (simPos.qty > 0) {
       const p = { qty: simPos.qty, avg: simPos.avg, realized: 0 };
       const firstQty = simPos.fills[0]?.qty ?? 0;
-      const riskPerShare = simPos.risk != null && firstQty > 0 ? simPos.risk / (100 * firstQty) : null;
-      out.push({ key: "sim", kind: "sim", qty: simPos.qty, avg: simPos.avg, pnl: openPnl(p, mark), riskPerShare });
+      const riskPerShare =
+        simPos.risk != null && firstQty > 0
+          ? simPos.risk / (100 * firstQty)
+          : null;
+      out.push({
+        key: "sim",
+        kind: "sim",
+        qty: simPos.qty,
+        avg: simPos.avg,
+        pnl: openPnl(p, mark),
+        riskPerShare,
+      });
     }
     return out;
   }, [revealedFills, simPos.qty, simPos.avg, simPos.risk, simPos.fills, mark]);
   // Stop moves are stamped with the playhead bar they were made on.
   const { setPlayTs } = sim;
-  useEffect(() => setPlayTs(playCandle?.ts ?? null), [setPlayTs, playCandle?.ts]);
+  useEffect(
+    () => setPlayTs(playCandle?.ts ?? null),
+    [setPlayTs, playCandle?.ts],
+  );
 
-  // B = buy 1, S = sell 1 (Space / arrows live in useReplay). Ignored while focus
-  // is in an input, with a modifier held, or when there is no premium to trade.
+  // Shift+B = buy qty, Shift+S = sell qty, Shift+Alt+F = flatten (Space / arrows live in
+  // useReplay). Ignored while focus is in an input, with Ctrl/Meta held, or with no premium.
   const canTrade = inTrade && windowed?.contractCandles != null;
-  const keyActs = useRef({ buy: () => {}, sell: () => {} });
-  keyActs.current = { buy: () => sim.onBuy(playCandle), sell: () => sim.onSell(playCandle) };
+  const [orderQty, setOrderQty] = useState(1);
+  // One practice order of `orderQty` contracts (one fill row, 1R from the whole first buy).
+  const buyQty = () => sim.onBuy(playCandle, orderQty);
+  const sellQty = () => sim.onSell(playCandle, orderQty); // sell() caps at the open qty
+  const flatten = () => sim.onCloseAll(playCandle);
+  const keyActs = useRef({ buy: () => {}, sell: () => {}, flatten: () => {} });
+  keyActs.current = { buy: buyQty, sell: sellQty, flatten };
   useEffect(() => {
     if (!canTrade) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || isInputFocused(e.target)) return;
-      const k = e.key.toLowerCase();
-      if (k === "b") {
+      if (
+        e.ctrlKey ||
+        e.metaKey ||
+        !e.shiftKey ||
+        e.repeat ||
+        isInputFocused(e.target)
+      )
+        return;
+      if (e.code === "KeyF" && e.altKey) {
+        e.preventDefault();
+        keyActs.current.flatten();
+      } else if (e.altKey) {
+        return;
+      } else if (e.code === "KeyB") {
         e.preventDefault();
         keyActs.current.buy();
-      } else if (k === "s") {
+      } else if (e.code === "KeyS") {
         e.preventDefault();
         keyActs.current.sell();
       }
@@ -500,7 +645,10 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const ready = !isLoading && !isError && data && replay.total > 0;
 
   const visibility: ChartVisibility = useMemo(
-    () => ({ hiddenOverlays: config.hiddenOverlays, hiddenLevels: config.hiddenLevels }),
+    () => ({
+      hiddenOverlays: config.hiddenOverlays,
+      hiddenLevels: config.hiddenLevels,
+    }),
     [config.hiddenOverlays, config.hiddenLevels],
   );
 
@@ -514,8 +662,12 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
 
   // Trade mode header: the contract and the trade's session date.
   const tradeContract =
-    tradeRow.data?.contract_label ?? contractData?.symbol ?? tradeReplay.data?.session.symbol ?? "…";
-  const tradeDate = tradeRow.data?.session_date ?? tradeReplay.data?.session.session_date ?? "";
+    tradeRow.data?.contract_label ??
+    contractData?.symbol ??
+    tradeReplay.data?.session.symbol ??
+    "…";
+  const tradeDate =
+    tradeRow.data?.session_date ?? tradeReplay.data?.session.session_date ?? "";
   const bar = useMemo(() => ruleBarState(daySoFar.data), [daySoFar.data]);
   const tradeParams = (id: number, l: number) => ({
     trade: String(id),
@@ -531,65 +683,82 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     staleTime: 60_000,
   });
   const goTrade = (id: number | null | undefined) =>
-    id ? () => (embed ? embed.onGoTrade(id) : setParams(tradeParams(id, lead))) : null;
+    id
+      ? () => (embed ? embed.onGoTrade(id) : setParams(tradeParams(id, lead)))
+      : null;
   const exit = () => {
     if (embed) return embed.onExit();
     navigate(exitTarget(from, tradeId) ?? "/days");
   };
 
   return (
-    <div className="flex h-full flex-col">
-      {inTrade ? (
-        <>
-          <TradeReplayBar
-            contract={tradeContract}
-            date={tradeDate}
-            lead={lead}
-            onLeadChange={setLead}
-            clock={
-              playheadTs ? (useSeconds ? formatClockSeconds(secs.playSec) : formatClock(playheadTs)) : null
+    <TradeScreen
+      bar={
+        inTrade ? (
+          <>
+            <TradeReplayBar
+              contract={tradeContract}
+              date={tradeDate}
+              lead={lead}
+              onLeadChange={setLead}
+              clock={
+                playheadTs
+                  ? useSeconds
+                    ? formatClockSeconds(secs.playSec)
+                    : formatClock(playheadTs)
+                  : null
+              }
+              replay={replay}
+              disabled={!ready}
+              onExit={exit}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              minuteTag={minuteTag}
+              nav={{
+                onPrev: goTrade(neighbors.data?.prev_id),
+                onNext: goTrade(neighbors.data?.next_id),
+              }}
+              daySoFar={
+                <RuleSummary state={bar} loading={daySoFar.isLoading} />
+              }
+            />
+          </>
+        ) : (
+          <ReplayToolbar
+            symbol={symbol}
+            onSymbolChange={setSymbol}
+            date={date}
+            onDateChange={setDate}
+            controls={
+              <button
+                type="button"
+                className="text-label text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => navigate("/days")}
+              >
+                Back to Days
+              </button>
             }
-            replay={replay}
-            disabled={!ready}
-            onExit={exit}
-            speed={speed}
-            onSpeedChange={setSpeed}
-            minuteTag={minuteTag}
-            nav={{ onPrev: goTrade(neighbors.data?.prev_id), onNext: goTrade(neighbors.data?.next_id) }}
-            daySoFar={<RuleSummary state={bar} loading={daySoFar.isLoading} />}
           />
-        </>
-      ) : (
-        <ReplayToolbar
-          symbol={symbol}
-          onSymbolChange={setSymbol}
-          date={date}
-          onDateChange={setDate}
-          controls={
-            <button
-              type="button"
-              className="text-label text-muted-foreground underline-offset-4 hover:underline"
-              onClick={() => navigate("/days")}
-            >
-              Back to Days
-            </button>
-          }
-        />
-      )}
-
-      <div className="flex min-h-0 flex-1">
+        )
+      }
+      chart={
         <div className="relative min-h-0 flex-1">
           {contractNote && (
             <div className="absolute right-3 top-3 z-20 max-w-sm" role="status">
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Contract bars unavailable</AlertTitle>
-                <AlertDescription>{contractNote}. Showing SPY only.</AlertDescription>
+                <AlertDescription>
+                  {contractNote}. Showing SPY only.
+                </AlertDescription>
               </Alert>
             </div>
           )}
           {useSeconds && secs.error && (
-            <div className="absolute left-3 top-3 z-20 rounded-md bg-card/90 px-3 py-1.5 text-label" role="status">
+            <div
+              className="absolute left-3 top-3 z-20 rounded-md bg-card/90 px-3 py-1.5 text-label"
+              role="status"
+            >
               Seconds: {secs.error}
             </div>
           )}
@@ -606,7 +775,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                     ? {
                         label: `${contractData?.symbol ?? "Contract"} premium`,
                         candles: windowed.chartContract,
-                        badge: contractData?.estimated ? <EstimatedBadge /> : undefined,
+                        badge: contractData?.estimated ? (
+                          <EstimatedBadge />
+                        ) : undefined,
                       }
                     : null
                 }
@@ -625,10 +796,32 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                 simFills={windowed.contractCandles ? simFills : []}
                 onStopChange={sim.onSetStop}
                 fills={windowed.contractCandles ? revealedFills : []}
-                playheadLabel={useSeconds ? formatClockSecondsPt(secs.playSec) : undefined}
+                playheadLabel={
+                  useSeconds ? formatClockSecondsPt(secs.playSec) : undefined
+                }
                 mainPane="bottom"
                 contractBelow
                 fillLabels="arrows"
+                topActions={
+                  <>
+                    <button
+                      type="button"
+                      disabled={!canTrade}
+                      onClick={buyQty}
+                      className="rounded border border-up/60 px-1.5 text-label text-up disabled:opacity-40"
+                    >
+                      Buy to open
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canTrade || simPos.qty === 0}
+                      onClick={sellQty}
+                      className="rounded border border-down/60 px-1.5 text-label text-down disabled:opacity-40"
+                    >
+                      Sell to close
+                    </button>
+                  </>
+                }
               />
             </div>
           )}
@@ -641,7 +834,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               interval={{
                 value: config.timeframe,
                 options: REPLAY_TIMEFRAMES,
-                onChange: (tf) => setConfig({ ...config, timeframe: tf as typeof config.timeframe }),
+                onChange: (tf) =>
+                  setConfig({
+                    ...config,
+                    timeframe: tf as typeof config.timeframe,
+                  }),
               }}
             />
           )}
@@ -666,10 +863,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             />
           )}
         </div>
-
-        <aside
-          className={`hidden shrink-0 overflow-y-auto border-l border-border md:block ${inTrade ? "w-72" : "w-80"}`}
-        >
+      }
+      panelLabel={inTrade ? "Practice orders" : "Practice trades"}
+      panelWidth="w-80"
+      panel={
+        <>
           {tradeId !== null && (
             <RealTradeCard
               fills={revealedFills}
@@ -689,14 +887,17 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             />
           )}
           {inTrade ? (
-            <SimPanel
+            <OrderPanel
               candle={playCandle}
               bars={windowed?.contractCandles ?? []}
               state={sim.state}
+              symbol={contractData?.symbol ?? tradeSession?.symbol ?? ""}
               enabled={windowed?.contractCandles != null}
-              onBuy={() => sim.onBuy(playCandle)}
-              onSell={() => sim.onSell(playCandle)}
-              onCloseAll={() => sim.onCloseAll(playCandle)}
+              qty={orderQty}
+              onQtyChange={setOrderQty}
+              onBuy={buyQty}
+              onSell={sellQty}
+              onCloseAll={flatten}
               logError={sim.logError}
             />
           ) : (
@@ -704,14 +905,16 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               symbol={symbol}
               sessionDate={date}
               tz={data?.meta.tz ?? "America/New_York"}
-              currentCandle={data ? data.candles[replay.currentIndex] ?? null : null}
+              currentCandle={
+                data ? (data.candles[replay.currentIndex] ?? null) : null
+              }
               trades={trades}
               onTradeCreated={(t) => setTrades((prev) => [...prev, t])}
             />
           )}
-        </aside>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
 
@@ -728,7 +931,11 @@ function FreeReplayChart({
   visibility: ChartVisibility;
   trades: SimTrade[];
   /** The chart's Interval buttons pick the bar size this page loads. */
-  interval: { value: string; options: readonly string[]; onChange: (label: string) => void };
+  interval: {
+    value: string;
+    options: readonly string[];
+    onChange: (label: string) => void;
+  };
 }) {
   // Memoized: a new pane object makes PriceChart refeed every series.
   const c = useMemo(
@@ -736,7 +943,9 @@ function FreeReplayChart({
       sessionChart(session, index, {
         visibility,
         trades,
-        label: session.meta.source_label ? `${session.symbol} · ${session.meta.source_label}` : session.symbol,
+        label: session.meta.source_label
+          ? `${session.symbol} · ${session.meta.source_label}`
+          : session.symbol,
       }),
     [session, index, visibility, trades],
   );
@@ -802,9 +1011,15 @@ function ChartError({ error }: { error: unknown }) {
         ) : (
           <AlertCircle className="h-4 w-4" />
         )}
-        <AlertTitle>{isBackendDown ? "Cannot reach the server" : "Could not load the replay"}</AlertTitle>
+        <AlertTitle>
+          {isBackendDown
+            ? "Cannot reach the server"
+            : "Could not load the replay"}
+        </AlertTitle>
         <AlertDescription>
-          {isBackendDown ? "Check that the app server is running, then reload." : message}
+          {isBackendDown
+            ? "Check that the app server is running, then reload."
+            : message}
         </AlertDescription>
       </Alert>
     </div>

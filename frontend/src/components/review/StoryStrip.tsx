@@ -7,6 +7,8 @@ interface Props {
   data: TradeExcursions | undefined;
   isLoading: boolean;
   isError: boolean;
+  /** Two columns always (the narrow review panel); default: four on wider screens. */
+  narrow?: boolean;
 }
 
 /**
@@ -14,7 +16,7 @@ interface Props {
  * place MAE/MFE-style numbers appear, in R, so "held a loser too long / exited early"
  * reads in a single row. The after-exit step carries no dollars.
  */
-export function StoryStrip({ data, isLoading, isError }: Props) {
+export function StoryStrip({ data, isLoading, isError, narrow = false }: Props) {
   if (isLoading) return <Skeleton className="h-20 w-full rounded-lg" />;
   const items = storyStrip(data);
   const suspect = data?.quality === "suspect_wicks" || data?.quality === "short_hold";
@@ -27,7 +29,7 @@ export function StoryStrip({ data, isLoading, isError }: Props) {
         <p className="text-body text-muted-foreground">{data.reason ?? "Option bars unavailable"}. Fills are listed below.</p>
       ) : (
         <>
-          <ol className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+          <ol className={`grid grid-cols-2 gap-x-4 gap-y-3 ${narrow ? "" : "sm:grid-cols-4"}`}>
             {items.map((it, i) => (
               <li key={it.key} className={cn("flex flex-col", it.estimated && "opacity-60")} data-estimated={it.estimated || undefined}>
                 <span className="text-label label-caps text-muted-foreground">

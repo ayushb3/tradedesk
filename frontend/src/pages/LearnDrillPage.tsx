@@ -15,12 +15,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
+import { TradeScreen } from "@/components/screen/TradeScreen";
 import { BecauseLink, LessonLink } from "@/components/learn/LessonLink";
 import { Markdown } from "@/components/learn/Markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -679,40 +679,46 @@ export function LearnDrillPage() {
         : null;
 
   return (
-    <PageFrame>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={back}>
-            <ArrowLeft /> Back to Learn
-          </Button>
-          <h1 className="text-value font-semibold">
-            <span className="num">{drill.ticker}</span>
-            <span className="text-muted-foreground">
-              {" · "}
-              <Link to={topicPath(drill.topic)} className="hover:text-foreground hover:underline">
-                {topicName(drill.topic)}
-              </Link>
-            </span>
-          </h1>
-        </div>
-        <p className="text-label text-muted-foreground">
-          Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}
-          {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
-        </p>
-      </div>
+    <TradeScreen
+      panelLabel="Drill"
+      panelWidth="w-[360px]"
+      bar={
+        <>
+          <div className="flex h-11 shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border px-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={back}>
+                <ArrowLeft /> Back to Learn
+              </Button>
+              <h1 className="min-w-0 truncate text-value font-semibold">
+                <span className="num">{drill.ticker}</span>
+                <span className="text-muted-foreground">
+                  {" · "}
+                  <Link to={topicPath(drill.topic)} className="hover:text-foreground hover:underline">
+                    {topicName(drill.topic)}
+                  </Link>
+                </span>
+              </h1>
+            </div>
+            <p className="truncate text-label text-muted-foreground">
+              Session {shortDate(drill.date)} · pauses after the {ptTime(lastSeen)} bar · {phaseLabel}
+              {answered && drill.score != null && !grade ? ` · score ${scoreText(drill.score)}` : ""}
+            </p>
+          </div>
 
-      {drill.because ? (
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2">
-          <BecauseLink because={drill.because} />
-          <span className="text-label text-muted-foreground">
-            ({becauseRuleText(drill.because.rule)}). {becauseFocus(drill.because)}
-          </span>
-        </div>
-      ) : null}
+          {drill.because ? (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border bg-card px-3 py-1.5">
+              <BecauseLink because={drill.because} />
+              <span className="text-label text-muted-foreground">
+                ({becauseRuleText(drill.because.rule)}). {becauseFocus(drill.because)}
+              </span>
+            </div>
+          ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex flex-col gap-2">
-          <div className="h-[30rem] overflow-hidden rounded-lg border border-border bg-card lg:h-[36rem]" data-testid="drill-chart">
+        </>
+      }
+      chart={
+        <>
+          <div className="relative min-h-0 flex-1 overflow-hidden bg-card" data-testid="drill-chart">
             {bottom ? (
               <PriceChart
                 footer={false}
@@ -736,7 +742,7 @@ export function LearnDrillPage() {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-1.5">
             <Button
               type="button"
               variant="outline"
@@ -825,10 +831,10 @@ export function LearnDrillPage() {
               ←/→ step · ↑/↓ speed · Space plays or pauses · End skips
             </span>
           </div>
-        </div>
-
-        <Card className="self-start">
-          <CardContent className="p-4">
+        </>
+      }
+      panel={
+        <div className="px-4 py-3">
             {phase === "decision" ? (
               <DecisionPanel
                 drill={drill}
@@ -857,10 +863,9 @@ export function LearnDrillPage() {
                 </p>
               </div>
             )}
-          </CardContent>
-        </Card>
-      </div>
-    </PageFrame>
+        </div>
+      }
+    />
   );
 }
 
