@@ -5,10 +5,11 @@
  */
 
 export const MIN_SPEED = 0.5;
-export const MAX_SPEED = 600;
+/** 100x is the fastest anyone can follow (owner, 2026-11-08: 600x was unwatchable). */
+export const MAX_SPEED = 100;
 export const DEFAULT_SPEED = 60;
 /** Snap points on the slider (Shift-drag skips them). `[` / `]` step between them. */
-export const SPEED_NOTCHES = [1, 2, 5, 10, 30, 60, 120, 300, 600] as const;
+export const SPEED_NOTCHES = [1, 2, 5, 10, 30, 60, 100] as const;
 /** Below this speed the replay plays second bars (when the trade has them). */
 export const SECONDS_BELOW = 60;
 /** Slider resolution: positions 0..SLIDER_STEPS map onto MIN..MAX on a log scale. */
@@ -70,7 +71,7 @@ const trim = (n: number): string => (n >= 10 ? String(Math.round(n)) : String(Ma
 /** "60x", "2.5x", "0.5x". */
 export const formatSpeed = (s: number): string => `${trim(clampSpeed(s))}x`;
 
-/** "1 min ≈ 2 s" at 30x; "1 min ≈ 0.1 s" at 600x; "1 min ≈ 2 min" at 0.5x. */
+/** "1 min ≈ 2 s" at 30x; "1 min ≈ 0.6 s" at 100x; "1 min ≈ 2 min" at 0.5x. */
 export function minuteLabel(s: number): string {
   const real = 60 / clampSpeed(s);
   return real > 60 ? `1 min ≈ ${trim(real / 60)} min` : `1 min ≈ ${trim(real)} s`;
@@ -102,7 +103,7 @@ export function advance(
   return { steps, carry: Math.max(0, owed - steps * unitSec) };
 }
 
-/** The last speed used, or the default. Storage may be missing or blocked. */
+/** The last speed used (a saved speed above the cap reads as the cap), or the default. Storage may be missing or blocked. */
 export function loadSpeed(storage: Pick<Storage, "getItem"> | null = safeStorage()): number {
   try {
     const raw = storage?.getItem(STORAGE_KEY);

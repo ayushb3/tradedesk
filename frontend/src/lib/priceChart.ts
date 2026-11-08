@@ -185,3 +185,49 @@ export function placeChips(items: { x: number; w: number }[], width: number, gap
   }
   return out;
 }
+
+/** What the chart legend reads out for one bar: OHLC plus the change from the previous bar's close. */
+export interface LegendBar {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** close - previous close; null for the first bar in the window. */
+  change: number | null;
+  changePct: number | null;
+}
+
+/**
+ * The legend's bar at `sec` (a bar open, epoch seconds): never one after the playhead.
+ * Bars match on their open time, rounded to the minute like the rest of the chart.
+ */
+export function legendBar(
+  candles: { ts: string; open: number; high: number; low: number; close: number }[],
+  sec: number,
+  playheadSec: number,
+): LegendBar | null {
+  if (sec > playheadSec) return null;
+  const key = (ts: string) => Math.floor(Date.parse(ts) / 60_000) * 60;
+  const i = candles.findIndex((c) => key(c.ts) === sec);
+  if (i < 0) return null;
+  const c = candles[i];
+  const prev = i > 0 ? candles[i - 1].close : null;
+  const change = prev == null ? null : c.close - prev;
+  const changePct = prev ? (change as number) / prev * 100 : null;
+  return { open: c.open, high: c.high, low: c.low, close: c.close, change, changePct };
+}
+
+/** "+0.12 (+1.05%)", "−0.40 (−2.10%)"; "" when there is no previous bar. */
+export function formatChange(b: Pick<LegendBar, "change" | "changePct">): string {
+  if (b.change == null) return "";
+  const sign = b.change > 0 ? "+" : b.change < 0 ? "−" : "";
+  const pct = b.changePct == null ? "" : ` (${sign}${Math.abs(b.changePct).toFixed(2)}%)`;
+  return `${sign}${Math.abs(b.change).toFixed(2)}${pct}`;
+}
+
+/** "1m", "5m", "15s" for a bar size in seconds. */
+export function timeframeLabel(barSec: number): string {
+  if (barSec < 60) return `${barSec}s`;
+  if (barSec % 3600 === 0) return `${barSec / 3600}h`;
+  return `${Math.round(barSec / 60)}m`;
+}

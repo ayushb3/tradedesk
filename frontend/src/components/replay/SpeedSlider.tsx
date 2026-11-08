@@ -15,7 +15,7 @@ import {
 } from "@/lib/replaySpeed";
 
 /**
- * Replay speed: one continuous log-scale slider, 0.5x to 600x (chart-seconds per real
+ * Replay speed: one continuous log-scale slider, 0.5x to 100x (chart-seconds per real
  * second). Snaps to the notches unless Shift is held while dragging; `[` and `]` step a
  * notch. Below 60x the page plays second bars when it can; `minuteTag` says when it can't.
  */

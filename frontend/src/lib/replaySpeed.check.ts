@@ -4,7 +4,7 @@
  */
 import {
   advance, clampSpeed, DEFAULT_SPEED, engineFor, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
-  minuteLabel, posToSpeed, saveSpeed, secondsRes, SLIDER_STEPS, snapSpeed, speedToPos, stepNotch,
+  minuteLabel, posToSpeed, saveSpeed, secondsRes, SLIDER_STEPS, snapSpeed, SPEED_NOTCHES, speedToPos, stepNotch,
 } from "./replaySpeed";
 
 let failures = 0;
@@ -23,7 +23,7 @@ eq("pos 0 -> min", posToSpeed(0), MIN_SPEED);
 eq("pos end -> max", posToSpeed(SLIDER_STEPS), MAX_SPEED);
 eq("round trip 60x", snapSpeed(posToSpeed(speedToPos(60))), 60);
 eq("round trip 1x", snapSpeed(posToSpeed(speedToPos(1))), 1);
-eq("monotonic", speedToPos(2) < speedToPos(5) && speedToPos(5) < speedToPos(300), true);
+eq("monotonic", speedToPos(2) < speedToPos(5) && speedToPos(5) < speedToPos(80), true);
 eq("clamps out of range", [clampSpeed(0.01), clampSpeed(10000), clampSpeed(NaN)], [MIN_SPEED, MAX_SPEED, DEFAULT_SPEED]);
 
 // ---- snapping
@@ -32,20 +32,22 @@ eq("snaps 1.1 to 1", snapSpeed(1.1), 1);
 eq("free between notches", snapSpeed(18), 18);
 
 // ---- [ and ] step notches
-eq("] from 60", stepNotch(60, 1), 120);
+eq("] from 60", stepNotch(60, 1), 100);
 eq("[ from 60", stepNotch(60, -1), 30);
 eq("] from free 18", stepNotch(18, 1), 30);
 eq("[ from free 18", stepNotch(18, -1), 10);
 eq("[ from 1 -> 0.5", stepNotch(1, -1), 0.5);
 eq("[ at min stays", stepNotch(0.5, -1), 0.5);
-eq("] at max stays", stepNotch(600, 1), 600);
+eq("] at max stays", stepNotch(100, 1), 100);
+eq("cap is 100x", MAX_SPEED, 100);
+eq("notches stop at 100", SPEED_NOTCHES[SPEED_NOTCHES.length - 1], 100);
 
 // ---- labels
 eq("format", [formatSpeed(60), formatSpeed(0.5), formatSpeed(2.5)], ["60x", "0.5x", "2.5x"]);
 eq("minute label 30x", minuteLabel(30), "1 min ≈ 2 s");
 eq("minute label 1x", minuteLabel(1), "1 min ≈ 60 s");
 eq("minute label 0.5x", minuteLabel(0.5), "1 min ≈ 2 min");
-eq("minute label 600x", minuteLabel(600), "1 min ≈ 0.1 s");
+eq("minute label 100x", minuteLabel(100), "1 min ≈ 0.6 s");
 
 // ---- engine and resolution
 eq("seconds below 60x", engineFor(30, true), "seconds");
@@ -67,7 +69,8 @@ eq("1x: carry ~0 after a full second", near(a.carry, 0, 1e-6), true);
 eq("30x: 1.5 chart-s per 50 ms tick", advance(0, 50, 30, 1).steps, 1);
 eq("30x: carry keeps the half", near(advance(0, 50, 30, 1).carry, 0.5, 1e-9), true);
 eq("60x minute bars: 1 bar per real second", advance(0, 1000, 60, 60).steps, 1);
-eq("600x minute bars: 1 bar per 100 ms", advance(0, 100, 600, 60).steps, 1);
+eq("100x minute bars: 1 bar per 600 ms", advance(0, 600, 100, 60).steps, 1);
+eq("a request above the cap plays at 100x", advance(0, 600, 600, 60).steps, 1);
 eq("late timer catches up, same speed", advance(0, 500, 60, 1).steps, 30);
 eq("negative elapsed ignored", advance(0, -100, 60, 1).steps, 0);
 
@@ -80,8 +83,10 @@ const store = {
   },
 };
 eq("default when empty", loadSpeed(store), DEFAULT_SPEED);
-saveSpeed(120, store);
-eq("remembers", loadSpeed(store), 120);
+saveSpeed(30, store);
+eq("remembers", loadSpeed(store), 30);
+mem.set("tradedesk.replay.speed", "600");
+eq("a saved 600x clamps to 100x", loadSpeed(store), 100);
 mem.set("tradedesk.replay.speed", "junk");
 eq("junk -> default", loadSpeed(store), DEFAULT_SPEED);
 const broken = {
