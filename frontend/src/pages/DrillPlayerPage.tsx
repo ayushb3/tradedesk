@@ -44,7 +44,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { PriceChart } from "@/components/chart/PriceChart";
-import { sessionChart } from "@/lib/sessionChart";
+import { barSecOf, sessionChart } from "@/lib/sessionChart";
+import { MAX_SPEED } from "@/lib/replaySpeed";
 import { usePlayClock } from "@/lib/playClock";
 import { ActionButtons, type DrillChoice } from "@/components/drills/ActionButtons";
 import { AnswerKeyCard } from "@/components/drills/AnswerKeyCard";
@@ -191,6 +192,9 @@ const initialState: DrillState = {
 const PLAY_INTERVAL_MS = 500;
 const RESOLVE_INTERVAL_MS = 200;
 
+/** A bar interval that never plays faster than the 64x replay ceiling (a 1m bar ≥ ~0.94 s). */
+const cappedMs = (ms: number, barSec: number) => Math.max(ms, (barSec * 1000) / MAX_SPEED);
+
 /** Auto-advance one bar per `intervalMs` while `active`, on the shared playback clock. */
 function useBarTimer(active: boolean, intervalMs: number, onTick: () => void) {
   // One step per tick: the tick handlers advance a single bar (so the decision bar is never overshot).
@@ -242,6 +246,7 @@ export function DrillPlayerPage() {
 
   const decisionBar = session?.decision_bar ?? null;
   const totalBars = session?.candles.length ?? 0;
+  const tapeSec = useMemo(() => (session ? barSecOf(session.candles) : 60), [session]);
   const endBar = totalBars > 0 ? totalBars - 1 : 0;
 
   const startBar = (session?.meta?.start_bar as number | undefined) ?? 0;
@@ -262,7 +267,7 @@ export function DrillPlayerPage() {
     }
   }, [currentBar, decisionBar, endBar, session]);
 
-  useBarTimer(phase === "playing", PLAY_INTERVAL_MS, handlePlayTick);
+  useBarTimer(phase === "playing", cappedMs(PLAY_INTERVAL_MS, tapeSec), handlePlayTick);
 
   // --- resolving phase: play out remaining bars then finish ------------------
   const isFinishing = useRef(false);
@@ -287,7 +292,7 @@ export function DrillPlayerPage() {
     }
   }, [currentBar, endBar, attemptId]);
 
-  useBarTimer(phase === "resolving", RESOLVE_INTERVAL_MS, handleResolveTick);
+  useBarTimer(phase === "resolving", cappedMs(RESOLVE_INTERVAL_MS, tapeSec), handleResolveTick);
 
   useEffect(() => {
     if (phase !== "resolving") isFinishing.current = false;

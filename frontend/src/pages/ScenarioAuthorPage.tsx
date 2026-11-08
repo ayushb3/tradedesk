@@ -43,7 +43,7 @@ import { ReplayTransport } from "@/components/replay/ReplayTransport";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { useReplayKeys } from "@/lib/replayKeys";
-import { FAST_DEFAULT_SPEED, FAST_MAX_SPEED } from "@/lib/replaySpeed";
+import { AUTHOR_DEFAULT_SPEED, AUTHOR_MAX_SPEED } from "@/lib/replaySpeed";
 import { barSecOf, sessionChart } from "@/lib/sessionChart";
 import { SYMBOLS, type Symbol } from "@/components/replay/ReplayToolbar";
 import { ApiError, type ReplaySession } from "@/lib/api";
@@ -124,8 +124,8 @@ export function ScenarioAuthorPage() {
   const total = data?.candles.length ?? 0;
   const engine = useReplayEngine(total, {
     barSec: data ? barSecOf(data.candles) : 60,
-    maxSpeed: FAST_MAX_SPEED,
-    defaultSpeed: FAST_DEFAULT_SPEED,
+    maxSpeed: AUTHOR_MAX_SPEED,
+    defaultSpeed: AUTHOR_DEFAULT_SPEED,
   });
   useReplayKeys({
     onToggle: engine.toggle,
@@ -279,7 +279,7 @@ export function ScenarioAuthorPage() {
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
             <ReplayTransport engine={engine} disabled={!ready} showRestart />
-            <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} max={FAST_MAX_SPEED} />
+            <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} max={AUTHOR_MAX_SPEED} />
           </div>
         </div>
       </div>

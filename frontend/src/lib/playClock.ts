@@ -22,7 +22,7 @@ export function usePlayClock({
   unitSec: number;
   /** Called with the number of whole steps due (always > 0). */
   onSteps: (steps: number) => void;
-  /** Speed ceiling (default: the replay's 64x; whole-bar players allow more). */
+  /** Speed ceiling (default 64x; only the scenario author goes higher). */
   maxSpeed?: number;
 }): void {
   const speedRef = useRef(speed);
