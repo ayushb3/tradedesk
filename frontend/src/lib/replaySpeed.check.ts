@@ -4,7 +4,7 @@
  */
 import {
   advance, clampSpeed, DEFAULT_SPEED, engineFor, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
-  minuteLabel, posToSpeed, saveSpeed, secondsRes, SLIDER_STEPS, snapSpeed, SPEED_NOTCHES, speedToPos, stepNotch,
+  minuteLabel, saveSpeed, secondsRes, snapSpeed, SPEED_STEPS, stepSpeed,
 } from "./replaySpeed";
 
 let failures = 0;
@@ -16,45 +16,42 @@ function eq(name: string, got: unknown, want: unknown) {
 }
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
 
-// ---- log-scale slider mapping
-eq("min at 0", speedToPos(MIN_SPEED), 0);
-eq("max at end", speedToPos(MAX_SPEED), SLIDER_STEPS);
-eq("pos 0 -> min", posToSpeed(0), MIN_SPEED);
-eq("pos end -> max", posToSpeed(SLIDER_STEPS), MAX_SPEED);
-eq("round trip 60x", snapSpeed(posToSpeed(speedToPos(60))), 60);
-eq("round trip 1x", snapSpeed(posToSpeed(speedToPos(1))), 1);
-eq("monotonic", speedToPos(2) < speedToPos(5) && speedToPos(5) < speedToPos(80), true);
+// ---- steps: powers of two, 0.5x to 64x, default 1x
+eq("steps", [...SPEED_STEPS], [0.5, 1, 2, 4, 8, 16, 32, 64]);
+eq("range", [MIN_SPEED, MAX_SPEED], [0.5, 64]);
+eq("default is 1x", DEFAULT_SPEED, 1);
 eq("clamps out of range", [clampSpeed(0.01), clampSpeed(10000), clampSpeed(NaN)], [MIN_SPEED, MAX_SPEED, DEFAULT_SPEED]);
 
-// ---- snapping
-eq("snaps near a notch", snapSpeed(57), 60);
-eq("snaps 1.1 to 1", snapSpeed(1.1), 1);
-eq("free between notches", snapSpeed(18), 18);
+// ---- up doubles, down halves, clamped
+eq("up from 4", stepSpeed(4, 1), 8);
+eq("down from 4", stepSpeed(4, -1), 2);
+eq("up from 1", stepSpeed(1, 1), 2);
+eq("down from 1 -> 0.5", stepSpeed(1, -1), 0.5);
+eq("down at min stays", stepSpeed(0.5, -1), 0.5);
+eq("up at max stays", stepSpeed(64, 1), 64);
+eq("up from off-step 60 snaps first", stepSpeed(60, 1), 64);
+eq("down from off-step 60", stepSpeed(60, -1), 32);
 
-// ---- [ and ] step notches
-eq("] from 60", stepNotch(60, 1), 100);
-eq("[ from 60", stepNotch(60, -1), 30);
-eq("] from free 18", stepNotch(18, 1), 30);
-eq("[ from free 18", stepNotch(18, -1), 10);
-eq("[ from 1 -> 0.5", stepNotch(1, -1), 0.5);
-eq("[ at min stays", stepNotch(0.5, -1), 0.5);
-eq("] at max stays", stepNotch(100, 1), 100);
-eq("cap is 100x", MAX_SPEED, 100);
-eq("notches stop at 100", SPEED_NOTCHES[SPEED_NOTCHES.length - 1], 100);
+// ---- snapping to the nearest step
+eq("60 -> 64", snapSpeed(60), 64);
+eq("100 -> 64", snapSpeed(100), 64);
+eq("30 -> 32", snapSpeed(30), 32);
+eq("5 -> 4", snapSpeed(5), 4);
+eq("10 -> 8", snapSpeed(10), 8);
+eq("every step is its own snap", SPEED_STEPS.map(snapSpeed), [...SPEED_STEPS]);
 
 // ---- labels
-eq("format", [formatSpeed(60), formatSpeed(0.5), formatSpeed(2.5)], ["60x", "0.5x", "2.5x"]);
-eq("minute label 30x", minuteLabel(30), "1 min ≈ 2 s");
+eq("format", [formatSpeed(64), formatSpeed(0.5), formatSpeed(1)], ["64x", "0.5x", "1x"]);
+eq("minute label 16x", minuteLabel(16), "1 min ≈ 3.8 s");
 eq("minute label 1x", minuteLabel(1), "1 min ≈ 60 s");
 eq("minute label 0.5x", minuteLabel(0.5), "1 min ≈ 2 min");
-eq("minute label 100x", minuteLabel(100), "1 min ≈ 0.6 s");
+eq("minute label 64x", minuteLabel(64), "1 min ≈ 0.9 s");
 
 // ---- engine and resolution
-eq("seconds below 60x", engineFor(30, true), "seconds");
-eq("minutes at 60x", engineFor(60, true), "minutes");
+eq("seconds when available, any speed", [engineFor(1, true), engineFor(64, true)], ["seconds", "seconds"]);
 eq("minutes when no seconds data", engineFor(2, false), "minutes");
-eq("1s res at 30x", secondsRes(30, 50), "1s");
-eq("5s res when a tick moves >= 5 s", secondsRes(100, 50), "5s");
+eq("1s res at 64x", secondsRes(64, 50), "1s");
+eq("5s res when a tick moves >= 5 s", secondsRes(100, 100), "5s");
 
 // ---- the clock advances by speed x elapsed, carrying the remainder
 let a = advance(0, 50, 1, 1); // 0.05 s owed
@@ -66,13 +63,11 @@ for (let i = 0; i < 19; i++) {
 }
 eq("1x: one step after 1000 ms in 20 ticks", total, 1);
 eq("1x: carry ~0 after a full second", near(a.carry, 0, 1e-6), true);
-eq("30x: 1.5 chart-s per 50 ms tick", advance(0, 50, 30, 1).steps, 1);
-eq("30x: carry keeps the half", near(advance(0, 50, 30, 1).carry, 0.5, 1e-9), true);
-eq("60x minute bars: 1 bar per real second", advance(0, 1000, 60, 60).steps, 1);
-eq("100x minute bars: 1 bar per 600 ms", advance(0, 600, 100, 60).steps, 1);
-eq("a request above the cap plays at 100x", advance(0, 600, 600, 60).steps, 1);
-eq("late timer catches up, same speed", advance(0, 500, 60, 1).steps, 30);
-eq("negative elapsed ignored", advance(0, -100, 60, 1).steps, 0);
+eq("32x: 1.6 chart-s per 50 ms tick", advance(0, 50, 32, 1).steps, 1);
+eq("64x minute bars: 1 bar per 937.5 ms", advance(0, 938, 64, 60).steps, 1);
+eq("a request above the cap plays at 64x", advance(0, 1000, 600, 1).steps, 64);
+eq("late timer catches up, same speed", advance(0, 500, 64, 1).steps, 32);
+eq("negative elapsed ignored", advance(0, -100, 64, 1).steps, 0);
 
 // ---- remembered speed survives a broken storage
 const mem = new Map<string, string>();
@@ -83,10 +78,14 @@ const store = {
   },
 };
 eq("default when empty", loadSpeed(store), DEFAULT_SPEED);
-saveSpeed(30, store);
-eq("remembers", loadSpeed(store), 30);
+saveSpeed(32, store);
+eq("remembers", loadSpeed(store), 32);
 mem.set("tradedesk.replay.speed", "600");
-eq("a saved 600x clamps to 100x", loadSpeed(store), 100);
+eq("a saved 600x snaps to 64x", loadSpeed(store), 64);
+mem.set("tradedesk.replay.speed", "60");
+eq("a saved 60x snaps to 64x", loadSpeed(store), 64);
+mem.set("tradedesk.replay.speed", "5");
+eq("a saved 5x snaps to 4x", loadSpeed(store), 4);
 mem.set("tradedesk.replay.speed", "junk");
 eq("junk -> default", loadSpeed(store), DEFAULT_SPEED);
 const broken = {
@@ -98,7 +97,7 @@ const broken = {
   },
 };
 eq("throwing storage -> default", loadSpeed(broken), DEFAULT_SPEED);
-saveSpeed(30, broken); // must not throw
+saveSpeed(32, broken); // must not throw
 eq("throwing setItem is swallowed", true, true);
 
 if (failures) {

@@ -13,7 +13,7 @@ import { isoToUtcSeconds } from "@/lib/chart";
 import { formatClock } from "@/lib/format";
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
 import { exitTarget, rthWindow, safeFrom, tradeReplayHref } from "@/lib/replayNav";
-import { loadSpeed, saveSpeed, SECONDS_BELOW } from "@/lib/replaySpeed";
+import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
 import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { useReplay } from "@/lib/useReplay";
@@ -121,7 +121,7 @@ export function DayReplay({ day }: { day: string }) {
         onExit={exit}
         speed={speed}
         onSpeedChange={setSpeed}
-        minuteTag={speed < SECONDS_BELOW ? { reason: "a day replay plays minute bars (second bars are per trade)" } : null}
+        minuteTag={{ reason: "a day replay plays minute bars (second bars are per trade)" }}
       />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">

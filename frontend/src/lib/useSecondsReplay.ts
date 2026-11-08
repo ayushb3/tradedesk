@@ -1,8 +1,8 @@
 /**
  * Seconds-mode clock and data feed for 'Replay my trade'.
  *
- * Owns the playhead second, play/pause/steps and the keys (Space, left/right = 1 s,
- * Shift+left/right = 1 min). The speed comes from the page's slider (chart-seconds per real
+ * Owns the playhead second, play/pause/steps and the keys (Space, left/right = one candle,
+ * Shift+left/right = 1 s). The speed comes from the page's slider (chart-seconds per real
  * second); the clock advances by speed x elapsed time, not one second per timer tick. Second bars are polled from the server with the
  * CURRENT playhead as the `playhead` parameter and the newest held bar as `after`, so
  * the browser never holds a bar from after the playhead. A poll is in flight at most
@@ -14,7 +14,8 @@ import { api, type Candle } from "@/lib/api";
 import { isInputFocused } from "@/lib/useReplay";
 import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
 import {
-  arrowDelta,
+  arrowStep,
+  candleStepSec,
   clampSec,
   mergeBars,
   pollDue,
@@ -144,8 +145,18 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec, speed
     },
     [minSec, maxSec],
   );
-  const stepForward = useCallback(() => step(1), [step]);
-  const stepBack = useCallback(() => step(-1), [step]);
+  /** One candle (lands on its last second, so it is complete). */
+  const stepCandle = useCallback(
+    (dir: 1 | -1) => {
+      setIsPlaying(false);
+      setPlaySec((s) => candleStepSec(s, dir, minSec, maxSec));
+    },
+    [minSec, maxSec],
+  );
+  const stepForward = useCallback(() => stepCandle(1), [stepCandle]);
+  const stepBack = useCallback(() => stepCandle(-1), [stepCandle]);
+  /** The fine step: one second. */
+  const stepFine = useCallback((dir: 1 | -1) => step(dir), [step]);
   const restart = useCallback(() => {
     setIsPlaying(false);
     setPlaySec(minSec);
@@ -160,16 +171,18 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec, speed
         toggle();
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
-        step(arrowDelta(e.key, e.shiftKey));
+        const a = arrowStep(e.key, e.shiftKey);
+        if (a.fine) step(a.dir);
+        else stepCandle(a.dir);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, toggle, step]);
+  }, [enabled, toggle, step, stepCandle]);
 
   return {
     playSec, isPlaying, atStart, atEnd, error,
     contract, underlying,
-    seek, play, pause, toggle, stepForward, stepBack, restart,
+    seek, play, pause, toggle, stepForward, stepBack, stepFine, restart,
   };
 }

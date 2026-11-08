@@ -23,6 +23,12 @@ import {
   paddedRange,
   placeChips,
   rightLimit,
+  followShift,
+  latestInView,
+  valueAtOrBefore,
+  quoteAtSec,
+  formatBidAsk,
+  RIGHT_MARGIN_BARS,
 } from "./priceChart";
 import { zoomRange } from "./reviewChart";
 
@@ -171,6 +177,26 @@ eq(
   eq("formatChange none", formatChange({ change: null, changePct: null }), "");
   eq("timeframe labels", [timeframeLabel(60), timeframeLabel(300), timeframeLabel(15), timeframeLabel(3600)], ["1m", "5m", "15s", "1h"]);
 }
+
+// ---- follow the latest candle with a right margin; jump-to-latest rules
+eq("margin: limit sits past the playhead", rightLimit({ replay: true, playIdx: 60, lastIdx: 100, minBars, marginBars: 3 }), 63);
+eq("margin: may run past the last slot by the margin only", rightLimit({ replay: true, playIdx: 100, lastIdx: 100, minBars, marginBars: 3 }), 103);
+eq("margin is 3 bars", RIGHT_MARGIN_BARS, 3);
+eq("followed view keeps still while the latest is inside it", followShift({ from: 40, to: 70 }, 60, 3), { from: 40, to: 70 });
+eq("followed view slides when the latest nears the edge", followShift({ from: 40, to: 70 }, 69, 3), { from: 42, to: 72 });
+eq("followed view slides back when stepping back past its left edge", followShift({ from: 40, to: 70 }, 30, 3), { from: 3, to: 33 });
+eq("latest in view", [latestInView({ from: 40, to: 70 }, 70), latestInView({ from: 40, to: 70 }, 72)], [true, false]);
+eq("default view inside a longer timeline", defaultRange({ rightLimit: 400 }, 300), { from: 300, to: 400 });
+eq("default view with an end", defaultRange({ rightLimit: 400 }, 300, 350), { from: 300, to: 350 });
+
+// ---- legend helpers: indicator at or before a bar, bid/ask time
+const ind = new Map<number, number>([[600, 1.5], [660, 1.6]]);
+eq("value at the bar", valueAtOrBefore(ind, 660), 1.6);
+eq("forming minute falls back to the last finished one", valueAtOrBefore(ind, 720), 1.6);
+eq("never a later value", valueAtOrBefore(ind, 540), undefined);
+eq("quote at the bar's last second", quoteAtSec(600, 60, null), 659);
+eq("quote never past the playhead second", quoteAtSec(600, 60, 630), 630);
+eq("bid x ask", formatBidAsk(26.1, 26.125), "26.10 × 26.13");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

@@ -32,7 +32,6 @@ export function TradeReplayBar({
   speed,
   onSpeedChange,
   minuteTag,
-  fineSteps,
   nav,
   daySoFar,
 }: {
@@ -50,13 +49,13 @@ export function TradeReplayBar({
   onSpeedChange: (speed: number) => void;
   /** Set when a sub-60x speed is playing minute bars (with the reason). */
   minuteTag?: { reason: string } | null;
-  /** True on second bars: the step buttons move 1 s (Shift+arrow: 1 min). */
-  fineSteps?: boolean;
   /** Previous / next trade (same day in time order, then the adjacent day). */
   nav?: { onPrev: (() => void) | null; onNext: (() => void) | null };
   /** The collapsed rule bar (day so far, cutoff, call source). */
   daySoFar?: React.ReactNode;
 }) {
+  // One candle per step; Shift (key or click) steps one second when there are second bars.
+  const stepHint = replay.stepFine ? "1 candle (Shift: 1 sec)" : "1 candle";
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1">
       <div className="flex min-w-0 items-center gap-1" title={date ? `Session ${date}` : undefined}>
@@ -121,9 +120,9 @@ export function TradeReplayBar({
           variant="ghost"
           className="h-8 w-8"
           disabled={disabled || replay.atStart}
-          onClick={replay.stepBack}
-          aria-label={fineSteps ? "Step back 1 second (←)" : "Step back (←)"}
-          title={fineSteps ? "Back 1 s (←), 1 min (Shift+←)" : "Step back (←)"}
+          onClick={(e) => (e.shiftKey && replay.stepFine ? replay.stepFine(-1) : replay.stepBack())}
+          aria-label={`Step back ${stepHint} (←)`}
+          title={`Back ${stepHint} (←)`}
         >
           <StepBack />
         </Button>
@@ -143,9 +142,9 @@ export function TradeReplayBar({
           variant="ghost"
           className="h-8 w-8"
           disabled={disabled || replay.atEnd}
-          onClick={replay.stepForward}
-          aria-label={fineSteps ? "Step forward 1 second (→)" : "Step forward (→)"}
-          title={fineSteps ? "Forward 1 s (→), 1 min (Shift+→)" : "Step forward (→)"}
+          onClick={(e) => (e.shiftKey && replay.stepFine ? replay.stepFine(1) : replay.stepForward())}
+          aria-label={`Step forward ${stepHint} (→)`}
+          title={`Forward ${stepHint} (→)`}
         >
           <StepForward />
         </Button>
@@ -226,8 +225,8 @@ function IndicatorsMenu({
               />
             ))}
           </div>
-          <Row label="EMA 9 / 21 / 50" hint="green" on={value.ema} onClick={() => onChange({ ...value, ema: !value.ema })} />
-          <Row label="SMA 200 / 400" hint="red dashed" on={value.sma} onClick={() => onChange({ ...value, sma: !value.sma })} />
+          <Row label="EMA 9 / 21 / 50" hint="green, dark red, light blue" on={value.ema} onClick={() => onChange({ ...value, ema: !value.ema })} />
+          <Row label="SMA 200 / 400" hint="orange, red dots" on={value.sma} onClick={() => onChange({ ...value, sma: !value.sma })} />
           <Row
             label="Caller levels"
             hint="blue, 1h 200 SMA red"

@@ -35,6 +35,8 @@ export interface ReplayEngine {
   toggle: () => void;
   stepForward: () => void;
   stepBack: () => void;
+  /** The fine step (Shift+arrow, Shift-click): one second on second bars. Absent on minute bars, where Shift steps a candle too. */
+  stepFine?: (dir: 1 | -1) => void;
   restart: () => void;
   setSpeed: (s: Speed) => void;
   setIndex: (i: number) => void;

@@ -53,6 +53,20 @@ export class ApiError extends Error {
   }
 }
 
+/** GET /replay/quote: the latest historical quote at or before `at`. */
+export interface StockQuote {
+  symbol: string;
+  at: string;
+  available: boolean;
+  reason?: string | null;
+  bid?: number | null;
+  ask?: number | null;
+  bid_size?: number | null;
+  ask_size?: number | null;
+  ts?: string | null;
+  source_label?: string | null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -1588,6 +1602,12 @@ export const api = {
     if (opts.after) qs.set("after", opts.after);
     if (opts.lead !== undefined) qs.set("lead_minutes", String(opts.lead));
     return request<ReplaySeconds>(`/replay/trade/${tradeId}/seconds?${qs.toString()}`);
+  },
+
+  /** The underlying's bid/ask at or before `at` (ISO); a replay passes at most its playhead. */
+  replayQuote(symbol: string, at: string): Promise<StockQuote> {
+    const qs = new URLSearchParams({ symbol, at });
+    return request<StockQuote>(`/replay/quote?${qs.toString()}`);
   },
 
   replayTradeNeighbors(tradeId: number): Promise<ReplayNeighbors> {

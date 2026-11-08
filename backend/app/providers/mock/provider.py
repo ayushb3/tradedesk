@@ -136,6 +136,27 @@ class MockProvider:
         return self.seconds_from_minutes(self.get_candles(symbol, day, "1m"), floor, end)
 
     # ------------------------------------------------------------------ #
+    # Historical stock quotes (bid/ask)
+    # ------------------------------------------------------------------ #
+    def get_stock_quote(self, symbol: str, at: datetime) -> dict | None:
+        """A deterministic bid/ask at ``at``: around the synthetic price at that second
+        (the minute's open drifting to its close), one or two cents wide. Only the
+        minute bar containing ``at`` is read, so nothing later is used."""
+        a = _as_utc(at).replace(microsecond=0)
+        day = a.astimezone(ZoneInfo(self.tz)).date()
+        minute = a.replace(second=0)
+        bar = next((c for c in self.get_candles(symbol, day, "1m") if _as_utc(c.ts) == minute), None)
+        if bar is None:
+            return None
+        mid = bar.open + (bar.close - bar.open) * (a.second / 59)
+        half = 0.01 if (a.second + a.minute) % 3 else 0.02
+        return {
+            "bid": round(mid - half / 2 - 0.005, 2), "ask": round(mid + half / 2 + 0.005, 2),
+            "bid_size": 100.0 + a.second, "ask_size": 200.0 - a.second,
+            "ts": a, "source_label": bar.source_label,
+        }
+
+    # ------------------------------------------------------------------ #
     # Fills
     # ------------------------------------------------------------------ #
     def get_fills(self, since: datetime | None = None) -> list[Fill]:

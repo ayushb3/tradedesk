@@ -195,3 +195,22 @@ class ReplayDayFillsResponse(BaseModel):
     playhead: UtcDatetime
     trades: list[ReplayDayTrade] = Field(default_factory=list)
     fills: list[ReplayDayFill] = Field(default_factory=list)
+
+
+class StockQuoteResponse(BaseModel):
+    """The underlying's latest bid/ask at or before `at` (historical NBBO-style quote).
+
+    Nothing after `at` is ever looked up, so a replay asks with `at` <= its playhead.
+    `available=false` (with a reason) when the provider has no quote source or no
+    quote printed in the lookback; the client then shows the last price instead."""
+
+    symbol: str
+    at: UtcDatetime
+    available: bool
+    reason: str | None = None
+    bid: float | None = None
+    ask: float | None = None
+    bid_size: float | None = None
+    ask_size: float | None = None
+    ts: UtcDatetime | None = None        # when that quote printed (<= at)
+    source_label: str | None = None      # e.g. "proxy for SPX"

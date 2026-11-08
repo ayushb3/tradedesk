@@ -24,10 +24,8 @@ import { orderTypeLabel } from "@/lib/priceChart";
 import {
   CALLER_STYLE,
   callerStyle,
-  emaColor,
   LEVEL_COLORS,
-  smaColor,
-  VWAP_COLOR,
+  lineLook,
   type LineStyleName,
 } from "@/lib/chartColors";
 
@@ -45,8 +43,8 @@ export interface OverlaySpec {
   key: string; // matches a key in session.indicators, e.g. "ema9"
   label: string;
   color: string;
-  width: 1 | 2;
-  dashed?: boolean;
+  width: number;
+  style: LineStyleName;
 }
 
 /**
@@ -58,19 +56,16 @@ export function overlaySpecs(indicators: Record<string, unknown>): OverlaySpec[]
   const emaKeys = Object.keys(indicators)
     .filter((k) => /^ema\d+$/.test(k))
     .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)));
-  const specs: OverlaySpec[] = emaKeys.map((k, i) => ({
-    key: k,
-    label: k.toUpperCase(),
-    color: emaColor(i),
-    width: 2,
-  }));
-  // SMA 200 / 400: red dashed, 200 brighter.
+  const spec = (k: string, i = 0): OverlaySpec => {
+    const look = lineLook(k, i);
+    return { key: k, label: k.toUpperCase(), color: look.color, width: look.width, style: look.style };
+  };
+  const specs: OverlaySpec[] = emaKeys.map((k, i) => spec(k, i));
+  // SMA 200 / 400 and VWAP: looks from INDICATOR_LOOK (lib/chartColors).
   for (const k of Object.keys(indicators).filter((k) => /^sma\d+$/.test(k)).sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))) {
-    specs.push({ key: k, label: k.toUpperCase(), color: smaColor(Number(k.slice(3))), width: 1, dashed: true });
+    specs.push(spec(k));
   }
-  if ("vwap" in indicators) {
-    specs.push({ key: "vwap", label: "VWAP", color: VWAP_COLOR, width: 2 });
-  }
+  if ("vwap" in indicators) specs.push(spec("vwap"));
   return specs;
 }
 
@@ -103,6 +98,7 @@ const CALLER_LINE: Record<LineStyleName, LineStyle> = {
   solid: LineStyle.Solid,
   dashed: LineStyle.Dashed,
   dotted: LineStyle.Dotted,
+  dots: LineStyle.SparseDotted,
 };
 
 /**
@@ -337,8 +333,8 @@ export function ReplayChart({
           o.key,
           chart.addLineSeries({
             color: o.color,
-            lineWidth: o.width,
-            lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
+            lineWidth: o.width as 1 | 2 | 3 | 4,
+            lineStyle: CALLER_LINE[o.style],
             priceLineVisible: false,
             lastValueVisible: false,
             crosshairMarkerVisible: false,

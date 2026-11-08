@@ -50,10 +50,16 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
       const v = spy.indicators.vwap?.[i];
       if (v != null && !Number.isNaN(v)) vwap.set(floorMinute(isoToUtcSeconds(c.ts)), v);
     });
+    // The chart holds the whole session (premarket to the close) so it can zoom out to it;
+    // it opens on the trade window `w`.
+    const firstSec = floorMinute(first);
+    const lastSec = floorMinute(last);
     return {
       ...w,
-      spyCandles: candlesInWindow(spy.candles, w.startSec, w.endSec),
-      contractCandles: hasContract ? candlesInWindow(contractData!.candles, w.startSec, w.endSec) : null,
+      firstSec,
+      lastSec,
+      spyCandles: candlesInWindow(spy.candles, firstSec, lastSec),
+      contractCandles: hasContract ? candlesInWindow(contractData!.candles, firstSec, lastSec) : null,
       vwap,
     };
   }, [spy, trade.open_ts, trade.close_ts, hasContract, contractData]);
@@ -92,8 +98,9 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
             label: spyPaneLabel(spy.symbol, spy.meta.source_label),
             candles: view.spyCandles,
             vwap: view.vwap,
-            // SMA 200/400 (red dashed) and the caller's levels; same colors as Replay.
+            // SMA 200/400 (orange/red dots) and the caller's levels; same colors as Replay.
             emas: smaLines(spy),
+            quoteSymbol: spy.symbol,
             levels: paneLevels(spy, -1, { ...DEFAULT_STACK_INDICATORS, ladder: "off" }),
           }
         : null,
@@ -102,7 +109,8 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
 
   const loading = session.isLoading || (hasOption && contract.isLoading);
   const exitSec = view?.exitSec ?? null;
-  const bound = view ? revealBound(view.endSec, exitSec, showAfterExit) : 0;
+  // With "Show after exit" the rest of the session is drawn too (zoom out to see it).
+  const bound = view ? (showAfterExit ? view.lastSec : revealBound(view.endSec, exitSec, showAfterExit)) : 0;
   // With the after-exit bars hidden the window stops just past the exit (no dead right side);
   // "Show after exit" brings back the full exit + 30 min window.
   const chartEnd = view ? (showAfterExit || exitSec === null ? view.endSec : Math.min(view.endSec, exitSec + 3 * 60)) : 0;
@@ -183,8 +191,9 @@ export function ReviewStackChart({ trade, fills, hasOption, onPlay }: Props) {
           <PriceChart
             top={top}
             bottom={bottom}
-            startSec={view.startSec}
-            endSec={chartEnd}
+            startSec={view.firstSec}
+            endSec={showAfterExit ? view.lastSec : chartEnd}
+            defaultView={{ fromSec: view.startSec, toSec: chartEnd }}
             playheadSec={bound}
             stopPrice={top ? (contractData?.stop_price ?? null) : null}
             stopAssumed={contractData?.stop_assumed}

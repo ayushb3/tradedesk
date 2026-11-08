@@ -1,11 +1,11 @@
 /**
  * The moving-average lines a replay session carries, as minute-keyed maps ready for
- * PriceChart: EMAs 9/21/50 in greens, SMAs 200/400 in red dashes. The server computes them
+ * PriceChart, styled from INDICATOR_LOOK (lib/chartColors). The server computes them
  * causally (value at a bar uses only that bar and earlier), so a map is safe to reveal up
  * to the playhead.
  */
 import type { LevelKey, ReplaySession } from "@/lib/api";
-import { callerStyle, emaColor, LEVEL_COLORS, smaColor, type LineStyleName } from "@/lib/chartColors";
+import { callerStyle, LEVEL_COLORS, lineLook, type LineStyleName } from "@/lib/chartColors";
 import { isoToUtcSeconds, valueAt } from "@/lib/chart";
 import { floorMinute } from "@/lib/stackedReplay";
 import { LADDERS, type StackIndicators } from "@/lib/stackIndicators";
@@ -15,6 +15,7 @@ export interface ChartLine {
   values: Map<number, number>;
   color: string;
   style: LineStyleName;
+  width: number;
 }
 
 /** EMAs drawn on the stacked charts (the EMA 200 is left out: the SMA 200 is the 200 line). */
@@ -33,21 +34,17 @@ function minuteMap(session: ReplaySession, key: string): Map<number, number> {
 }
 
 export function emaLines(session: ReplaySession): ChartLine[] {
-  return STACK_EMA_PERIODS.filter((p) => `ema${p}` in session.indicators).map((p, i) => ({
-    label: `EMA${p}`,
-    values: minuteMap(session, `ema${p}`),
-    color: emaColor(i),
-    style: "solid" as const,
-  }));
+  return STACK_EMA_PERIODS.filter((p) => `ema${p}` in session.indicators).map((p, i) => {
+    const look = lineLook(`ema${p}`, i);
+    return { label: `EMA${p}`, values: minuteMap(session, `ema${p}`), color: look.color, style: look.style, width: look.width };
+  });
 }
 
 export function smaLines(session: ReplaySession): ChartLine[] {
-  return SMA_PERIODS.filter((p) => `sma${p}` in session.indicators).map((p) => ({
-    label: `SMA${p}`,
-    values: minuteMap(session, `sma${p}`),
-    color: smaColor(p),
-    style: "dashed" as const,
-  }));
+  return SMA_PERIODS.filter((p) => `sma${p}` in session.indicators).map((p) => {
+    const look = lineLook(`sma${p}`);
+    return { label: `SMA${p}`, values: minuteMap(session, `sma${p}`), color: look.color, style: look.style, width: look.width };
+  });
 }
 
 export function vwapMap(session: ReplaySession): Map<number, number> {

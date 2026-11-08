@@ -24,10 +24,23 @@ export function stepSec(sec: number, delta: number, min: number, max: number): n
   return clampSec(sec + delta, min, max);
 }
 
-/** Arrow keys: 1 s, or 1 min with Shift. */
-export function arrowDelta(key: "ArrowLeft" | "ArrowRight", shift: boolean): number {
-  const n = shift ? MINUTE : 1;
-  return key === "ArrowLeft" ? -n : n;
+/**
+ * One candle forward (dir 1) or back (-1): to the next / previous candle's last second, so
+ * the candle it lands on is complete (playhead P means second P has printed; the candle
+ * stamped T is complete at T + bar - 1). Clamped to [min, max].
+ */
+export function candleStepSec(sec: number, dir: 1 | -1, min: number, max: number, barSec: number = MINUTE): number {
+  const last = barSec - 1;
+  const target =
+    dir > 0
+      ? Math.floor((sec + 1) / barSec) * barSec + last
+      : Math.floor((sec - barSec) / barSec) * barSec + last;
+  return clampSec(target, min, max);
+}
+
+/** Arrow keys: one candle, or one second with Shift. */
+export function arrowStep(key: "ArrowLeft" | "ArrowRight", shift: boolean): { dir: 1 | -1; fine: boolean } {
+  return { dir: key === "ArrowLeft" ? -1 : 1, fine: shift };
 }
 
 /** Add bars not already held (by timestamp), keeping time order. */

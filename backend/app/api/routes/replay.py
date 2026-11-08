@@ -32,6 +32,7 @@ from app.models.replay import (
     ReplaySecondsResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
+    StockQuoteResponse,
 )
 from app.providers.base import DataProvider
 
@@ -484,3 +485,25 @@ def replay_day_fills(
     return ReplayDayFillsResponse(
         session_date=day, symbol=sym, playhead=head, trades=seen, fills=fills
     )
+
+
+@router.get("/replay/quote", response_model=StockQuoteResponse)
+def replay_stock_quote(
+    symbol: str = Query(..., min_length=1, max_length=12),
+    at: datetime = Query(..., description="Latest quote at or before this time (a replay passes its playhead)."),
+    provider: DataProvider = Depends(provider_dep),
+) -> StockQuoteResponse:
+    """The underlying's bid/ask at a moment, for the chart legend. Looks only at or
+    before `at`; a provider without a quote source answers `available=false`."""
+    head = _as_utc(at).replace(microsecond=0)
+    sym = symbol.upper()
+    fetch = getattr(provider, "get_stock_quote", None)
+    if fetch is None:
+        return StockQuoteResponse(symbol=sym, at=head, available=False, reason="no quote source for this data feed")
+    try:
+        q = fetch(sym, head)
+    except Exception:  # a flaky upstream must not break the chart; the legend falls back to last
+        return StockQuoteResponse(symbol=sym, at=head, available=False, reason="quotes could not be loaded")
+    if not q or q.get("bid") is None or q.get("ask") is None:
+        return StockQuoteResponse(symbol=sym, at=head, available=False, reason="no quote in the lookback window")
+    return StockQuoteResponse(symbol=sym, at=head, available=True, **q)

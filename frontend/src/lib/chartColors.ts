@@ -5,18 +5,53 @@
  */
 import type { LevelKey } from "@/lib/api";
 
-export type LineStyleName = "solid" | "dashed" | "dotted";
+/** "dots": sparse round dots (lightweight-charts SparseDotted), drawn wide enough to read. */
+export type LineStyleName = "solid" | "dashed" | "dotted" | "dots";
+
+export interface LineLook {
+  color: string;
+  style: LineStyleName;
+  /** Line width in px. */
+  width: 1 | 2 | 3 | 4;
+}
+
+/**
+ * Every indicator line's look, on every chart (Replay, the trade page, the Learn drill player)
+ * and its legend swatch. Change a color or style here and every chart follows.
+ */
+export const INDICATOR_LOOK = {
+  vwap: { color: "#f4f4f5", style: "solid", width: 1 }, // white
+  ema8: { color: "#4ade80", style: "solid", width: 1 }, // Learn's fast EMA: same as the 9
+  ema9: { color: "#4ade80", style: "solid", width: 1 }, // green
+  ema21: { color: "#b91c1c", style: "solid", width: 1 }, // dark red
+  ema50: { color: "#7dd3fc", style: "solid", width: 1 }, // light blue
+  sma200: { color: "#f97316", style: "dots", width: 2 }, // orange, dotted
+  sma400: { color: "#ef4444", style: "dots", width: 2 }, // red, dotted
+} satisfies Record<string, LineLook>;
+
+const LOOKS: Record<string, LineLook> = INDICATOR_LOOK;
+const EMA_ORDER = [INDICATOR_LOOK.ema9, INDICATOR_LOOK.ema21, INDICATOR_LOOK.ema50];
+
+/**
+ * The look for an indicator key ("ema21", "sma200", "vwap") or legend label ("EMA21").
+ * An EMA period not in the table takes the look of its slot (`i`: 0 fast, 1, 2 slow); an
+ * unknown SMA takes the SMA 400 look.
+ */
+export function lineLook(keyOrLabel: string, i = 0): LineLook {
+  const k = keyOrLabel.toLowerCase().replace(/\s+/g, "");
+  if (LOOKS[k]) return LOOKS[k];
+  if (k.startsWith("sma")) return INDICATOR_LOOK.sma400;
+  return EMA_ORDER[Math.min(Math.max(0, i), EMA_ORDER.length - 1)];
+}
 
 /** VWAP: white. */
-export const VWAP_COLOR = "#f4f4f5";
+export const VWAP_COLOR = INDICATOR_LOOK.vwap.color;
 
-/** EMAs: one green family, brightest first (9, 21, 50). A 4th+ EMA reuses the dimmest. */
-export const EMA_GREENS = ["#4ade80", "#16a34a", "#166534"] as const;
-export const emaColor = (i: number): string => EMA_GREENS[Math.min(i, EMA_GREENS.length - 1)];
+/** EMA color by slot (0 fast .. 2 slow); prefer lineLook("ema21") where the period is known. */
+export const emaColor = (i: number): string => lineLook("ema", i).color;
 
-/** SMA 200 / 400: red, dashed, 200 brighter than 400. */
-export const SMA_REDS: Record<number, string> = { 200: "#ef4444", 400: "#991b1b" };
-export const smaColor = (period: number): string => SMA_REDS[period] ?? SMA_REDS[400];
+/** SMA color by period (200 orange, 400 red). */
+export const smaColor = (period: number): string => lineLook(`sma${period}`).color;
 
 /** Premarket and prior-day high/low: yellow. The rest of the level ladder stays slate. */
 export const LEVEL_YELLOW = "#facc15";
@@ -37,6 +72,6 @@ export const CALLER_BLUE = "#60a5fa";
 export const CALLER_STYLE: Record<string, { color: string; style: LineStyleName; label: string }> = {
   level: { color: CALLER_BLUE, style: "solid", label: "S" },
   ray: { color: CALLER_BLUE, style: "dotted", label: "S ray" },
-  sma200_1h: { color: SMA_REDS[200], style: "dashed", label: "200 SMA 1h" },
+  sma200_1h: { color: "#ef4444", style: "dashed", label: "200 SMA 1h" },
 };
 export const callerStyle = (kind: string) => CALLER_STYLE[kind] ?? CALLER_STYLE.level;

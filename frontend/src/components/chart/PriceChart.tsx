@@ -10,9 +10,10 @@ import {
   type SeriesMarker,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { Minus, Plus } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronsRight, HelpCircle, Minus, Plus } from "lucide-react";
 
-import type { Candle, ReplayFill } from "@/lib/api";
+import { api, type Candle, type ReplayFill } from "@/lib/api";
 import type { SimFill } from "@/lib/simPosition";
 import { isoToUtcSeconds, makeDisplayFormatters } from "@/lib/chart";
 import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "@/lib/format";
@@ -30,6 +31,12 @@ import {
   paddedRange,
   placeChips,
   rightLimit,
+  RIGHT_MARGIN_BARS,
+  followShift,
+  latestInView,
+  valueAtOrBefore,
+  quoteAtSec,
+  formatBidAsk,
   type IndexRange,
   type PriceDomain,
 } from "@/lib/priceChart";
@@ -40,7 +47,7 @@ import {
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
-import { LEVEL_SLATE, VWAP_COLOR, emaColor, type LineStyleName } from "@/lib/chartColors";
+import { LEVEL_SLATE, VWAP_COLOR, lineLook, type LineStyleName } from "@/lib/chartColors";
 import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
 
 // Keep in sync with the tokens in index.css (lightweight-charts needs literal colors).
@@ -72,8 +79,12 @@ const LINE_STYLE: Record<LineStyleName, LineStyle> = {
   solid: LineStyle.Solid,
   dashed: LineStyle.Dashed,
   dotted: LineStyle.Dotted,
+  dots: LineStyle.SparseDotted,
 };
 const LEVEL_LABEL_GAP = 16;
+/** How to use the chart, in the "?" tooltip (kept out of the header so the legend never clips). */
+const HELP_TEXT = "Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset";
+const HELP_TEXT_TV = "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset";
 
 export interface PaneSpec {
   /** Header, e.g. "SPY, proxy for SPX". */
@@ -86,8 +97,10 @@ export interface PaneSpec {
   levels?: { label: string; price: number; color?: string; style?: LineStyleName }[];
   /** Tag levels on the price axis (TradingView-style) instead of in-pane labels over the bars. */
   levelsOnAxis?: boolean;
-  /** Optional moving-average lines (EMAs green by order, unless `color`/`style` say otherwise), each keyed by minute. */
-  emas?: { label: string; values: Map<number, number>; color?: string; style?: LineStyleName }[];
+  /** Optional moving-average lines (look from INDICATOR_LOOK by label, unless `color`/`style`/`width` say otherwise), each keyed by minute. */
+  emas?: { label: string; values: Map<number, number>; color?: string; style?: LineStyleName; width?: number }[];
+  /** Show this stock's bid/ask in the legend (historical quotes at the legend bar's last second). */
+  quoteSymbol?: string;
   /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
   marks?: { label: string; price: number; color: string; key?: string }[];
   badge?: React.ReactNode;
@@ -160,6 +173,13 @@ interface Props {
    * and `playheadSec` must sit on bar opens (Learn aggregates 1m bars on the client).
    */
   barSec?: number;
+  /**
+   * Where the view opens inside a longer timeline: `startSec`..`endSec` can hold the whole
+   * session (so the user can zoom out to it) while the chart opens on the trade window.
+   */
+  defaultView?: { fromSec: number; toSec?: number | null };
+  /** Replay: the last second played (seconds precision), the latest time a bid/ask may come from. */
+  revealSec?: number;
 }
 
 interface Layout {
@@ -263,6 +283,8 @@ export function PriceChart({
   mainPane = "top",
   contractBelow = false,
   fillLabels = "chips",
+  defaultView,
+  revealSec,
 }: Props) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
@@ -294,7 +316,7 @@ export function PriceChart({
   const lastDomain = useRef<{ top: PriceDomain | null; bottom: PriceDomain | null }>({ top: null, bottom: null });
   const frozen = useRef<PriceDomain | null>(null);
   const viewState = useRef<ViewState>({ view: null, follow: true, slideWidth: null });
-  const controls = useRef<{ zoom: (factor: number) => void; reset: () => void } | null>(null);
+  const controls = useRef<{ zoom: (factor: number) => void; reset: () => void; jumpLatest: () => void } | null>(null);
 
   const [hoverSec, setHoverSec] = useState<number | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -307,6 +329,21 @@ export function PriceChart({
   const hasTop = top !== null;
   const lastIdx = timeline.length - 1;
   const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx), barSec);
+  const viewFromIdx = defaultView ? indexOfSec(timeline[0] ?? startSec, defaultView.fromSec, Math.max(0, lastIdx), barSec) : 0;
+  const viewToIdx =
+    defaultView?.toSec != null ? indexOfSec(timeline[0] ?? startSec, defaultView.toSec, Math.max(0, lastIdx), barSec) : null;
+  // Replay: is the view following the latest candle? (false shows "Jump to latest").
+  const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  const noteFollow = (f: boolean) => {
+    if (followingRef.current === f) return;
+    followingRef.current = f;
+    setFollowing(f);
+  };
+  // Replay crosshair: "latest" pins it (and the legend) to the latest candle; "mouse" follows
+  // the pointer. Stepping or playing switches to "latest"; moving the mouse over a pane, to "mouse".
+  const pointerMode = useRef<"mouse" | "latest">("latest");
+  const crossProg = useRef(false);
 
   // Everything the imperative handlers need, refreshed every render.
   const live = useRef({
@@ -317,6 +354,9 @@ export function PriceChart({
     onPriceClick: undefined as ((price: number) => void) | undefined,
     tradingView: false,
     initialBars: null as number | null,
+    viewFrom: 0,
+    viewTo: null as number | null,
+    noteFollow: (() => {}) as (f: boolean) => void,
   });
   live.current = {
     isReplay,
@@ -326,6 +366,9 @@ export function PriceChart({
     onPriceClick,
     tradingView,
     initialBars,
+    viewFrom: viewFromIdx,
+    viewTo: viewToIdx,
+    noteFollow,
   };
 
   const entrySec = revealedFillTime(fills, "entry", playheadSec);
@@ -409,7 +452,7 @@ export function PriceChart({
       });
       const emas = Array.from({ length: MAX_LINES }, (_, i) =>
         chart.addLineSeries({
-          color: emaColor(i),
+          color: lineLook("ema", i).color,
           lineWidth: 1,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -429,7 +472,9 @@ export function PriceChart({
     let syncing = false;
     for (const src of all) {
       src.chart.subscribeCrosshairMove((param) => {
-        if (syncing) return;
+        if (syncing || crossProg.current) return;
+        // Replay, pinned to the latest candle: ignore the chart's own pointer tracking.
+        if (live.current.isReplay && pointerMode.current === "latest") return;
         syncing = true;
         try {
           const t = typeof param.time === "number" ? (param.time as number) : null;
@@ -504,7 +549,13 @@ export function PriceChart({
       const l = live.current;
       return {
         minBars,
-        rightLimit: rightLimit({ replay: l.isReplay, playIdx: l.playIdx, lastIdx: l.lastIdx, minBars }),
+        rightLimit: rightLimit({
+          replay: l.isReplay,
+          playIdx: l.playIdx,
+          lastIdx: l.lastIdx,
+          minBars,
+          marginBars: l.isReplay ? RIGHT_MARGIN_BARS : 0,
+        }),
       };
     };
     let applying = false;
@@ -529,15 +580,19 @@ export function PriceChart({
       setLayoutTick((n) => n + 1);
       requestAnimationFrame(() => requestAnimationFrame(() => setLayoutTick((n) => n + 1))); // re-measure once lightweight-charts has settled
     };
-    /** Record a range; in replay, note whether it is pinned to the playhead (so it follows). */
+    /**
+     * Record a range. Replay: it follows the latest candle while that candle is in view (it
+     * grows from the window start when the view starts there, else it slides at this width);
+     * scrolled back into history it stays put and "Jump to latest" shows.
+     */
     const commit = (r: IndexRange) => {
       const vs = viewState.current;
       vs.view = r;
       if (live.current.isReplay) {
-        const lim = limits();
-        const pinned = r.to >= lim.rightLimit - 0.6;
-        vs.follow = pinned;
-        vs.slideWidth = pinned && r.from > 0.6 ? r.to - r.from : null;
+        const inView = latestInView(r, live.current.playIdx);
+        vs.follow = inView;
+        vs.slideWidth = inView && Math.abs(r.from - live.current.viewFrom) > 0.6 ? r.to - r.from : null;
+        live.current.noteFollow(inView);
       }
     };
     /** Put the view where it belongs now (default, following the playhead, or the user's). */
@@ -552,9 +607,14 @@ export function PriceChart({
         vs.slideWidth = init;
       }
       let target: IndexRange;
-      if (vs.view === null) target = defaultRange(lim);
+      const from0 = live.current.viewFrom;
+      if (vs.view === null) target = defaultRange(lim, from0, live.current.isReplay ? null : live.current.viewTo);
       else if (live.current.isReplay && vs.follow) {
-        target = vs.slideWidth !== null ? { from: lim.rightLimit - vs.slideWidth, to: lim.rightLimit } : { from: 0, to: lim.rightLimit };
+        // Slide only as far as needed to keep the latest candle in view, with the margin.
+        target =
+          vs.slideWidth !== null
+            ? followShift(vs.view, live.current.playIdx, RIGHT_MARGIN_BARS)
+            : { from: from0, to: lim.rightLimit };
       } else target = vs.view;
       target = clampRange(target, lim);
       const wasFollowing = vs.follow;
@@ -564,6 +624,7 @@ export function PriceChart({
       if (live.current.isReplay && wasFollowing) {
         vs.follow = true;
         vs.slideWidth = wasSlide;
+        live.current.noteFollow(true);
       } else commit(target);
     };
     const zoomBy = (factor: number, anchor?: number) => {
@@ -579,7 +640,16 @@ export function PriceChart({
       zoom: (f) => zoomBy(f),
       reset: () => {
         viewState.current = { view: null, follow: true, slideWidth: null };
+        live.current.noteFollow(true);
         refit();
+      },
+      jumpLatest: () => {
+        const r = readRange(bottomPane.chart.timeScale().getVisibleLogicalRange()) ?? viewState.current.view;
+        const lim = limits();
+        const width = r ? r.to - r.from : lim.minBars;
+        const next = clampRange({ from: lim.rightLimit - width, to: lim.rightLimit }, lim);
+        apply(next);
+        commit(next);
       },
     };
     refitRef.current = refit;
@@ -638,6 +708,26 @@ export function PriceChart({
     attach(topEl.current, topPane);
     attach(bottomNode, bottomPane);
 
+    // Replay crosshair mode: a real mouse move over a pane hands the crosshair to the mouse
+    // (capture phase, so it switches before lightweight-charts reports that same move);
+    // leaving the panes pins it back on the latest candle.
+    const paneEls = [topEl.current, bottomNode].filter((e): e is HTMLDivElement => e !== null);
+    const onMove = () => {
+      pointerMode.current = "mouse";
+    };
+    const onLeave = (e: PointerEvent) => {
+      if (!live.current.isReplay) return;
+      const to = e.relatedTarget as Node | null;
+      if (to && paneEls.some((el) => el.contains(to))) return; // moved to the other pane
+      pointerMode.current = "latest";
+      setHoverSec(null);
+      snapRef.current?.();
+    };
+    for (const el of paneEls) {
+      el.addEventListener("pointermove", onMove, true);
+      el.addEventListener("pointerleave", onLeave);
+    }
+
     const resize = () => {
       if (topPane && topEl.current)
         topPane.chart.applyOptions({
@@ -662,6 +752,10 @@ export function PriceChart({
       bottomNode.removeEventListener("click", onClick);
       if (pending) clearTimeout(pending.timer);
       wheelCleanups.forEach((fn) => fn());
+      for (const el of paneEls) {
+        el.removeEventListener("pointermove", onMove, true);
+        el.removeEventListener("pointerleave", onLeave);
+      }
       window.removeEventListener("pointerup", gestureEnd);
       window.removeEventListener("pointercancel", gestureEnd);
       clearTimeout(gesture.timer);
@@ -676,10 +770,14 @@ export function PriceChart({
     };
   }, [hasTop, contractBelow]);
   const refitRef = useRef<(() => void) | null>(null);
+  const snapRef = useRef<(() => void) | null>(null);
 
   // ---- data: aligned on the shared grid, revealed up to the playhead ---------
   // A new window resets the view; replay keeps the user's pan/zoom while the window grows.
-  const windowKey = isReplay ? `${startSec}:${hasTop}:${barSec}` : `${startSec}:${endSec}:${hasTop}:${barSec}`;
+  const viewKey = `${defaultView?.fromSec ?? ""}:${defaultView?.toSec ?? ""}`;
+  const windowKey = isReplay
+    ? `${startSec}:${hasTop}:${barSec}:${viewKey}`
+    : `${startSec}:${endSec}:${hasTop}:${barSec}:${viewKey}`;
   const lastWindowKey = useRef<string | null>(null);
   useEffect(() => {
     const p = panes.current;
@@ -695,7 +793,14 @@ export function PriceChart({
       rt.vwap.setData(line);
       rt.emas.forEach((s, i) => {
         const e = spec.emas?.[i];
-        if (e) s.applyOptions({ color: e.color ?? emaColor(i), lineStyle: LINE_STYLE[e.style ?? "solid"] });
+        if (e) {
+          const look = lineLook(e.label, i);
+          s.applyOptions({
+            color: e.color ?? look.color,
+            lineStyle: LINE_STYLE[e.style ?? look.style],
+            lineWidth: (e.width ?? look.width) as 1 | 2 | 3 | 4,
+          });
+        }
         s.setData(
           e
             ? timeline
@@ -732,6 +837,7 @@ export function PriceChart({
     if (lastWindowKey.current !== windowKey) {
       lastWindowKey.current = windowKey;
       viewState.current = { view: null, follow: true, slideWidth: null };
+      noteFollow(true);
     }
     if (p.top && top) feed(p.top, top);
     feed(p.bottom, bottom);
@@ -742,6 +848,43 @@ export function PriceChart({
     const id = requestAnimationFrame(() => refitRef.current?.());
     return () => cancelAnimationFrame(id);
   }, [timeline, top, bottom, playheadSec, hasTop, isReplay, reviewExit, windowKey]);
+
+  // ---- replay crosshair: pinned to the latest candle unless the mouse is over the chart ----
+  snapRef.current = () => {
+    const p = panes.current;
+    if (!p || !isReplay) return;
+    crossProg.current = true;
+    try {
+      for (const rt of [p.top, p.bottom]) {
+        if (!rt) continue;
+        const rows = rt.series.data();
+        let row: { time: unknown; close?: number } | null = null;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          const r = rows[i] as { time: unknown; close?: number };
+          if ((r.time as number) <= playheadSec && typeof r.close === "number") {
+            row = r;
+            break;
+          }
+        }
+        if (row) rt.chart.setCrosshairPosition(row.close as number, row.time as UTCTimestamp, rt.series);
+        else rt.chart.clearCrosshairPosition();
+      }
+    } finally {
+      crossProg.current = false;
+    }
+  };
+  // A step, Shift-step or play tick moves the playhead (or its second): pin to the latest candle.
+  useEffect(() => {
+    if (!isReplay) return;
+    pointerMode.current = "latest";
+    setHoverSec(null);
+    snapRef.current?.();
+    // the forming candle's data lands a frame later in lightweight-charts
+    const id = requestAnimationFrame(() => {
+      if (pointerMode.current === "latest") snapRef.current?.();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isReplay, playheadSec, playheadLabel]);
 
   // ---- stop line (amber), contract pane only ---------------------------------
   useEffect(() => {
@@ -982,6 +1125,9 @@ export function PriceChart({
 
   // The legend reads the hovered bar, else the latest drawn one (the playhead bar on Replay).
   const shown = hoverSec ?? playheadSec;
+  // The underlying's bid/ask is read at the legend bar's last second, never past the replay.
+  const quoteLimit = isReplay ? (revealSec ?? playheadSec + barSec - 1) : null;
+  const quoteAt = shown === null ? null : quoteAtSec(shown, barSec, quoteLimit);
 
   // Fill details for the hovered minute (the markers themselves stay short; the full per-fill
   // list lives beside the chart on Replay and under it on the trade page).
@@ -1017,14 +1163,11 @@ export function PriceChart({
     return at === null ? null : `No data after ${ptClock(at)}`;
   };
 
-  const controlsNode = (
-    <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 bg-card pl-2" data-testid="chart-controls">
-      <span className="hidden text-label text-muted-foreground xl:inline">
-        {tradingView
-          ? "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset"
-          : "Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset"}
-      </span>
-      {stopPriceProp != null && (
+  // The stop toggle belongs to the contract pane; the zoom set lives once, on the underlying
+  // pane, and zooms both panes together. How-to text sits in the "?" tooltip.
+  const stopToggleNode =
+    stopPriceProp != null ? (
+      <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 pl-2">
         <button
           type="button"
           aria-pressed={showStop}
@@ -1038,11 +1181,23 @@ export function PriceChart({
           <span className="inline-block h-0 w-3 border-t-2 border-dashed border-stop" />
           {stopAssumed ? "Stop (assumed)" : "Stop"}
         </button>
-      )}
+      </div>
+    ) : null;
+  const zoomNode = (
+    <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 pl-2" data-testid="chart-controls">
+      {!top && stopToggleNode}
+      <span
+        className="cursor-help rounded-md p-1 text-muted-foreground"
+        title={tradingView ? HELP_TEXT_TV : HELP_TEXT}
+        aria-label={tradingView ? HELP_TEXT_TV : HELP_TEXT}
+        role="img"
+      >
+        <HelpCircle className="h-4 w-4" />
+      </span>
       <button
         type="button"
         aria-label="Zoom out"
-        title="Zoom out"
+        title="Zoom out (both charts)"
         onClick={() => controls.current?.zoom(BUTTON_ZOOM)}
         className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-muted"
       >
@@ -1051,7 +1206,7 @@ export function PriceChart({
       <button
         type="button"
         aria-label="Zoom in"
-        title="Zoom in"
+        title="Zoom in (both charts)"
         onClick={() => controls.current?.zoom(1 / BUTTON_ZOOM)}
         className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-muted"
       >
@@ -1070,8 +1225,21 @@ export function PriceChart({
   return (
     // No text selection or native drag: a drag on the chart must never pick up a ghost image of it.
     <div
-      className={`flex h-full min-h-0 w-full min-w-0 select-none ${top && contractBelow ? "flex-col-reverse" : "flex-col"}`}
+      className={`relative flex h-full min-h-0 w-full min-w-0 select-none ${top && contractBelow ? "flex-col-reverse" : "flex-col"}`}
       onDragStart={(e) => e.preventDefault()}>
+      {isReplay && !following && (
+        <button
+          type="button"
+          onClick={() => controls.current?.jumpLatest()}
+          className="absolute bottom-9 z-30 flex items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1 text-label text-foreground shadow-sm transition-colors hover:bg-muted"
+          style={{ right: PRICE_SCALE_WIDTH + 12 }}
+          title="Scroll to the latest candle and follow it again"
+          data-testid="jump-latest"
+        >
+          Jump to latest
+          <ChevronsRight className="h-3.5 w-3.5" />
+        </button>
+      )}
       {top && (
         <Pane
           className={`${mainPane === "bottom" ? "flex-[3]" : "flex-[6]"}${contractBelow ? " border-t border-border" : ""}`}
@@ -1090,7 +1258,8 @@ export function PriceChart({
           details={detailFor("top", shown)}
           detailsAsBox={fillLabels === "arrows"}
           noData={noDataFor(top)}
-          controls={controlsNode}
+          controls={stopToggleNode}
+          barSec={barSec}
         />
       )}
       <Pane
@@ -1114,7 +1283,9 @@ export function PriceChart({
         details={detailFor("bottom", shown)}
         detailsAsBox={fillLabels === "arrows"}
         noData={noDataFor(bottom)}
-        controls={top ? undefined : controlsNode}
+        controls={zoomNode}
+        quoteAt={bottom.quoteSymbol ? quoteAt : null}
+        barSec={barSec}
       />
     </div>
   );
@@ -1139,9 +1310,14 @@ function Pane({
   controls,
   timeframe,
   lastOnly = false,
+  quoteAt = null,
+  barSec = 60,
 }: {
   /** "1m", shown after the symbol in the legend. */
   timeframe: string;
+  /** Read the bid/ask (spec.quoteSymbol) at this second; null: no quote line. */
+  quoteAt?: number | null;
+  barSec?: number;
   /** Option pane: say it is the last trade (there is no historical bid/ask to show). */
   lastOnly?: boolean;
   className: string;
@@ -1164,7 +1340,8 @@ function Pane({
 }) {
   const bar = shown === null ? null : legendBar(spec.candles, shown, playheadSec);
   const lineAt = (m: Map<number, number> | undefined) =>
-    shown === null || shown > playheadSec ? undefined : m?.get(shown);
+    shown === null || shown > playheadSec ? undefined : valueAtOrBefore(m, shown, barSec);
+  const quote = useLegendQuote(spec.quoteSymbol ?? null, quoteAt);
   const { width, playX, entryX, exitX } = layout;
   const windowEnd = exitX ?? playX;
   const placed = useMemo(
@@ -1302,19 +1479,37 @@ function Pane({
                 {bar.close.toFixed(2)}
               </span>
             )}
+            {spec.quoteSymbol && bar && quoteAt !== null && (
+              quote?.available && quote.bid != null && quote.ask != null ? (
+                <span className="text-foreground" data-testid="legend-bidask" title={`Bid × ask at ${ptClockSec(quoteAt)}`}>
+                  <span className="text-muted-foreground">Bid×Ask </span>
+                  {formatBidAsk(quote.bid, quote.ask)}
+                </span>
+              ) : quote ? (
+                <span className="text-foreground" data-testid="legend-last" title={`No bid/ask: ${quote.reason ?? "no quote"}. Showing the last price.`}>
+                  <span className="text-muted-foreground">Last </span>
+                  {bar.close.toFixed(2)}
+                </span>
+              ) : null
+            )}
           </div>
           {(spec.vwap || (spec.emas && spec.emas.length > 0)) && (
-            <div className="num flex flex-wrap gap-x-2 text-label leading-tight" data-testid="chart-legend-lines">
+            <div className="num flex flex-wrap gap-x-2.5 text-label leading-tight" data-testid="chart-legend-lines">
               {spec.vwap && (
-                <span style={{ color: THEME.vwap }}>
+                <span className="flex items-center gap-1" style={{ color: THEME.vwap }}>
+                  <LineSwatch color={THEME.vwap} style="solid" />
                   VWAP {lineAt(spec.vwap)?.toFixed(2) ?? "—"}
                 </span>
               )}
-              {spec.emas?.map((e, i) => (
-                <span key={e.label} style={{ color: e.color ?? emaColor(i) }}>
-                  {e.label} {lineAt(e.values)?.toFixed(2) ?? "—"}
-                </span>
-              ))}
+              {spec.emas?.map((e, i) => {
+                const look = lineLook(e.label, i);
+                return (
+                  <span key={e.label} className="flex items-center gap-1" style={{ color: e.color ?? look.color }}>
+                    <LineSwatch color={e.color ?? look.color} style={e.style ?? look.style} />
+                    {e.label} {lineAt(e.values)?.toFixed(2) ?? "—"}
+                  </span>
+                );
+              })}
             </div>
           )}
           {detailsAsBox && details.length > 0 && (
@@ -1333,6 +1528,48 @@ function Pane({
       </div>
     </div>
   );
+}
+
+/** A small legend swatch drawn like the line: solid, dashed or dots. */
+function LineSwatch({ color, style }: { color: string; style: LineStyleName }) {
+  if (style === "dots" || style === "dotted")
+    return (
+      <span className="inline-flex w-4 justify-between" aria-hidden>
+        {[0, 1, 2].map((k) => (
+          <span key={k} className="inline-block h-1 w-1 rounded-full" style={{ background: color }} />
+        ))}
+      </span>
+    );
+  return (
+    <span
+      className="inline-block w-4"
+      aria-hidden
+      style={{ borderTop: `2px ${style === "dashed" ? "dashed" : "solid"} ${color}` }}
+    />
+  );
+}
+
+/**
+ * The legend's bid/ask: the stock's latest historical quote at `at` (epoch seconds), fetched
+ * once the legend settles on a bar (hovering across bars does not fire a request per bar) and
+ * cached per second. Undefined until the first answer.
+ */
+function useLegendQuote(symbol: string | null, at: number | null) {
+  const [settled, setSettled] = useState(at);
+  useEffect(() => {
+    const id = setTimeout(() => setSettled(at), 150);
+    return () => clearTimeout(id);
+  }, [at]);
+  const q = useQuery({
+    queryKey: ["legend-quote", symbol, settled],
+    queryFn: () => api.replayQuote(symbol as string, new Date((settled as number) * 1000).toISOString()),
+    enabled: symbol !== null && settled !== null,
+    staleTime: Infinity,
+    retry: false,
+    placeholderData: (prev) => prev,
+  });
+  if (q.isError) return { available: false, reason: "quotes could not be loaded", bid: null, ask: null };
+  return q.data;
 }
 
 /** The legend's symbol: the pane label without its note ("SPY, proxy for SPX" -> "SPY"). */
