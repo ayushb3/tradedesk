@@ -12,11 +12,12 @@ export const MAX_SPEED = SPEED_STEPS[SPEED_STEPS.length - 1];
 /** A fresh replay (no saved speed) starts at real time. */
 export const DEFAULT_SPEED = 1;
 /**
- * Whole-bar players with no trade to study (free replay, the scenario author) keep the same
- * doubling steps but reach further, so 5m/15m bars still move: up to 1024x, starting at 64x.
+ * The scenario author only (a tool he builds drills with, not one he watches) keeps the same
+ * doubling steps but reaches further: up to 1024x, starting at 64x. Every player he watches
+ * (trade, day and free replay, Learn) stays at 0.5x to 64x.
  */
-export const FAST_MAX_SPEED = 1024;
-export const FAST_DEFAULT_SPEED = 64;
+export const AUTHOR_MAX_SPEED = 1024;
+export const AUTHOR_DEFAULT_SPEED = 64;
 /** Clock tick, ms. The playhead advances by speed x elapsed time, not one step per tick. */
 export const CLOCK_TICK_MS = 50;
 const STORAGE_KEY = "tradedesk.replay.speed";

@@ -20,7 +20,7 @@ export function SpeedSlider({
   disabled?: boolean;
   /** Shown when the replay has to play minute bars; `reason` goes in the tooltip. */
   minuteTag?: { reason: string } | null;
-  /** Top speed (default 64x; free replay and the author go to 1024x). */
+  /** Top speed (default 64x; only the scenario author, which he does not watch, goes to 1024x). */
   max?: number;
 }) {
   // ↑ doubles, ↓ halves (the shared keymap; ignored while typing or with a modifier held).

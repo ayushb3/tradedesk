@@ -6,11 +6,15 @@
 import { VWAP_COLOR } from "@/lib/chartColors";
 
 export const CHART_THEME = {
+  /** The trading-platform look: near-black panels, thin dark borders, almost no grid. */
+  bg: "#050506",
   text: "#a1a1aa",
-  grid: "#26262b",
-  border: "#26262b",
-  up: "#26a69a",
-  down: "#ef5350",
+  /** Horizontal grid only, barely there. */
+  grid: "#141417",
+  border: "#202024",
+  /** Bright green up, orange down. */
+  up: "#1fd660",
+  down: "#ff6a1a",
   /** Playhead, sim fills. */
   play: "#3b82f6",
   /** The stop line. */

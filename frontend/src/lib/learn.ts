@@ -112,8 +112,6 @@ export function guardBars(candles: Candle[], pauseAt: string, answered: boolean)
 /** Playback starts this many minutes before the pause; the view shows this many minutes. */
 export const LEAD_MINUTES = 30;
 export const VIEW_MINUTES = 60;
-/** Playback speeds, bars per second. */
-export const PLAY_SPEEDS = [1, 2, 5, 10] as const;
 
 /** Bars covering `minutes` at a timeframe like "1m" or "5m" (unknown: 1-minute bars). */
 export function barsFor(minutes: number, timeframe: string): number {

@@ -38,7 +38,6 @@ import { isoToUtcSeconds } from "@/lib/chart";
 import {
   EMPTY_DRAFT,
   LEAD_MINUTES,
-  PLAY_SPEEDS,
   TIMEFRAMES,
   VIEW_MINUTES,
   aggregateBars,
@@ -79,8 +78,10 @@ import { useLearnAnswer, useLearnBars, useLearnDrill, useLearnResult, useLearnTo
 import { usePlayClock } from "@/lib/playClock";
 import { useReplayKeys } from "@/lib/replayKeys";
 import { CHART_THEME } from "@/lib/chartTheme";
+import { SpeedSlider } from "@/components/replay/SpeedSlider";
+import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
+import { barSecOf } from "@/lib/sessionChart";
 
-const DEFAULT_SPEED = 1; // bars per second
 const COLOR = { level: CHART_THEME.play, stop: CHART_THEME.stop, target: CHART_THEME.up, key: CHART_THEME.neutral };
 
 const STEP_TITLE: Record<LearnStepName, string> = {
@@ -427,7 +428,11 @@ export function LearnDrillPage() {
   const [armed, setArmed] = useState<LearnStepName | null>(null);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [speed, setSpeedState] = useState(loadSpeed);
+  const setSpeed = (s: number) => {
+    setSpeedState(s);
+    saveSpeed(s); // the same saved speed as trade and day replay
+  };
   const [tfChoice, setTfChoice] = useState<TfChoice>("auto");
   const [showHourly, setShowHourly] = useState(true);
   const [showOrb, setShowOrb] = useState(false);
@@ -466,12 +471,13 @@ export function LearnDrillPage() {
     setPlaying(true);
   }, [drill, n, answered, candles, timeframe]);
 
-  // Animate: `speed` bars per second while playing, until the last bar in hand.
-  // The shared playback clock, one step per bar.
+  // Animate at the shared replay speed (chart time per real second, 0.5x to 64x) until the
+  // last bar in hand: one step per bar, so a 1m bar takes 60 s / speed.
+  const tapeSec = useMemo(() => barSecOf(candles), [candles]);
   usePlayClock({
     playing: playing && n > 0 && idx < n - 1,
     speed,
-    unitSec: 1,
+    unitSec: tapeSec,
     onSteps: (k) => setIdx((i) => Math.min(i + k, Math.max(0, n - 1))),
   });
 
@@ -512,13 +518,7 @@ export function LearnDrillPage() {
         setIdx((i) => (dir > 0 ? stepIndex(i, n) : Math.max(0, i - 1)));
       },
       onToggle: phase === "decision" ? undefined : () => setPlaying((p) => !p),
-      // ↑/↓: the next faster / slower of Learn's bar-per-second speeds.
-      onSpeed: (dir) =>
-        setSpeed((cur) => {
-          const i = PLAY_SPEEDS.indexOf(cur as (typeof PLAY_SPEEDS)[number]);
-          const j = Math.max(0, Math.min(PLAY_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir));
-          return PLAY_SPEEDS[j];
-        }),
+      // ↑/↓ belong to the SpeedSlider (0.5x to 64x, like every replay).
       onEnd:
         phase === "decision"
           ? undefined
@@ -715,6 +715,7 @@ export function LearnDrillPage() {
           <div className="h-[30rem] overflow-hidden rounded-lg border border-border bg-card lg:h-[36rem]" data-testid="drill-chart">
             {bottom ? (
               <PriceChart
+                footer={false}
                 top={null}
                 bottom={bottom}
                 startSec={startSec}
@@ -815,22 +816,7 @@ export function LearnDrillPage() {
                 1h levels
               </Chip>
             </div>
-            <div className="flex items-center gap-1" role="group" aria-label="Playback speed">
-              {PLAY_SPEEDS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={speed === s}
-                  onClick={() => setSpeed(s)}
-                  className={
-                    "num rounded-md border px-1.5 py-0.5 text-label transition-colors " +
-                    (speed === s ? "border-ring text-foreground" : "border-border text-muted-foreground hover:bg-muted")
-                  }
-                >
-                  {s}/s
-                </button>
-              ))}
-            </div>
+            <SpeedSlider value={speed} onChange={setSpeed} />
             <span className="num text-label text-muted-foreground">
               {n > 0 ? `Bar ${idx + 1} of ${n}, ${ptTime(candles[Math.min(idx, n - 1)].ts)}` : ""}
               {fullBarsLoading ? " · loading the rest" : ""}

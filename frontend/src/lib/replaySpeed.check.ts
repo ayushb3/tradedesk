@@ -3,7 +3,7 @@
  * Run: npm run check:sim
  */
 import {
-  advance, clampSpeed, DEFAULT_SPEED, engineFor, FAST_DEFAULT_SPEED, FAST_MAX_SPEED, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
+  advance, clampSpeed, DEFAULT_SPEED, engineFor, AUTHOR_DEFAULT_SPEED, AUTHOR_MAX_SPEED, formatSpeed, loadSpeed, MAX_SPEED, MIN_SPEED,
   minuteLabel, saveSpeed, secondsRes, snapSpeed, SPEED_STEPS, stepSpeed,
 } from "./replaySpeed";
 
@@ -70,12 +70,12 @@ eq("late timer catches up, same speed", advance(0, 500, 64, 1).steps, 32);
 eq("negative elapsed ignored", advance(0, -100, 64, 1).steps, 0);
 
 // ---- whole-bar players (free replay, author): same doubling steps, a higher ceiling
-eq("fast ceiling and start", [FAST_MAX_SPEED, FAST_DEFAULT_SPEED], [1024, 64]);
-eq("fast: up from 64", stepSpeed(64, 1, FAST_MAX_SPEED), 128);
-eq("fast: up at 1024 stays", stepSpeed(1024, 1, FAST_MAX_SPEED), 1024);
-eq("fast: 15m bar at 1024x every ~0.9 s", advance(0, 879, 1024, 900, FAST_MAX_SPEED).steps, 1);
+eq("author ceiling and start", [AUTHOR_MAX_SPEED, AUTHOR_DEFAULT_SPEED], [1024, 64]);
+eq("author: up from 64", stepSpeed(64, 1, AUTHOR_MAX_SPEED), 128);
+eq("author: up at 1024 stays", stepSpeed(1024, 1, AUTHOR_MAX_SPEED), 1024);
+eq("author: 15m bar at 1024x every ~0.9 s", advance(0, 879, 1024, 900, AUTHOR_MAX_SPEED).steps, 1);
 eq("default ceiling still 64", stepSpeed(64, 1), 64);
-eq("fast format", formatSpeed(512, FAST_MAX_SPEED), "512x");
+eq("author format", formatSpeed(512, AUTHOR_MAX_SPEED), "512x");
 
 // ---- remembered speed survives a broken storage
 const mem = new Map<string, string>();

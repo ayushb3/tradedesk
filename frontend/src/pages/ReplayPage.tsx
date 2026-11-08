@@ -27,7 +27,7 @@ import {
 import { ruleBarState } from "@/lib/ruleBar";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
-import { engineFor, FAST_DEFAULT_SPEED, FAST_MAX_SPEED, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
+import { DEFAULT_SPEED, engineFor, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
 import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
 import { useReplay, type ReplayState } from "@/lib/useReplay";
 import { isInputFocused } from "@/lib/replayKeys";
@@ -55,7 +55,7 @@ import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { api, ApiError, type ReplaySession, type SimTrade } from "@/lib/api";
+import { api, ApiError, REPLAY_TIMEFRAMES, type ReplaySession, type SimTrade } from "@/lib/api";
 
 /** Free replay starts on SPY and the most recent weekday; there is no stored default. */
 const FREE_SYMBOL = "SPY";
@@ -107,7 +107,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const navigate = useNavigate();
   const [speed, setSpeedState] = useState<number>(() => loadSpeed());
   // Free replay plays whole bars with no trade to study: its own speed, up to 1024x.
-  const [freeSpeed, setFreeSpeed] = useState<number>(FAST_DEFAULT_SPEED);
+  const [freeSpeed, setFreeSpeed] = useState<number>(DEFAULT_SPEED);
   const setSpeed = (s: number) => {
     setSpeedState(s);
     saveSpeed(s);
@@ -277,7 +277,6 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     keyboardEnabled: !useSeconds,
     // The speed control drives the minute clock (64x ≈ one 1m bar per second).
     chartSpeed: inTrade ? speed : freeSpeed,
-    maxSpeed: inTrade ? undefined : FAST_MAX_SPEED,
   });
 
   // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
@@ -616,7 +615,17 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             </div>
           )}
           {ready && !inTrade && data && (
-            <FreeReplayChart session={data} index={replay.currentIndex} visibility={visibility} trades={trades} />
+            <FreeReplayChart
+              session={data}
+              index={replay.currentIndex}
+              visibility={visibility}
+              trades={trades}
+              interval={{
+                value: config.timeframe,
+                options: REPLAY_TIMEFRAMES,
+                onChange: (tf) => setConfig({ ...config, timeframe: tf as typeof config.timeframe }),
+              }}
+            />
           )}
           {inTrade ? (
             <TradeScrubber
@@ -631,7 +640,6 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               replay={replay}
               speed={freeSpeed}
               onSpeedChange={setFreeSpeed}
-              maxSpeed={FAST_MAX_SPEED}
               disabled={!ready}
               config={config}
               onConfigChange={setConfig}
@@ -695,11 +703,14 @@ function FreeReplayChart({
   index,
   visibility,
   trades,
+  interval,
 }: {
   session: ReplaySession;
   index: number;
   visibility: ChartVisibility;
   trades: SimTrade[];
+  /** The chart's Interval buttons pick the bar size this page loads. */
+  interval: { value: string; options: readonly string[]; onChange: (label: string) => void };
 }) {
   // Memoized: a new pane object makes PriceChart refeed every series.
   const c = useMemo(
@@ -724,6 +735,7 @@ function FreeReplayChart({
         mode={{ kind: "replay" }}
         stopPrice={null}
         fills={[]}
+        interval={interval}
       />
     </div>
   );
