@@ -373,8 +373,11 @@ function PriceChartCore({
     noteFollow,
   };
 
-  const entrySec = revealedFillTime(fills, "entry", playheadSec);
-  const exitSec = revealedFillTime(fills, "exit", playheadSec);
+  // Snapped to the bar grid, so the hold shading lines up on 5m/15m bars too. A fill anywhere in
+  // the playhead's bar counts (callers already gate fills at the real playhead).
+  const snapFill = (t: number | null) => (t === null ? null : onBar(t));
+  const entrySec = snapFill(revealedFillTime(fills, "entry", playheadSec + barSec - 1));
+  const exitSec = snapFill(revealedFillTime(fills, "exit", playheadSec + barSec - 1));
 
   // ---- create the charts once per layout (stacked / underlying only) ---------
   useEffect(() => {
@@ -865,7 +868,7 @@ function PriceChartCore({
       });
       rt.chart.priceScale("right").applyOptions({ autoScale });
     }
-  }, [autoScale, hasTop]);
+  }, [autoScale, hasTop, contractBelow]);
 
   // ---- replay crosshair: pinned to the latest candle unless the mouse is over the chart ----
   snapRef.current = () => {
@@ -1044,9 +1047,10 @@ function PriceChartCore({
         .map((f) => ({
           sec: f.sec,
           side: f.side,
-          text: fillChipText(f.side, playheadLabel ? ptClockSec(f.exact) : ptClock(f.sec)),
+          // The fill's own minute, not its bar's open (they differ on 5m+ bars).
+          text: fillChipText(f.side, playheadLabel ? ptClockSec(f.exact) : ptClock(Math.floor(f.exact / 60) * 60)),
         })),
-    [fills, playheadSec, playheadLabel, fillLabels],
+    [fills, playheadSec, playheadLabel, fillLabels, startSec, barSec],
   );
   useEffect(() => {
     const p = panes.current;
@@ -1375,7 +1379,10 @@ export function PriceChart({ footer = true, ...props }: Props) {
   const eff = useMemo(
     () => (canRollUp && tfMin > 1 ? withInterval(props, tfMin * 60) : props),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canRollUp, tfMin, props.top, props.bottom, props.startSec, props.endSec, props.playheadSec, props.mode, props.defaultView, props.noDataAfterSec, props.initialBars],
+    // Primitive deps: callers pass `mode` / `defaultView` as fresh objects every render.
+    [canRollUp, tfMin, props.top, props.bottom, props.startSec, props.endSec, props.playheadSec, props.mode.kind,
+      props.mode.kind === "review" ? props.mode.exitSec : null, props.defaultView?.fromSec, props.defaultView?.toSec,
+      props.noDataAfterSec, props.initialBars, props.fills, props.simFills, props.revealSec],
   );
   const core = <PriceChartCore {...props} {...eff} mainPane={focus} autoScale={autoScale} />;
   if (!footer) return core;
@@ -1473,16 +1480,26 @@ export function PriceChart({ footer = true, ...props }: Props) {
 /** The chart's props on `tfSec` bars: minute bars rolled up, times floored onto the new grid. */
 function withInterval(p: Props, tfSec: number): Partial<Props> {
   const ph = p.playheadSec;
+  // Replay rolls up only what is drawn so far; review shows its whole window.
+  const cut = p.mode.kind === "replay" ? ph : Number.POSITIVE_INFINITY;
   const pane = (s: PaneSpec | null): PaneSpec | null =>
     s && {
       ...s,
-      candles: rollUp(s.candles, tfSec, ph),
-      vwap: s.vwap ? rollUpLine(s.vwap, tfSec, ph) : undefined,
-      emas: s.emas?.map((e) => ({ ...e, values: rollUpLine(e.values, tfSec, ph) })),
+      candles: rollUp(s.candles, tfSec, cut),
+      vwap: s.vwap ? rollUpLine(s.vwap, tfSec, cut) : undefined,
+      emas: s.emas?.map((e) => ({ ...e, values: rollUpLine(e.values, tfSec, cut) })),
       markers: s.markers?.map((m) => ({ ...m, sec: bucketOf(m.sec, tfSec) })),
     };
   const b = (sec: number) => bucketOf(sec, tfSec);
+  // The bar holding the playhead is still forming: quotes and fills stop at the real playhead
+  // (its minute), never at the end of the larger bar.
+  const lastSec = ph + (p.barSec ?? 60) - 1;
+  const seen = <T extends { ts: string }>(xs: T[] | undefined) =>
+    p.mode.kind === "replay" ? xs?.filter((f) => Math.floor(Date.parse(f.ts) / 1000) <= lastSec) : xs;
   return {
+    revealSec: p.revealSec ?? lastSec,
+    fills: seen(p.fills) ?? [],
+    simFills: seen(p.simFills),
     top: pane(p.top),
     bottom: pane(p.bottom) as PaneSpec,
     startSec: b(p.startSec),
@@ -1653,7 +1670,7 @@ function Pane({
           ))}
         </div>
       </div>
-      <div className="relative min-h-0 flex-1" style={{ background: THEME.bg }}>
+      <div className="relative min-h-0 flex-1 bg-chart">
         <div ref={elRef} className="absolute inset-0" />
         {/* Overlays share the plot area's width (the price scale sits to the right). */}
         <div className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden" style={{ width }}>
