@@ -9,12 +9,6 @@ import { ReplayToolbar } from "@/components/replay/ReplayToolbar";
 import { RuleSummary } from "@/components/replay/RuleBar";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import { DayReplay } from "@/components/replay/DayReplay";
-import {
-  ReplayChart,
-  overlaySpecs,
-  rsiKey,
-  type ChartVisibility,
-} from "@/components/replay/ReplayChart";
 import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { PriceChart } from "@/components/chart/PriceChart";
 import { RealTradeCard } from "@/components/replay/RealTradeCard";
@@ -35,7 +29,9 @@ import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndic
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
 import { engineFor, loadSpeed, saveSpeed, secondsRes } from "@/lib/replaySpeed";
 import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
-import { isInputFocused, useReplay, type ReplayState } from "@/lib/useReplay";
+import { useReplay, type ReplayState } from "@/lib/useReplay";
+import { isInputFocused } from "@/lib/replayKeys";
+import { sessionChart, type ChartVisibility } from "@/lib/sessionChart";
 import { useSecondsReplay } from "@/lib/useSecondsReplay";
 import {
   finishedOnly,
@@ -46,7 +42,7 @@ import {
   replaySeries,
 } from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
-import { formatEt, isoToUtcSeconds, valueAt } from "@/lib/chart";
+import { isoToUtcSeconds } from "@/lib/chart";
 import {
   candlesInWindow,
   floorMinute,
@@ -54,12 +50,12 @@ import {
   revealedFillTime,
   spyPaneLabel,
 } from "@/lib/stackedReplay";
-import { DISPLAY_TZ_LABEL, formatClock } from "@/lib/format";
+import { formatClock } from "@/lib/format";
 import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { api, ApiError, type IndicatorKey, type ReplaySession, type SimTrade } from "@/lib/api";
+import { api, ApiError, type ReplaySession, type SimTrade } from "@/lib/api";
 
 /** Free replay starts on SPY and the most recent weekday; there is no stored default. */
 const FREE_SYMBOL = "SPY";
@@ -277,8 +273,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   // (the engine resets to the first bar whenever the bar count changes).
   const minuteReplay = useReplay(data, {
     keyboardEnabled: !useSeconds,
-    // Trade replay: the speed slider drives the minute clock too (60x = 1 bar per second).
-    chartSpeed: inTrade ? speed : undefined,
+    // The speed control drives the minute clock (64x ≈ one 1m bar per second).
+    chartSpeed: speed,
   });
 
   // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
@@ -488,7 +484,6 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const visibility: ChartVisibility = {
     hiddenOverlays: config.hiddenOverlays,
     hiddenLevels: config.hiddenLevels,
-    rsiHidden: config.rsiHidden,
   };
 
   // Reset the trade log whenever the session changes.
@@ -617,20 +612,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               />
             </div>
           )}
-          {ready && !inTrade && (
-            <>
-              <ChartLegend
-                session={data}
-                currentIndex={replay.currentIndex}
-                visibility={visibility}
-              />
-              <ReplayChart
-                session={data}
-                currentIndex={replay.currentIndex}
-                trades={trades}
-                visibility={visibility}
-              />
-            </>
+          {ready && !inTrade && data && (
+            <FreeReplayChart session={data} index={replay.currentIndex} visibility={visibility} trades={trades} />
           )}
           {inTrade ? (
             <TradeScrubber
@@ -643,6 +626,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
           ) : (
             <ReplayControlBar
               replay={replay}
+              speed={speed}
+              onSpeedChange={setSpeed}
               disabled={!ready}
               config={config}
               onConfigChange={setConfig}
@@ -700,63 +685,37 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   );
 }
 
-function ChartLegend({
+/** Free replay on the shared chart: the session's underlying, levels and practice trades. */
+function FreeReplayChart({
   session,
-  currentIndex,
+  index,
   visibility,
+  trades,
 }: {
   session: ReplaySession;
-  currentIndex: number;
+  index: number;
   visibility: ChartVisibility;
+  trades: SimTrade[];
 }) {
-  const candle = session.candles[currentIndex];
-  const barTime = candle ? formatEt(candle.ts, session.meta.tz) : "—";
-
-  const specs = overlaySpecs(session.indicators).filter(
-    (o) => !visibility.hiddenOverlays.has(o.key),
-  );
-  const rKey = rsiKey(session.indicators);
-  const showRsi = !visibility.rsiHidden && rKey != null;
-
+  const c = sessionChart(session, index, {
+    visibility,
+    trades,
+    label: session.meta.source_label ? `${session.symbol} · ${session.meta.source_label}` : session.symbol,
+  });
+  if (!c) return null;
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-label backdrop-blur">
-      <span className="font-semibold tracking-tight">{session.symbol}</span>
-      {session.meta.source_label && (
-        <span className="text-muted-foreground">{session.meta.source_label}</span>
-      )}
-      <span className="num text-muted-foreground">{barTime} {DISPLAY_TZ_LABEL}</span>
-      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {specs.map((o) => {
-          const v = valueAt(session.indicators[o.key as IndicatorKey], currentIndex);
-          return (
-            <span key={o.key} className="flex items-center gap-1.5">
-              <span
-                className="inline-block h-0.5 w-4"
-                style={{ background: o.color }}
-              />
-              <span className="text-muted-foreground">
-                {o.label}
-                {v != null ? ` ${v.toFixed(2)}` : ""}
-              </span>
-            </span>
-          );
-        })}
-        {showRsi && (
-          <span className="flex items-center gap-1.5">
-            <span
-              className="inline-block h-0.5 w-4"
-              style={{ background: "#eab308" }}
-            />
-            <span className="text-muted-foreground">
-              {rKey!.toUpperCase()}
-              {(() => {
-                const v = valueAt(session.indicators[rKey! as IndicatorKey], currentIndex);
-                return v != null ? ` ${v.toFixed(1)}` : "";
-              })()}
-            </span>
-          </span>
-        )}
-      </span>
+    <div className="absolute inset-0 pb-24">
+      <PriceChart
+        top={null}
+        bottom={c.pane}
+        startSec={c.startSec}
+        endSec={c.endSec}
+        playheadSec={c.playheadSec}
+        barSec={c.barSec}
+        mode={{ kind: "replay" }}
+        stopPrice={null}
+        fills={[]}
+      />
     </div>
   );
 }

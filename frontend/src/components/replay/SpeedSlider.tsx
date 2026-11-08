@@ -1,12 +1,7 @@
-import { useEffect, useRef } from "react";
 import { Minus, Plus } from "lucide-react";
 
-import { isInputFocused } from "@/lib/useReplay";
+import { REPLAY_KEYS_HELP, useReplayKeys } from "@/lib/replayKeys";
 import { MAX_SPEED, MIN_SPEED, formatSpeed, minuteLabel, stepSpeed } from "@/lib/replaySpeed";
-
-/** Keyboard summary for the replay, shown in the speed control's tooltip. */
-export const REPLAY_KEYS_HELP =
-  "←/→ one candle · Shift+←/→ one second · ↑/↓ speed ×2 / ÷2 · Space play/pause";
 
 /**
  * Replay speed: a compact "− 4x +" stepper over the powers of two, 0.5x to 64x
@@ -25,22 +20,8 @@ export function SpeedSlider({
   /** Shown when the replay has to play minute bars; `reason` goes in the tooltip. */
   minuteTag?: { reason: string } | null;
 }) {
-  const latest = useRef({ value, onChange });
-  latest.current = { value, onChange };
-
-  // ↑ doubles, ↓ halves (ignored while typing or with a modifier held).
-  useEffect(() => {
-    if (disabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || isInputFocused(e.target)) return;
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      e.preventDefault();
-      const { value: v, onChange: set } = latest.current;
-      set(stepSpeed(v, e.key === "ArrowUp" ? 1 : -1));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [disabled]);
+  // ↑ doubles, ↓ halves (the shared keymap; ignored while typing or with a modifier held).
+  useReplayKeys({ onSpeed: (dir) => onChange(stepSpeed(value, dir)) }, !disabled);
 
   const btn =
     "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";

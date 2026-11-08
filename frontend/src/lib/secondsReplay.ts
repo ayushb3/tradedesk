@@ -38,11 +38,6 @@ export function candleStepSec(sec: number, dir: 1 | -1, min: number, max: number
   return clampSec(target, min, max);
 }
 
-/** Arrow keys: one candle, or one second with Shift. */
-export function arrowStep(key: "ArrowLeft" | "ArrowRight", shift: boolean): { dir: 1 | -1; fine: boolean } {
-  return { dir: key === "ArrowLeft" ? -1 : 1, fine: shift };
-}
-
 /** Add bars not already held (by timestamp), keeping time order. */
 export function mergeBars(held: Candle[], incoming: Candle[]): Candle[] {
   if (incoming.length === 0) return held;

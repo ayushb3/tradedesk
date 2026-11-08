@@ -11,10 +11,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Candle } from "@/lib/api";
-import { isInputFocused } from "@/lib/useReplay";
-import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
+import { usePlayClock } from "@/lib/playClock";
+import { useReplayKeys } from "@/lib/replayKeys";
 import {
-  arrowStep,
   candleStepSec,
   clampSec,
   mergeBars,
@@ -72,22 +71,13 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec, speed
   const atStart = playSec <= minSec;
   const atEnd = playSec >= maxSec;
 
-  // ---- the clock: speed x elapsed real time, whole seconds, remainder carried
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
-  useEffect(() => {
-    if (!enabled || !isPlaying) return;
-    let last = performance.now();
-    let carry = 0;
-    const id = window.setInterval(() => {
-      const now = performance.now();
-      const r = advance(carry, now - last, speedRef.current, 1);
-      last = now;
-      carry = r.carry;
-      if (r.steps > 0) setPlaySec((s) => Math.min(s + r.steps, maxSec));
-    }, CLOCK_TICK_MS);
-    return () => window.clearInterval(id);
-  }, [enabled, isPlaying, maxSec]);
+  // ---- the clock: the shared one, in whole seconds
+  usePlayClock({
+    playing: enabled && isPlaying,
+    speed,
+    unitSec: 1,
+    onSteps: (n) => setPlaySec((s) => Math.min(s + n, maxSec)),
+  });
   useEffect(() => {
     if (isPlaying && atEnd) setIsPlaying(false);
   }, [isPlaying, atEnd]);
@@ -162,23 +152,14 @@ export function useSecondsReplay({ enabled, tradeId, lead, minSec, maxSec, speed
     setPlaySec(minSec);
   }, [minSec]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (isInputFocused(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === " ") {
-        e.preventDefault();
-        toggle();
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        e.preventDefault();
-        const a = arrowStep(e.key, e.shiftKey);
-        if (a.fine) step(a.dir);
-        else stepCandle(a.dir);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, toggle, step, stepCandle]);
+  // ---- keys: the shared keymap (←/→ one candle, Shift one second)
+  useReplayKeys(
+    {
+      onToggle: toggle,
+      onStep: (dir, fine) => (fine ? step(dir) : stepCandle(dir)),
+    },
+    enabled,
+  );
 
   return {
     playSec, isPlaying, atStart, atEnd, error,

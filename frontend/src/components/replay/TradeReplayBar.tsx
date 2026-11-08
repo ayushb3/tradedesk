@@ -1,8 +1,9 @@
-import { Check, ChevronLeft, ChevronRight, Pause, Play, SlidersHorizontal, StepBack, StepForward } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrubberMarks } from "@/components/replay/ReplayControlBar";
+import { ReplayTransport } from "@/components/replay/ReplayTransport";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import { LADDERS, type Ladder, type StackIndicators } from "@/lib/stackIndicators";
@@ -54,8 +55,6 @@ export function TradeReplayBar({
   /** The collapsed rule bar (day so far, cutoff, call source). */
   daySoFar?: React.ReactNode;
 }) {
-  // One candle per step; Shift (key or click) steps one second when there are second bars.
-  const stepHint = replay.stepFine ? "1 candle (Shift: 1 sec)" : "1 candle";
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1">
       <div className="flex min-w-0 items-center gap-1" title={date ? `Session ${date}` : undefined}>
@@ -114,41 +113,7 @@ export function TradeReplayBar({
         <span className="label-caps text-label text-muted-foreground">{DISPLAY_TZ_LABEL}</span>
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
-          disabled={disabled || replay.atStart}
-          onClick={(e) => (e.shiftKey && replay.stepFine ? replay.stepFine(-1) : replay.stepBack())}
-          aria-label={`Step back ${stepHint} (←)`}
-          title={`Back ${stepHint} (←)`}
-        >
-          <StepBack />
-        </Button>
-        <Button
-          size="icon"
-          variant={replay.isPlaying ? "default" : "outline"}
-          disabled={disabled}
-          onClick={replay.toggle}
-          className="h-8 w-8"
-          aria-label={replay.isPlaying ? "Pause (Space)" : "Play (Space)"}
-          title={replay.isPlaying ? "Pause (Space)" : "Play (Space)"}
-        >
-          {replay.isPlaying ? <Pause /> : <Play />}
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
-          disabled={disabled || replay.atEnd}
-          onClick={(e) => (e.shiftKey && replay.stepFine ? replay.stepFine(1) : replay.stepForward())}
-          aria-label={`Step forward ${stepHint} (→)`}
-          title={`Forward ${stepHint} (→)`}
-        >
-          <StepForward />
-        </Button>
-      </div>
+      <ReplayTransport engine={replay} disabled={disabled} />
 
       {daySoFar}
 
