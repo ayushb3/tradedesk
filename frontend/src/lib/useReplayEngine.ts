@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
+import { usePlayClock } from "@/lib/playClock";
+import { DEFAULT_SPEED, MAX_SPEED } from "@/lib/replaySpeed";
 
 /**
  * Bar-replay engine. The engine owns exactly one piece of truth: `currentIndex`.
@@ -9,25 +10,14 @@ import { advance, CLOCK_TICK_MS } from "@/lib/replaySpeed";
  * no-lookahead guarantee across the whole UI.
  */
 
-export type Speed = 0.5 | 1 | 2 | 4 | 5 | 10 | "max";
-
-export const SPEEDS: readonly Speed[] = [0.5, 1, 2, 5, 10, "max"] as const;
-
-export function speedLabel(s: Speed): string {
-  return s === "max" ? "Max" : `${s}x`;
-}
-
-/** Base cadence at 1x, in ms per bar. Speed scales this. */
-const BASE_MS = 650;
-const MAX_MS = 8;
-
 export interface ReplayEngine {
   currentIndex: number;
   /** Alias for currentIndex — convenience for callers that talk about "bars". */
   currentBar: number;
   total: number;
   isPlaying: boolean;
-  speed: Speed;
+  /** Chart-seconds per real second (the shared speed steps, lib/replaySpeed). */
+  speed: number;
   atStart: boolean;
   atEnd: boolean;
   play: () => void;
@@ -38,27 +28,31 @@ export interface ReplayEngine {
   /** The fine step (Shift+arrow, Shift-click): one second on second bars. Absent on minute bars, where Shift steps a candle too. */
   stepFine?: (dir: 1 | -1) => void;
   restart: () => void;
-  setSpeed: (s: Speed) => void;
+  /** Sets the engine's own speed; ignored when the page drives `chartSpeed`. */
+  setSpeed: (s: number) => void;
   setIndex: (i: number) => void;
 }
 
 export interface EngineOptions {
   /**
-   * Continuous speed in chart-seconds per real second (trade/day replay's speed slider).
-   * When set, the engine advances by speed x elapsed time in whole `barSec` bars; the
-   * discrete `speed` presets are ignored.
+   * Speed in chart-seconds per real second, when the page owns it (a SpeedSlider). Omitted:
+   * the engine keeps its own, starting at the default speed.
    */
   chartSpeed?: number;
-  /** Bar length in seconds for `chartSpeed` (default 60: minute bars). */
+  /** Bar length in seconds (default 60: minute bars). */
   barSec?: number;
+  /** Speed ceiling and the engine's own starting speed (whole-bar players go faster). */
+  maxSpeed?: number;
+  defaultSpeed?: number;
 }
 
 export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngine {
-  const chartSpeed = opts?.chartSpeed;
   const barSec = opts?.barSec ?? 60;
   const [currentIndex, setIndexState] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<Speed>(1);
+  const maxSpeed = opts?.maxSpeed ?? MAX_SPEED;
+  const [ownSpeed, setOwnSpeed] = useState<number>(opts?.defaultSpeed ?? DEFAULT_SPEED);
+  const speed = opts?.chartSpeed ?? ownSpeed;
 
   // A new session (different length) resets the playhead to the first bar.
   useEffect(() => {
@@ -80,34 +74,14 @@ export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngi
     [clamp],
   );
 
-  // Continuous speed: advance by speed x elapsed real time, carrying the remainder, so a
-  // slow timer never changes the speed. The carry survives speed changes mid-play.
-  const speedRef = useRef(chartSpeed);
-  speedRef.current = chartSpeed;
-  const continuous = chartSpeed !== undefined;
-  useEffect(() => {
-    if (!continuous || !isPlaying || total === 0) return;
-    let last = performance.now();
-    let carry = 0;
-    const id = window.setInterval(() => {
-      const now = performance.now();
-      const r = advance(carry, now - last, speedRef.current ?? 60, barSec);
-      last = now;
-      carry = r.carry;
-      if (r.steps > 0) setIndexState((i) => Math.min(i + r.steps, lastIndex));
-    }, CLOCK_TICK_MS);
-    return () => window.clearInterval(id);
-  }, [continuous, isPlaying, total, lastIndex, barSec]);
-
-  // Advance timer while playing (discrete presets). Recreated when speed/total changes.
-  useEffect(() => {
-    if (continuous || !isPlaying || total === 0) return;
-    const interval = speed === "max" ? MAX_MS : BASE_MS / speed;
-    const id = window.setInterval(() => {
-      setIndexState((i) => (i >= lastIndex ? i : i + 1));
-    }, interval);
-    return () => window.clearInterval(id);
-  }, [continuous, isPlaying, speed, total, lastIndex]);
+  // The shared clock: speed x elapsed real time, in whole bars.
+  usePlayClock({
+    playing: isPlaying && total > 0,
+    speed,
+    unitSec: barSec,
+    maxSpeed,
+    onSteps: (n) => setIndexState((i) => Math.min(i + n, lastIndex)),
+  });
 
   // Auto-stop at the last bar.
   useEffect(() => {
@@ -156,7 +130,7 @@ export function useReplayEngine(total: number, opts?: EngineOptions): ReplayEngi
     stepForward,
     stepBack,
     restart,
-    setSpeed,
+    setSpeed: setOwnSpeed,
     setIndex,
   };
 }

@@ -2,23 +2,19 @@
  * useReplay — thin wrapper over useReplayEngine that adds:
  *   - barLabel: pre-formatted "09:12 PT" string (current bar's display-zone (PT) wall-clock time)
  *   - jumpToTime(hhmm): seek to a bar by display-zone (PT) wall-clock time, returns true if seeked
- *   - keyboard bindings: Space=toggle, ArrowLeft=stepBack, ArrowRight=stepForward
+ *   - the shared replay keys (lib/replayKeys): Space toggles, ←/→ step one candle
  *
  * Session identity change resets position (delegated to engine via total change).
  * Pass options.keyboardEnabled = false to suppress shortcuts (e.g. when a modal is open).
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import type { ReplaySession } from "@/lib/api";
 import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "@/lib/format";
-import {
-  useReplayEngine,
-  type ReplayEngine,
-} from "@/lib/useReplayEngine";
+import { useReplayKeys } from "@/lib/replayKeys";
+import { barSecOf } from "@/lib/sessionChart";
+import { useReplayEngine, type ReplayEngine } from "@/lib/useReplayEngine";
 
-// Re-export Speed and helpers so consumers only need one import.
-export type { Speed } from "@/lib/useReplayEngine";
-export { SPEEDS, speedLabel } from "@/lib/useReplayEngine";
 
 /**
  * Full state surface exposed to the control bar and chart.
@@ -71,30 +67,22 @@ function minutesOfDay(fmt: Intl.DateTimeFormat, iso: string): number | null {
   return hh * 60 + mm;
 }
 
-const SUPPRESS_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
-
-export function isInputFocused(target: EventTarget | null): boolean {
-  if (!target || !(target instanceof Element)) return false;
-  if (SUPPRESS_TAGS.has(target.tagName)) return true;
-  if (target.hasAttribute("contenteditable")) return true;
-  // Suppress when focus is anywhere inside a dialog (covers shadcn Dialog/Sheet).
-  if (target.closest('[role="dialog"]')) return true;
-  return false;
-}
-
 export function useReplay(
   session: ReplaySession | undefined,
   options?: {
     /** Default: true. Pass false to disable Space/Arrow keyboard shortcuts. */
     keyboardEnabled?: boolean;
-    /** Continuous speed (chart-seconds per real second); see useReplayEngine. */
+    /** Speed (chart-seconds per real second); omitted, the engine keeps its own. */
     chartSpeed?: number;
+    /** Speed ceiling (free replay plays whole bars and goes past 64x). */
+    maxSpeed?: number;
   },
 ): ReplayState {
   const keyboardEnabled = options?.keyboardEnabled ?? true;
 
   const total = session?.candles.length ?? 0;
-  const engine = useReplayEngine(total, { chartSpeed: options?.chartSpeed });
+  const barSec = useMemo(() => (session ? barSecOf(session.candles) : 60), [session]);
+  const engine = useReplayEngine(total, { chartSpeed: options?.chartSpeed, barSec, maxSpeed: options?.maxSpeed });
 
   // --- barLabel -----------------------------------------------------------
   // "09:12 PT" — the current bar's display-zone (PT) wall-clock time. The scrubber already
@@ -146,32 +134,14 @@ export function useReplay(
     [session, total, engine.setIndex],
   );
 
-  // --- keyboard bindings --------------------------------------------------
-  useEffect(() => {
-    if (!keyboardEnabled) return;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (isInputFocused(e.target)) return;
-
-      switch (e.key) {
-        case " ":
-          e.preventDefault(); // prevent page scroll
-          engine.toggle();
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          engine.stepBack();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          engine.stepForward();
-          break;
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [keyboardEnabled, engine.toggle, engine.stepBack, engine.stepForward]);
+  // --- keys: the shared keymap (Space, ←/→ one candle; ↑/↓ belong to the speed control)
+  useReplayKeys(
+    {
+      onToggle: engine.toggle,
+      onStep: (dir) => (dir > 0 ? engine.stepForward() : engine.stepBack()),
+    },
+    keyboardEnabled,
+  );
 
   return {
     ...engine,

@@ -76,10 +76,12 @@ import {
   type Draft,
 } from "@/lib/learn";
 import { useLearnAnswer, useLearnBars, useLearnDrill, useLearnResult, useLearnToday } from "@/lib/queries";
-import { isInputFocused } from "@/lib/useReplay";
+import { usePlayClock } from "@/lib/playClock";
+import { useReplayKeys } from "@/lib/replayKeys";
+import { CHART_THEME } from "@/lib/chartTheme";
 
 const DEFAULT_SPEED = 1; // bars per second
-const COLOR = { level: "#3b82f6", stop: "#f59e0b", target: "#26a69a", key: "#a1a1aa" };
+const COLOR = { level: CHART_THEME.play, stop: CHART_THEME.stop, target: CHART_THEME.up, key: CHART_THEME.neutral };
 
 const STEP_TITLE: Record<LearnStepName, string> = {
   level: "Level",
@@ -465,11 +467,13 @@ export function LearnDrillPage() {
   }, [drill, n, answered, candles, timeframe]);
 
   // Animate: `speed` bars per second while playing, until the last bar in hand.
-  useEffect(() => {
-    if (!playing || n === 0 || idx >= n - 1) return;
-    const t = setTimeout(() => setIdx((i) => stepIndex(i, n)), 1000 / speed);
-    return () => clearTimeout(t);
-  }, [playing, idx, n, speed]);
+  // The shared playback clock, one step per bar.
+  usePlayClock({
+    playing: playing && n > 0 && idx < n - 1,
+    speed,
+    unitSec: 1,
+    onSteps: (k) => setIdx((i) => Math.min(i + k, Math.max(0, n - 1))),
+  });
 
   const atEnd = n > 0 && idx >= n - 1;
   const fullBarsLoading = answered && barsQ.isPlaceholderData;
@@ -498,33 +502,33 @@ export function LearnDrillPage() {
     setIdx((i) => Math.max(0, i - 1));
   };
 
-  // Keyboard: ArrowLeft/ArrowRight step, Space plays or pauses, End skips ahead. ArrowLeft also
+  // Keys: the shared keymap. ←/→ step a bar, Space plays or pauses, End skips ahead. ← also
   // works at the decision point, to look back at the last bars (your answer is kept).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isInputFocused(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (phase === "loading") return;
-      if (phase === "decision" && e.key !== "ArrowLeft") return;
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
+  useReplayKeys(
+    {
+      onStep: (dir) => {
+        if (phase === "decision" && dir > 0) return;
         setPlaying(false);
-        setIdx((i) => stepIndex(i, n));
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        setPlaying(false);
-        setIdx((i) => Math.max(0, i - 1));
-      } else if (e.key === " ") {
-        e.preventDefault();
-        setPlaying((p) => !p);
-      } else if (e.key === "End") {
-        e.preventDefault();
-        setPlaying(false);
-        setIdx(Math.max(0, n - 1));
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [phase, n]);
+        setIdx((i) => (dir > 0 ? stepIndex(i, n) : Math.max(0, i - 1)));
+      },
+      onToggle: phase === "decision" ? undefined : () => setPlaying((p) => !p),
+      // ↑/↓: the next faster / slower of Learn's bar-per-second speeds.
+      onSpeed: (dir) =>
+        setSpeed((cur) => {
+          const i = PLAY_SPEEDS.indexOf(cur as (typeof PLAY_SPEEDS)[number]);
+          const j = Math.max(0, Math.min(PLAY_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir));
+          return PLAY_SPEEDS[j];
+        }),
+      onEnd:
+        phase === "decision"
+          ? undefined
+          : () => {
+              setPlaying(false);
+              setIdx(Math.max(0, n - 1));
+            },
+    },
+    phase !== "loading",
+  );
 
   const pick = phase === "decision" ? chartPickFor(armed && requiredSteps(drill?.question_steps ?? [], draft.enter).includes(armed) ? armed : currentStep(drill?.question_steps ?? [], draft)) : null;
 
@@ -832,7 +836,7 @@ export function LearnDrillPage() {
               {fullBarsLoading ? " · loading the rest" : ""}
             </span>
             <span className="ml-auto hidden text-label text-muted-foreground md:inline">
-              ArrowLeft / ArrowRight step · Space plays or pauses · End skips
+              ←/→ step · ↑/↓ speed · Space plays or pauses · End skips
             </span>
           </div>
         </div>

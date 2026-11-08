@@ -3,23 +3,13 @@
  *
  * Consolidates the previous Scrubber + ReplayControls into a single component.
  * Receives a ReplayState from useReplay() and renders:
- *   Row 1: [Restart] [StepBack] [Play/Pause] [StepForward] │ scrubber │ [HH:MM ET] │ speed │ timeframe │ [Indicators]
+ *   Row 1: transport (ReplayTransport) │ scrubber │ [HH:MM] │ speed (SpeedSlider) │ timeframe │ [Indicators]
  *   Row 2: centered bar counter (barLabel)
  *
  * The component owns no playback logic — all state and actions live in useReplay.
  */
 import { useState } from "react";
-import {
-  Check,
-  Eye,
-  EyeOff,
-  Pause,
-  Play,
-  RotateCcw,
-  SlidersHorizontal,
-  StepBack,
-  StepForward,
-} from "lucide-react";
+import { Check, Eye, EyeOff, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,18 +24,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SPEEDS, speedLabel, type ReplayState, type Speed } from "@/lib/useReplay";
+import type { ReplayState } from "@/lib/useReplay";
+import { ReplayTransport } from "@/components/replay/ReplayTransport";
+import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { REPLAY_TIMEFRAMES, type IndicatorSeriesMap } from "@/lib/api";
 import {
   DEFAULT_REPLAY_CONFIG,
   emaKeys,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { overlaySpecs, LEVEL_META, CALLER_LEVELS_KEY } from "@/components/replay/ReplayChart";
+import { overlaySpecs, LEVEL_META, CALLER_LEVELS_KEY } from "@/lib/sessionChart";
+import { CALLER_STYLE } from "@/lib/chartColors";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 
 interface ReplayControlBarProps {
   replay: ReplayState;
+  /** Chart-seconds per real second (the shared speed steps). */
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+  /** Top speed for the speed control. */
+  maxSpeed?: number;
   disabled?: boolean;
   config: ReplayConfig;
   onConfigChange: (c: ReplayConfig) => void;
@@ -59,6 +57,9 @@ interface ReplayControlBarProps {
 
 export function ReplayControlBar({
   replay,
+  speed,
+  onSpeedChange,
+  maxSpeed,
   disabled = false,
   config,
   onConfigChange,
@@ -80,54 +81,7 @@ export function ReplayControlBar({
     >
       {/* Row 1: transport + scrubber + jump-to-time + speed + timeframe + indicators */}
       <div className="flex items-center gap-1.5">
-        {/* Restart */}
-        <Button
-          size="icon"
-          variant="ghost"
-          disabled={off || (replay.atStart && !replay.isPlaying)}
-          onClick={replay.restart}
-          aria-label="Restart (returns to bar 1)"
-          title="Restart (returns to bar 1)"
-        >
-          <RotateCcw />
-        </Button>
-
-        {/* Step Back */}
-        <Button
-          size="icon"
-          variant="ghost"
-          disabled={off || replay.atStart}
-          onClick={replay.stepBack}
-          aria-label="Step back (←)"
-          title="Step back (←)"
-        >
-          <StepBack />
-        </Button>
-
-        {/* Play / Pause — hero control, slightly larger */}
-        <Button
-          size="icon"
-          variant={replay.isPlaying ? "default" : "ghost"}
-          disabled={off}
-          onClick={replay.toggle}
-          className="h-9 w-9"
-          aria-label={replay.isPlaying ? "Pause (Space)" : "Play (Space)"}
-          title={replay.isPlaying ? "Pause" : "Play"}
-        >
-          {replay.isPlaying ? <Pause /> : <Play />}
-        </Button>
-
-        {/* Step Forward */}
-        <Button
-          size="icon"
-          variant="ghost"
-          disabled={off || replay.atEnd}
-          onClick={replay.stepForward}
-          aria-label="Step forward (→)"
-          title="Step forward (→)"
-        >
-          <StepForward />
-        </Button>
+        <ReplayTransport engine={replay} disabled={off} showRestart />
 
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
@@ -158,28 +112,7 @@ export function ReplayControlBar({
         {/* Divider */}
         <div className="mx-1 h-4 w-px bg-border" />
 
-        {/* Speed Select */}
-        <Select
-          value={String(replay.speed)}
-          onValueChange={(v) =>
-            replay.setSpeed((v === "max" ? "max" : Number(v)) as Speed)
-          }
-          disabled={off}
-        >
-          <SelectTrigger
-            className="h-7 w-[68px] tabular"
-            aria-label="Playback speed"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SPEEDS.map((s) => (
-              <SelectItem key={String(s)} value={String(s)} className="tabular">
-                {speedLabel(s)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SpeedSlider value={speed} onChange={onSpeedChange} disabled={off} max={maxSpeed} />
 
         {/* Timeframe Select — triggers refetch via queryKey upstream */}
         <Select
@@ -355,10 +288,6 @@ function IndicatorsPopover({
     onConfigChange({ ...config, hiddenLevels: next });
   }
 
-  function toggleRsi() {
-    onConfigChange({ ...config, rsiHidden: !config.rsiHidden });
-  }
-
   function commitEma() {
     const parsed = emaDraft
       .split(",")
@@ -371,11 +300,6 @@ function IndicatorsPopover({
       for (const k of emaKeys(parsed)) hidden.add(k);
       onConfigChange({ ...config, emaPeriods: parsed, hiddenOverlays: hidden });
     }
-  }
-
-  function handleRsiPeriod(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = parseInt(e.target.value, 10);
-    if (!isNaN(v) && v > 0) onConfigChange({ ...config, rsiPeriod: v });
   }
 
   function handleOrMinutes(e: React.ChangeEvent<HTMLInputElement>) {
@@ -468,23 +392,10 @@ function IndicatorsPopover({
               <ToggleRow
                 label="Somesh levels"
                 on={!config.hiddenLevels.has(CALLER_LEVELS_KEY)}
-                color="#facc15"
+                color={CALLER_STYLE.level.color}
                 onToggle={() => toggleLevel(CALLER_LEVELS_KEY)}
               />
             </div>
-          </section>
-
-          {/* RSI toggle */}
-          <section>
-            <p className="mb-1.5 text-label uppercase tracking-wide text-muted-foreground/70">
-              Subpane
-            </p>
-            <ToggleRow
-              label="RSI"
-              on={!config.rsiHidden}
-              color="#eab308"
-              onToggle={toggleRsi}
-            />
           </section>
 
           <div className="h-px bg-border" />
@@ -514,22 +425,6 @@ function IndicatorsPopover({
                   className="w-28 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder="9, 21, 50, 200"
                   aria-label="EMA periods (comma-separated)"
-                />
-              </div>
-
-              {/* RSI period */}
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-label text-muted-foreground">
-                  RSI period
-                </label>
-                <input
-                  type="number"
-                  min={2}
-                  max={100}
-                  value={config.rsiPeriod}
-                  onChange={handleRsiPeriod}
-                  className="w-16 rounded border border-border bg-transparent px-2 py-0.5 text-right text-label tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-                  aria-label="RSI period"
                 />
               </div>
 

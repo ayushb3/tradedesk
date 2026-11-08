@@ -11,32 +11,38 @@ export const MIN_SPEED = SPEED_STEPS[0];
 export const MAX_SPEED = SPEED_STEPS[SPEED_STEPS.length - 1];
 /** A fresh replay (no saved speed) starts at real time. */
 export const DEFAULT_SPEED = 1;
+/**
+ * Whole-bar players with no trade to study (free replay, the scenario author) keep the same
+ * doubling steps but reach further, so 5m/15m bars still move: up to 1024x, starting at 64x.
+ */
+export const FAST_MAX_SPEED = 1024;
+export const FAST_DEFAULT_SPEED = 64;
 /** Clock tick, ms. The playhead advances by speed x elapsed time, not one step per tick. */
 export const CLOCK_TICK_MS = 50;
 const STORAGE_KEY = "tradedesk.replay.speed";
 
-export const clampSpeed = (s: number): number =>
-  Number.isFinite(s) ? Math.min(MAX_SPEED, Math.max(MIN_SPEED, s)) : DEFAULT_SPEED;
+export const clampSpeed = (s: number, max: number = MAX_SPEED): number =>
+  Number.isFinite(s) ? Math.min(max, Math.max(MIN_SPEED, s)) : DEFAULT_SPEED;
 
 /** The nearest step (on a log scale, so 3x -> 4x and 0.7x -> 0.5x... ties go up). */
-export function snapSpeed(s: number): number {
-  const c = Math.log2(clampSpeed(s));
-  return clampSpeed(Math.pow(2, Math.round(c + 1e-9)));
+export function snapSpeed(s: number, max: number = MAX_SPEED): number {
+  const c = Math.log2(clampSpeed(s, max));
+  return clampSpeed(Math.pow(2, Math.round(c + 1e-9)), max);
 }
 
 /** Double (dir 1) or halve (-1), clamped at the ends. */
-export function stepSpeed(s: number, dir: 1 | -1): number {
-  return snapSpeed(snapSpeed(s) * (dir > 0 ? 2 : 0.5));
+export function stepSpeed(s: number, dir: 1 | -1, max: number = MAX_SPEED): number {
+  return snapSpeed(snapSpeed(s, max) * (dir > 0 ? 2 : 0.5), max);
 }
 
 const trim = (n: number): string => (n >= 10 ? String(Math.round(n)) : String(Math.round(n * 10) / 10));
 
 /** "64x", "1x", "0.5x". */
-export const formatSpeed = (s: number): string => `${trim(clampSpeed(s))}x`;
+export const formatSpeed = (s: number, max: number = MAX_SPEED): string => `${trim(clampSpeed(s, max))}x`;
 
 /** "1 min ≈ 4 s" at 16x; "1 min ≈ 0.9 s" at 64x; "1 min ≈ 2 min" at 0.5x. */
-export function minuteLabel(s: number): string {
-  const real = 60 / clampSpeed(s);
+export function minuteLabel(s: number, max: number = MAX_SPEED): string {
+  const real = 60 / clampSpeed(s, max);
   return real > 60 ? `1 min ≈ ${trim(real / 60)} min` : `1 min ≈ ${trim(real)} s`;
 }
 
@@ -63,8 +69,9 @@ export function advance(
   elapsedMs: number,
   speed: number,
   unitSec: number,
+  max: number = MAX_SPEED,
 ): { steps: number; carry: number } {
-  const owed = carry + (Math.max(0, elapsedMs) / 1000) * clampSpeed(speed);
+  const owed = carry + (Math.max(0, elapsedMs) / 1000) * clampSpeed(speed, max);
   const steps = Math.floor(owed / unitSec + 1e-9);
   return { steps, carry: Math.max(0, owed - steps * unitSec) };
 }

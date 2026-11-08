@@ -47,22 +47,11 @@ import {
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
-import { LEVEL_SLATE, VWAP_COLOR, lineLook, type LineStyleName } from "@/lib/chartColors";
+import { LEVEL_SLATE, lineLook, type LineStyleName } from "@/lib/chartColors";
+import { CHART_THEME } from "@/lib/chartTheme";
 import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
 
-// Keep in sync with the tokens in index.css (lightweight-charts needs literal colors).
-const THEME = {
-  text: "#a1a1aa",
-  grid: "#26262b",
-  up: "#26a69a",
-  down: "#ef5350",
-  play: "#3b82f6", // playhead / crosshair / sim fills
-  stop: "#f59e0b", // the stop
-  vwap: VWAP_COLOR, // white
-  avg: "#a1a1aa", // blended average entry
-  crosshair: "#9598a1", // crosshair lines (thin, dashed)
-  crosshairLabel: "#363a45", // crosshair price/time tags on the axes
-};
+const THEME = CHART_THEME;
 const PRICE_SCALE_WIDTH = 72;
 const CHIP_LANE_PX = 22;
 const WHEEL_ZOOM = 1.2;
@@ -103,6 +92,8 @@ export interface PaneSpec {
   quoteSymbol?: string;
   /** Labelled solid price lines the page draws itself (Learn drills: your level, stop, target). */
   marks?: { label: string; price: number; color: string; key?: string }[];
+  /** Extra markers on this pane, at bar opens (free replay's practice trades); those after the playhead are not drawn. */
+  markers?: { sec: number; side: "buy" | "sell" | "exit"; text?: string }[];
   badge?: React.ReactNode;
 }
 
@@ -885,6 +876,16 @@ export function PriceChart({
     });
     return () => cancelAnimationFrame(id);
   }, [isReplay, playheadSec, playheadLabel]);
+  // Bars can land after the step (second bars are polled): re-pin once they are drawn, unless the mouse has the crosshair.
+  const topCandles = top?.candles;
+  const bottomCandles = bottom.candles;
+  useEffect(() => {
+    if (!isReplay || pointerMode.current !== "latest") return;
+    const id = requestAnimationFrame(() => {
+      if (pointerMode.current === "latest") snapRef.current?.();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isReplay, topCandles, bottomCandles]);
 
   // ---- stop line (amber), contract pane only ---------------------------------
   useEffect(() => {
@@ -966,9 +967,24 @@ export function PriceChart({
     });
     const byTime = (a: SeriesMarker<UTCTimestamp>, b: SeriesMarker<UTCTimestamp>) =>
       (a.time as number) - (b.time as number);
-    p.top?.series.setMarkers([...realMarkers(side), ...sim].sort(byTime));
-    p.bottom.series.setMarkers(realMarkers(side).sort(byTime));
-  }, [fills, simFills, playheadSec, hasTop, timeline]);
+    const extra = (spec: PaneSpec | null): SeriesMarker<UTCTimestamp>[] =>
+      (spec?.markers ?? []).flatMap((m) => {
+        if (m.sec > playheadSec) return [];
+        const up = m.side === "buy";
+        return [
+          {
+            time: m.sec as UTCTimestamp,
+            position: m.side === "sell" ? ("aboveBar" as const) : m.side === "exit" ? ("aboveBar" as const) : ("belowBar" as const),
+            color: m.side === "exit" ? THEME.neutral : up ? THEME.up : THEME.down,
+            shape: m.side === "exit" ? ("square" as const) : up ? ("arrowUp" as const) : ("arrowDown" as const),
+            text: m.text,
+            size: 1,
+          },
+        ];
+      });
+    p.top?.series.setMarkers([...realMarkers(side), ...sim, ...extra(top)].sort(byTime));
+    p.bottom.series.setMarkers([...realMarkers(side), ...extra(bottom)].sort(byTime));
+  }, [fills, simFills, playheadSec, hasTop, timeline, top, bottom]);
 
   // ---- overlay geometry (px) for the shaded future / hold / chips ------------
   const chipSources = useMemo(

@@ -19,7 +19,6 @@ export interface ReplayConfig {
   hiddenOverlays: Set<string>;
   /** Level keys (pdh, or_high, …) the user has toggled OFF. */
   hiddenLevels: Set<string>;
-  rsiHidden: boolean;
 }
 
 export const DEFAULT_EMA_PERIODS = [9, 21, 50, 200];
@@ -40,5 +39,4 @@ export const DEFAULT_REPLAY_CONFIG: ReplayConfig = {
   // EMAs are opt-in, RSI is off.
   hiddenOverlays: new Set(emaKeys(DEFAULT_EMA_PERIODS)),
   hiddenLevels: new Set(DEFAULT_HIDDEN_LEVELS),
-  rsiHidden: true,
 };

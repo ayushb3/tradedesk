@@ -4,7 +4,7 @@
  */
 import type { Candle } from "./api";
 import {
-  arrowStep, barsUpTo, candleStepSec, finishedOnly, formatClockSeconds, formingCandle, liveCandle, mergeBars,
+  barsUpTo, candleStepSec, finishedOnly, formatClockSeconds, formingCandle, liveCandle, mergeBars,
   minuteIndexAt, newestTs, pollDue, replaySeries, stepSec,
 } from "./secondsReplay";
 
@@ -82,11 +82,6 @@ eq("poll due when ahead", [pollDue(null, 5), pollDue(10, 11), pollDue(10, 10), p
 eq("step 1s", stepSec(100, 1, 0, 1000), 101);
 eq("step back clamps at start", stepSec(2, -60, 0, 1000), 0);
 eq("step forward clamps at end", stepSec(990, 60, 0, 1000), 1000);
-eq(
-  "arrow keys: plain = one candle, Shift = one second",
-  [arrowStep("ArrowRight", false), arrowStep("ArrowLeft", true)],
-  [{ dir: 1, fine: false }, { dir: -1, fine: true }],
-);
 // candle steps land on a candle's last second (:59), so that candle is complete
 eq("candle forward from mid-minute -> this minute's :59", candleStepSec(630, 1, 0, 10_000), 659);
 eq("candle forward from :59 -> next :59", candleStepSec(659, 1, 0, 10_000), 719);

@@ -1,8 +1,8 @@
 /**
  * Scenario authoring UI (M6 task 6.1.3).
  *
- * Layout: ReplayChart (full-session view, reused) on the left; a structured
- * authoring form on the right. The user scrubs the tape with ReplayControls,
+ * Layout: the shared PriceChart (full-session view) on the left; a structured
+ * authoring form on the right. The user scrubs the tape with the shared transport,
  * pins the start/decision/end bars and adds bar-anchored annotations, then
  * writes the answer key and POSTs to /api/training/scenarios.
  *
@@ -13,7 +13,7 @@
  * - The drill player (6.1.2) will later call /api/training/scenarios/{id}/session
  *   to get the sliced, optionally-blinded view — that's separate from this page.
  */
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -38,10 +38,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { ReplayChart } from "@/components/replay/ReplayChart";
-import { ReplayControls } from "@/components/replay/ReplayControls";
+import { PriceChart } from "@/components/chart/PriceChart";
+import { ReplayTransport } from "@/components/replay/ReplayTransport";
+import { SpeedSlider } from "@/components/replay/SpeedSlider";
+import { CHART_THEME } from "@/lib/chartTheme";
+import { useReplayKeys } from "@/lib/replayKeys";
+import { FAST_DEFAULT_SPEED, FAST_MAX_SPEED } from "@/lib/replaySpeed";
+import { barSecOf, sessionChart } from "@/lib/sessionChart";
 import { SYMBOLS, type Symbol } from "@/components/replay/ReplayToolbar";
-import { ApiError } from "@/lib/api";
+import { ApiError, type ReplaySession } from "@/lib/api";
 import { useReplaySession } from "@/lib/queries";
 import { useReplayEngine } from "@/lib/useReplayEngine";
 import { formatEt } from "@/lib/chart";
@@ -117,7 +122,15 @@ export function ScenarioAuthorPage() {
   // Load the full replay session (same endpoint as ReplayPage)
   const { data, isLoading, isError, error } = useReplaySession({ symbol, date });
   const total = data?.candles.length ?? 0;
-  const engine = useReplayEngine(total);
+  const engine = useReplayEngine(total, {
+    barSec: data ? barSecOf(data.candles) : 60,
+    maxSpeed: FAST_MAX_SPEED,
+    defaultSpeed: FAST_DEFAULT_SPEED,
+  });
+  useReplayKeys({
+    onToggle: engine.toggle,
+    onStep: (dir) => (dir > 0 ? engine.stepForward() : engine.stepBack()),
+  });
   const ready = !isLoading && !isError && data && total > 0;
 
   // Reset engine when session changes
@@ -264,7 +277,10 @@ export function ScenarioAuthorPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <ReplayControls engine={engine} disabled={!ready} />
+          <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
+            <ReplayTransport engine={engine} disabled={!ready} showRestart />
+            <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} max={FAST_MAX_SPEED} />
+          </div>
         </div>
       </div>
 
@@ -287,11 +303,7 @@ export function ScenarioAuthorPage() {
                 endBar={endBar}
                 session={data}
               />
-              <ReplayChart
-                session={data}
-                currentIndex={engine.currentIndex}
-                trades={[]}
-              />
+              <AuthorChart session={data} index={engine.currentIndex} />
               {/* Scrubber */}
               <div className="pointer-events-auto absolute inset-x-3 bottom-2 z-10 flex items-center gap-3 rounded-md bg-card/80 px-3 py-1.5 backdrop-blur">
                 <input
@@ -670,11 +682,11 @@ function BarOverlay({
 
   const markers: { label: string; bar: number; color: string }[] = [];
   if (startBar !== null)
-    markers.push({ label: "Start", bar: startBar, color: "#26a69a" });
+    markers.push({ label: "Start", bar: startBar, color: CHART_THEME.up });
   if (decisionBar !== null)
-    markers.push({ label: "Decision", bar: decisionBar, color: "#f5a623" });
+    markers.push({ label: "Decision", bar: decisionBar, color: CHART_THEME.stop });
   if (endBar !== null)
-    markers.push({ label: "End", bar: endBar, color: "#ef5350" });
+    markers.push({ label: "End", bar: endBar, color: CHART_THEME.down });
 
   return (
     <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-card/80 px-3 py-1.5 text-xs backdrop-blur">
@@ -767,6 +779,28 @@ function ChartError({ error }: { error: unknown }) {
           )}
         </AlertDescription>
       </Alert>
+    </div>
+  );
+}
+
+/** The tape on the shared chart. */
+function AuthorChart({ session, index }: { session: ReplaySession; index: number }) {
+  // Memoized: typing in the form must not refeed the chart.
+  const c = useMemo(() => sessionChart(session, index), [session, index]);
+  if (!c) return null;
+  return (
+    <div className="absolute inset-0 pb-12 pt-10">
+      <PriceChart
+        top={null}
+        bottom={c.pane}
+        startSec={c.startSec}
+        endSec={c.endSec}
+        playheadSec={c.playheadSec}
+        barSec={c.barSec}
+        mode={{ kind: "replay" }}
+        stopPrice={null}
+        fills={[]}
+      />
     </div>
   );
 }
