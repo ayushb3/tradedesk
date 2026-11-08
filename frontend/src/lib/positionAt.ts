@@ -14,6 +14,10 @@ export interface OpenPosition {
   realized: number;
 }
 
+/** Epoch seconds of an ISO time; a zone-less time is read as UTC, like the rest of the app. */
+const secOf = (iso: string): number =>
+  Math.floor(Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`) / 1000);
+
 interface FillLike {
   side: "buy" | "sell";
   qty: number;
@@ -23,7 +27,7 @@ interface FillLike {
 
 export function positionAt(fills: readonly FillLike[], atSec: number): OpenPosition {
   const dated = fills
-    .map((f, i) => ({ f, i, sec: Math.floor(Date.parse(f.ts) / 1000) }))
+    .map((f, i) => ({ f, i, sec: secOf(f.ts) }))
     .filter((x) => Number.isFinite(x.sec) && x.sec <= atSec)
     .sort((a, b) => a.sec - b.sec || a.i - b.i);
 

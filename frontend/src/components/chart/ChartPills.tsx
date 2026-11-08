@@ -26,9 +26,11 @@ export interface PositionPillProps {
   pnlText: string;
   avgText: string;
   left?: number;
+  /** Laid out by a parent row (no absolute positioning). */
+  inline?: boolean;
 }
 
-export function PositionPill({ y, qty, pnl, pnlText, avgText, left = 8 }: PositionPillProps) {
+export function PositionPill({ y, qty, pnl, pnlText, avgText, left = 8, inline = false }: PositionPillProps) {
   const tone =
     pnl !== null && pnl > 0
       ? "border-up/60 text-up"
@@ -41,10 +43,11 @@ export function PositionPill({ y, qty, pnl, pnlText, avgText, left = 8 }: Positi
       data-testid="position-pill"
       title={avgText}
       className={cn(
-        "pointer-events-none absolute flex -translate-y-1/2 items-stretch overflow-hidden rounded border text-label",
+        "pointer-events-none flex items-stretch overflow-hidden rounded border text-label",
+        !inline && "absolute -translate-y-1/2",
         tone,
       )}
-      style={{ top: y, left, ...tint }}
+      style={inline ? tint : { top: y, left, ...tint }}
     >
       <span className="num bg-muted px-1.5 font-bold text-foreground">
         {qty > 0 ? `+${qty}` : qty}

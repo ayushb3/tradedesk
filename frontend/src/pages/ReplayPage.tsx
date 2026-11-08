@@ -460,10 +460,12 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     if (real.qty > 0) out.push({ key: "real", kind: "real", qty: real.qty, avg: real.avg, pnl: openPnl(real, mark) });
     if (simPos.qty > 0) {
       const p = { qty: simPos.qty, avg: simPos.avg, realized: 0 };
-      out.push({ key: "sim", kind: "sim", qty: simPos.qty, avg: simPos.avg, pnl: openPnl(p, mark) });
+      const firstQty = simPos.fills[0]?.qty ?? 0;
+      const riskPerShare = simPos.risk != null && firstQty > 0 ? simPos.risk / (100 * firstQty) : null;
+      out.push({ key: "sim", kind: "sim", qty: simPos.qty, avg: simPos.avg, pnl: openPnl(p, mark), riskPerShare });
     }
     return out;
-  }, [revealedFills, simPos.qty, simPos.avg, mark]);
+  }, [revealedFills, simPos.qty, simPos.avg, simPos.risk, simPos.fills, mark]);
   // Stop moves are stamped with the playhead bar they were made on.
   const { setPlayTs } = sim;
   useEffect(() => setPlayTs(playCandle?.ts ?? null), [setPlayTs, playCandle?.ts]);

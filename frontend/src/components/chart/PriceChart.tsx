@@ -198,6 +198,8 @@ export interface ChartPosition {
   avg: number;
   /** Open P&L in dollars at the playhead; null when there is no mark. */
   pnl: number | null;
+  /** 1R per share, fixed at the first buy (practice only): the "+ Target" button sets 2R off it. */
+  riskPerShare?: number | null;
 }
 
 interface Layout {
@@ -346,7 +348,7 @@ function PriceChartCore({
   const avgLines = useRef<IPriceLine[]>([]);
   const targetLine = useRef<IPriceLine | null>(null);
   /** The plan line being dragged and its latest price. */
-  const dragging = useRef<{ kind: "stop" | "target"; price: number } | null>(null);
+  const dragging = useRef<{ kind: "stop" | "target"; price: number; moved: boolean; grabDy: number } | null>(null);
   /** Last autoscaled domain per pane; frozen while the stop is dragged so the pane cannot run away. */
   const lastDomain = useRef<{ top: PriceDomain | null; bottom: PriceDomain | null }>({ top: null, bottom: null });
   const frozen = useRef<PriceDomain | null>(null);
@@ -1215,11 +1217,11 @@ function PriceChartCore({
   }, [layoutTick, playheadSec, entrySec, exitSec, stopPrice, targetPrice, avgKey, hasTop, top, bottom, chipSources, tagSources]);
 
   // ---- dragging the stop ---------------------------------------------------------
-  const priceAtPointer = (e: React.PointerEvent): number | null => {
+  const priceAtPointer = (e: React.PointerEvent, grabDy = 0): number | null => {
     const rt = panes.current?.top;
     const el = topEl.current;
     if (!rt || !el) return null;
-    const y = e.clientY - el.getBoundingClientRect().top;
+    const y = e.clientY - el.getBoundingClientRect().top - grabDy; // where the line is, not the finger
     const raw = rt.series.coordinateToPrice(y);
     if (raw == null) return null;
     // Stay inside the frozen domain so a drag never rescales the pane.
@@ -1237,42 +1239,73 @@ function PriceChartCore({
   const dragHandlers = (kind: "stop" | "target", price: number, onChange: (p: number, final: boolean) => void) => ({
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId);
-      dragging.current = { kind, price };
+      // Keep the grab offset, so the line does not jump to the pointer.
+      const lineY = panes.current?.top?.series.priceToCoordinate(price) as number | null | undefined;
+      const el = topEl.current;
+      const grabDy = lineY != null && el ? e.clientY - el.getBoundingClientRect().top - lineY : 0;
+      dragging.current = { kind, price, moved: false, grabDy };
       frozen.current = lastDomain.current.top;
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
-      if (dragging.current?.kind !== kind) return;
-      const p = priceAtPointer(e);
-      if (p === null) return;
-      dragging.current = { kind, price: p };
+      const d = dragging.current;
+      if (d?.kind !== kind) return;
+      const p = priceAtPointer(e, d.grabDy);
+      if (p === null || p === d.price) return;
+      dragging.current = { ...d, price: p, moved: true };
       onChange(p, false);
     },
     onPointerUp: () => {
-      if (dragging.current?.kind !== kind) return;
-      const p = dragging.current.price;
+      const d = dragging.current;
+      if (d?.kind !== kind) return;
       endDrag();
-      onChange(p, true);
+      if (d.moved) onChange(d.price, true); // a click without a move is not a stop move
     },
     onPointerCancel: endDrag,
   });
   const topLayout = layouts.top;
   const tradeOverlay = (
     <>
-      {positions.map((ps) => {
-        const y = topLayout.posYs.find((v) => v.key === ps.key)?.y;
-        if (y === undefined) return null;
-        return (
-          <PositionPill
-            key={ps.key}
-            y={Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, y))}
-            qty={ps.qty}
-            pnl={ps.pnl}
-            pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
-            avgText={`${ps.kind === "sim" ? "Practice" : "Your"} position: ${ps.qty} @ ${ps.avg.toFixed(2)} avg`}
-            left={44}
-          />
-        );
-      })}
+      {(() => {
+        // One row per position: the pill, then "+ Target" beside the practice one. Rows closer
+        // than a pill's height are nudged apart so two positions never overlap.
+        const rows = positions
+          .flatMap((ps) => {
+            const y = topLayout.posYs.find((v) => v.key === ps.key)?.y;
+            return y === undefined ? [] : [{ ps, y: Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, y)) }];
+          })
+          .sort((a, b) => a.y - b.y);
+        for (let i = 1; i < rows.length; i++) rows[i].y = Math.max(rows[i].y, rows[i - 1].y + 20);
+        return rows.map(({ ps, y }) => {
+          const risk = ps.riskPerShare;
+          const suggested =
+            ps.kind === "sim" && targetPrice == null && onTargetChange && risk != null && risk > 0
+              ? Math.round((ps.avg + 2 * risk) * 100) / 100
+              : null;
+          return (
+            <div key={ps.key} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ top: y, left: 44 }}>
+              <PositionPill
+                y={0}
+                qty={ps.qty}
+                pnl={ps.pnl}
+                pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
+                avgText={`${ps.kind === "sim" ? "Practice" : "Your"} position: ${ps.qty} @ ${ps.avg.toFixed(2)} avg`}
+                inline
+              />
+              {suggested !== null && (
+                <button
+                  type="button"
+                  className="pointer-events-auto rounded border border-up/60 bg-chart px-1.5 text-label text-up hover:bg-up/15"
+                  onClick={() => onTargetChange?.(suggested, true)}
+                  title={`Set a practice target at ${suggested.toFixed(2)} (2R off the risk at your first buy); drag it to move`}
+                  data-testid="add-target"
+                >
+                  + Target
+                </button>
+              )}
+            </div>
+          );
+        });
+      })()}
       {stopPrice != null && topLayout.stopY != null && onStopChange && (
         <LinePill
           y={topLayout.stopY}
@@ -1294,26 +1327,6 @@ function PriceChartCore({
           onClear={() => onTargetChange(null, true)}
         />
       )}
-      {(() => {
-        // "+ Target" next to the practice position: a 2R target off the stop (1.5x avg without one).
-        const simPos = positions.find((ps) => ps.kind === "sim");
-        const y = simPos ? topLayout.posYs.find((v) => v.key === simPos.key)?.y : undefined;
-        if (!simPos || y === undefined || targetPrice != null || !onTargetChange) return null;
-        const risk = stopPrice != null && stopPrice < simPos.avg ? simPos.avg - stopPrice : simPos.avg * 0.25;
-        const suggested = Math.round((simPos.avg + 2 * risk) * 100) / 100;
-        return (
-          <button
-            type="button"
-            className="pointer-events-auto absolute -translate-y-1/2 rounded border border-up/60 bg-chart px-1.5 text-label text-up hover:bg-up/15"
-            style={{ top: Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, y)), left: 156 }}
-            onClick={() => onTargetChange(suggested, true)}
-            title={`Set a practice target at ${suggested.toFixed(2)} (2R); drag it to move`}
-            data-testid="add-target"
-          >
-            + Target
-          </button>
-        );
-      })()}
       {topLayout.fillTags.map((t) => (
         <FillTag
           key={t.key}
