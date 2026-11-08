@@ -19,6 +19,9 @@ import { DISPLAY_TZ, DISPLAY_TZ_LABEL } from "@/lib/format";
 import {
   chipWidth,
   clampRange,
+  formatChange,
+  legendBar,
+  timeframeLabel,
   defaultRange,
   fillChipText,
   fillDetailText,
@@ -33,7 +36,6 @@ import {
 import {
   alignedCandles,
   buildTimeline,
-  candleAt,
   floorMinute,
   revealedFillTime,
   spreadLabels,
@@ -51,6 +53,8 @@ const THEME = {
   stop: "#f59e0b", // the stop
   vwap: VWAP_COLOR, // white
   avg: "#a1a1aa", // blended average entry
+  crosshair: "#9598a1", // crosshair lines (thin, dashed)
+  crosshairLabel: "#363a45", // crosshair price/time tags on the axes
 };
 const PRICE_SCALE_WIDTH = 72;
 const CHIP_LANE_PX = 22;
@@ -345,17 +349,13 @@ export function PriceChart({
           vertLines: { color: THEME.grid },
           horzLines: { color: THEME.grid },
         },
-        crosshair: live.current.tradingView
-          ? {
-              mode: CrosshairMode.Normal,
-              vertLine: { color: THEME.text, labelBackgroundColor: THEME.play, style: LineStyle.Dashed },
-              horzLine: { color: THEME.text, labelBackgroundColor: THEME.play, style: LineStyle.Dashed },
-            }
-          : {
-              mode: CrosshairMode.Magnet,
-              vertLine: { color: THEME.play, labelBackgroundColor: THEME.play, style: LineStyle.Solid },
-              horzLine: { visible: false, labelVisible: false },
-            },
+        // A free crosshair that follows the mouse, with its price tagged on the right scale and
+        // its time on the time axis (the way a live trading chart reads).
+        crosshair: {
+          mode: CrosshairMode.Normal,
+          vertLine: { color: THEME.crosshair, width: 1, labelBackgroundColor: THEME.crosshairLabel, style: LineStyle.Dashed },
+          horzLine: { color: THEME.crosshair, width: 1, labelBackgroundColor: THEME.crosshairLabel, style: LineStyle.Dashed },
+        },
         // Padding comes from our own autoscale; no extra margins (premium must not dip below 0).
         rightPriceScale: {
           borderColor: THEME.grid,
@@ -436,8 +436,15 @@ export function PriceChart({
           setHoverSec(t);
           for (const dst of all) {
             if (dst === src) continue;
-            if (t === null) dst.chart.clearCrosshairPosition();
-            else dst.chart.setCrosshairPosition(0, t as UTCTimestamp, dst.series);
+            if (t === null) {
+              dst.chart.clearCrosshairPosition();
+              continue;
+            }
+            // The other pane follows the time; its price line sits on that pane's own close.
+            const row = dst.series.data().find((d) => d.time === t);
+            const close = row && "close" in row ? (row.close as number) : null;
+            if (close === null) dst.chart.clearCrosshairPosition();
+            else dst.chart.setCrosshairPosition(close, t as UTCTimestamp, dst.series);
           }
         } finally {
           syncing = false;
@@ -642,6 +649,8 @@ export function PriceChart({
         height: bottomNode.clientHeight,
       });
       refit();
+      // Re-measure the overlays (plot width, playhead x) once the new size has settled.
+      requestAnimationFrame(() => setLayoutTick((n) => n + 1));
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -971,8 +980,8 @@ export function PriceChart({
       ))
     : null;
 
-  // Replay reads out the playhead bar; the review reads out only what is hovered.
-  const shown = hoverSec ?? (isReplay ? playheadSec : null);
+  // The legend reads the hovered bar, else the latest drawn one (the playhead bar on Replay).
+  const shown = hoverSec ?? playheadSec;
 
   // Fill details for the hovered minute (the markers themselves stay short; the full per-fill
   // list lives beside the chart on Replay and under it on the trade page).
@@ -1074,6 +1083,8 @@ export function PriceChart({
           hovered={hoverSec !== null}
           playheadLabel={playheadLabel}
           elRef={topEl}
+          timeframe={timeframeLabel(barSec)}
+          lastOnly
           showTicks
           overlay={stopHandle}
           details={detailFor("top", shown)}
@@ -1096,6 +1107,7 @@ export function PriceChart({
         hovered={hoverSec !== null}
         playheadLabel={playheadLabel}
         elRef={bottomEl}
+        timeframe={timeframeLabel(barSec)}
         showTicks={!top}
         tickTop={!top}
         overlay={markHandles}
@@ -1125,7 +1137,13 @@ function Pane({
   detailsAsBox = false,
   noData,
   controls,
+  timeframe,
+  lastOnly = false,
 }: {
+  /** "1m", shown after the symbol in the legend. */
+  timeframe: string;
+  /** Option pane: say it is the last trade (there is no historical bid/ask to show). */
+  lastOnly?: boolean;
   className: string;
   spec: PaneSpec;
   layout: Layout;
@@ -1144,7 +1162,9 @@ function Pane({
   noData: string | null;
   controls?: React.ReactNode;
 }) {
-  const bar = shown === null ? null : candleAt(spec.candles, shown, playheadSec);
+  const bar = shown === null ? null : legendBar(spec.candles, shown, playheadSec);
+  const lineAt = (m: Map<number, number> | undefined) =>
+    shown === null || shown > playheadSec ? undefined : m?.get(shown);
   const { width, playX, entryX, exitX } = layout;
   const windowEnd = exitX ?? playX;
   const placed = useMemo(
@@ -1172,24 +1192,12 @@ function Pane({
         {spec.badge}
         <span className="num text-label text-muted-foreground">
           {shown === null
-            ? "hover a bar for OHLC"
+            ? ""
             : !hovered && isReplay && playheadLabel
               ? playheadLabel
               : ptClock(shown)}
-          {hovered || !isReplay ? "" : " · playhead"}
+          {hovered ? "" : isReplay ? " · playhead" : " · last bar"}
         </span>
-        {shown === null ? null : bar ? (
-          <span className="num flex gap-2 text-label">
-            <span>O {bar.open.toFixed(2)}</span>
-            <span>H {bar.high.toFixed(2)}</span>
-            <span>L {bar.low.toFixed(2)}</span>
-            <span className={bar.close >= bar.open ? "text-gain" : "text-loss"}>
-              C {bar.close.toFixed(2)}
-            </span>
-          </span>
-        ) : (
-          <span className="num text-label text-muted-foreground">no bar</span>
-        )}
         {!detailsAsBox &&
           details.map((d, i) => (
             <span key={`${i}:${d}`} className="num rounded border border-border px-1.5 text-label text-foreground">
@@ -1260,9 +1268,58 @@ function Pane({
               {lv.label} {lv.price.toFixed(2)}
             </span>
           ))}
+          {noData && (
+            <span className="num absolute right-1 top-1 rounded bg-card/90 px-1 text-label text-muted-foreground">
+              {noData}
+            </span>
+          )}
+          {overlay}
+        </div>
+        {/* Legend, top left: symbol and timeframe, OHLC and change for the hovered (or
+            latest) bar, then the indicator values at that bar. Fill details stack below it.
+            Kept outside the plot overlay so it never depends on the measured plot width. */}
+        <div className="pointer-events-none absolute left-1.5 top-1 z-10 flex max-w-[calc(100%-5rem)] flex-col items-start gap-0.5">
+          <div className="num flex flex-wrap items-baseline gap-x-2 text-label leading-tight" data-testid="chart-legend">
+            <span className="font-semibold text-foreground">{legendSymbol(spec.label)}</span>
+            <span className="text-muted-foreground">{timeframe}</span>
+            {bar ? (
+              <span className={`flex flex-wrap gap-x-2 ${bar.close >= bar.open ? "text-gain" : "text-loss"}`}>
+                <span><span className="text-muted-foreground">O</span>{bar.open.toFixed(2)}</span>
+                <span><span className="text-muted-foreground">H</span>{bar.high.toFixed(2)}</span>
+                <span><span className="text-muted-foreground">L</span>{bar.low.toFixed(2)}</span>
+                <span><span className="text-muted-foreground">C</span>{bar.close.toFixed(2)}</span>
+                {bar.change != null && <span>{formatChange(bar)}</span>}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">no bar</span>
+            )}
+            {lastOnly && bar && (
+              <span
+                className="text-foreground"
+                title="Last trade at this bar. Bid/ask is not shown: the data source has no historical option quotes."
+              >
+                <span className="text-muted-foreground">Last </span>
+                {bar.close.toFixed(2)}
+              </span>
+            )}
+          </div>
+          {(spec.vwap || (spec.emas && spec.emas.length > 0)) && (
+            <div className="num flex flex-wrap gap-x-2 text-label leading-tight" data-testid="chart-legend-lines">
+              {spec.vwap && (
+                <span style={{ color: THEME.vwap }}>
+                  VWAP {lineAt(spec.vwap)?.toFixed(2) ?? "—"}
+                </span>
+              )}
+              {spec.emas?.map((e, i) => (
+                <span key={e.label} style={{ color: e.color ?? emaColor(i) }}>
+                  {e.label} {lineAt(e.values)?.toFixed(2) ?? "—"}
+                </span>
+              ))}
+            </div>
+          )}
           {detailsAsBox && details.length > 0 && (
             <div
-              className="num absolute left-1 top-1 z-10 flex flex-col rounded border border-border bg-card/90 px-1.5 py-0.5 text-label text-foreground"
+              className="num flex flex-col rounded border border-border bg-card/90 px-1.5 py-0.5 text-label text-foreground"
               data-testid="fill-details"
             >
               {details.map((d, i) => (
@@ -1272,25 +1329,15 @@ function Pane({
               ))}
             </div>
           )}
-          {noData && (
-            <span className="num absolute right-1 top-1 rounded bg-card/90 px-1 text-label text-muted-foreground">
-              {noData}
-            </span>
-          )}
-          {spec.emas && spec.emas.length > 0 && (
-            <span className="num absolute bottom-1 right-1 rounded bg-card/80 px-1 text-label text-grey">
-              {spec.emas.map((e, i) => (
-                <span key={e.label} className="ml-1 first:ml-0" style={{ color: e.color ?? emaColor(i) }}>
-                  {e.label}
-                </span>
-              ))}
-            </span>
-          )}
-          {overlay}
         </div>
       </div>
     </div>
   );
+}
+
+/** The legend's symbol: the pane label without its note ("SPY, proxy for SPX" -> "SPY"). */
+function legendSymbol(label: string): string {
+  return label.split(/[,·]/)[0].replace(/\s+premium$/i, "").trim();
 }
 
 /** IN/OUT tag on a vertical line; `top` when the pane's own time axis sits at the bottom. */

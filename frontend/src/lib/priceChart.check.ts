@@ -3,6 +3,9 @@
  * Run: npm run check:sim
  */
 import {
+  formatChange,
+  legendBar,
+  timeframeLabel,
   AUTOSCALE_PAD,
   MAX_BAR_SPACING,
   chipWidth,
@@ -149,6 +152,25 @@ eq(
   ]).map((f) => f.seq),
   [1, 0, 2, 3],
 );
+
+// ---- legend: OHLC + change for the hovered (or playhead) bar, never past the playhead
+{
+  const bars = [
+    { ts: "2026-06-10T13:30:00Z", open: 1, high: 1.2, low: 0.9, close: 1.0 },
+    { ts: "2026-06-10T13:31:00Z", open: 1, high: 1.3, low: 1.0, close: 1.1 },
+  ];
+  const t0 = Date.parse(bars[0].ts) / 1000;
+  const t1 = t0 + 60;
+  eq("legend: first bar has no change", legendBar(bars, t0, t1)?.change, null);
+  eq("legend: change from previous close", legendBar(bars, t1, t1)?.change?.toFixed(2), "0.10");
+  eq("legend: pct", legendBar(bars, t1, t1)?.changePct?.toFixed(2), "10.00");
+  eq("legend: past the playhead is hidden", legendBar(bars, t1, t0), null);
+  eq("legend: no bar at that minute", legendBar(bars, t1 + 60, t1 + 60), null);
+  eq("formatChange up", formatChange({ change: 0.1, changePct: 10 }), "+0.10 (+10.00%)");
+  eq("formatChange down", formatChange({ change: -0.4, changePct: -2.1 }), "−0.40 (−2.10%)");
+  eq("formatChange none", formatChange({ change: null, changePct: null }), "");
+  eq("timeframe labels", [timeframeLabel(60), timeframeLabel(300), timeframeLabel(15), timeframeLabel(3600)], ["1m", "5m", "15s", "1h"]);
+}
 
 if (failures) {
   console.error(`${failures} failure(s)`);
