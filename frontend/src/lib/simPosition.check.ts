@@ -10,6 +10,7 @@ import {
   openR,
   sell,
   setStop,
+  setTarget,
   unrealized,
   type SimState,
 } from "./simPosition";
@@ -104,6 +105,21 @@ eq("released drag in history", s.position.stops.length, 2);
 eq("history stop value", s.position.stops[1].stop, 1.8);
 s = closeAll(s, { price: 2.2, ts: at(3) });
 eq("trip keeps stop history", s.trips[s.trips.length - 1].stops.length, 2);
+
+// 6b) Profit target: plan line only, mirrors the stop's lifecycle.
+s = setTarget(initialState(), 3);
+eq("target flat no-op", s.position.target, null);
+s = buy(initialState(), { price: 2.0, ts: at(0) }, 1.5);
+eq("target starts unset", s.position.target, null);
+s = setTarget(s, 3.0);
+eq("target set", s.position.target, 3.0);
+s = buy(s, { price: 2.2, ts: at(1) });
+eq("target carried across add", s.position.target, 3.0);
+s = setTarget(s, null);
+eq("null clears target", s.position.target, null);
+s = setTarget(s, 3.5);
+s = closeAll(s, { price: 2.4, ts: at(2) });
+eq("target cleared on full exit", s.position.target, null);
 
 // 7) Stop verdict. Bars carry only lows here. Position opens at minute 0.
 const bar = (i: number, low: number) => ({ ts: at(i), low });

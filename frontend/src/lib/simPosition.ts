@@ -59,6 +59,8 @@ export interface Position {
   /** null while flat. */
   stop: number | null;
   stopAssumed: boolean;
+  /** Profit target (a plan line only; nothing auto-exits at it); null when unset or flat. */
+  target: number | null;
   /** 1R in dollars, fixed at the first buy; null while flat. */
   risk: number | null;
   peakQty: number;
@@ -98,6 +100,7 @@ export const flat = (): Position => ({
   realized: 0,
   stop: null,
   stopAssumed: false,
+  target: null,
   risk: null,
   peakQty: 0,
   stopMoves: 0,
@@ -138,6 +141,7 @@ export function buy(
       realized: 0,
       stop,
       stopAssumed: assumed,
+      target: null,
       risk: (fill.price - stop) * MULTIPLIER * qty,
       peakQty: qty,
       stopMoves: 0,
@@ -200,6 +204,14 @@ export function setStop(state: SimState, price: number, final = true, ts?: strin
       stops: final && ts ? [...p.stops, { ts, stop: price }] : p.stops,
     },
   };
+}
+
+/** Set (or clear with null) the profit target line. No-op while flat. */
+export function setTarget(state: SimState, price: number | null): SimState {
+  const p = state.position;
+  if (p.qty === 0) return state;
+  if (price != null && !(price > 0)) return state;
+  return { ...state, position: { ...p, target: price } };
 }
 
 function finishTrip(p: Position, fills: SimFill[], realized: number): RoundTrip {
