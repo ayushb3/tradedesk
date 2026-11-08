@@ -129,6 +129,8 @@ interface Props {
   positions?: ChartPosition[];
   /** The practice profit target (green); draggable when `onTargetChange` is given. */
   targetPrice?: number | null;
+  /** Extra buttons in the contract pane's header (replay: Buy to open / Sell to open). */
+  topActions?: React.ReactNode;
   /** Called while dragging the target (final = false), on release (true); null clears it. */
   onTargetChange?: (price: number | null, final: boolean) => void;
   /** Fills of the user's sim buys/sells on the contract pane. */
@@ -304,6 +306,7 @@ function PriceChartCore({
   positions = [],
   targetPrice = null,
   onTargetChange,
+  topActions,
   simFills = [],
   onStopChange,
   fills,
@@ -1522,10 +1525,20 @@ function PriceChartCore({
           lastOnly
           showTicks
           overlay={tradeOverlay}
-          details={detailFor("top", shown)}
+          // Replay tags each fill on this pane (details on hover), so no details box here.
+          details={fillLabels === "arrows" ? [] : detailFor("top", shown)}
           detailsAsBox={fillLabels === "arrows"}
           noData={noDataFor(top)}
-          controls={stopToggleNode}
+          controls={
+            topActions ? (
+              <>
+                {topActions}
+                {stopToggleNode}
+              </>
+            ) : (
+              stopToggleNode
+            )
+          }
           barSec={barSec}
         />
       )}

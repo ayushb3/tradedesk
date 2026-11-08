@@ -16,13 +16,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerBody, DrawerHeader } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FillTable } from "@/components/review/FillTable";
-import { ReviewRail } from "@/components/review/ReviewRail";
+import { ReviewPanel } from "@/components/review/ReviewPanel";
 import { ReviewStackChart } from "@/components/review/ReviewStackChart";
 import { InlineTradeReplay } from "@/pages/ReplayPage";
-import { ExcursionReadout } from "@/components/review/ExcursionReadout";
-import { StoryStrip } from "@/components/review/StoryStrip";
-import { VerdictBand } from "@/components/review/VerdictBand";
+import { TradeScreen } from "@/components/screen/TradeScreen";
 import { CritiquePanel } from "@/components/agents/CritiquePanel";
 import { DebriefPanel } from "@/components/review/DebriefPanel";
 import { TradeEnrichmentPanel } from "@/components/journal/TradeEnrichmentPanel";
@@ -196,171 +193,143 @@ function ReviewContent({
   const reviewDay = useReviewDay(trade.session_date);
   const tally = dayTally(reviewDay.data, trade.id);
 
-  return (
-    <>
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
+  const critiqueNode = agentAvailable && (critic.isError || critique) ? (
+    <section ref={critiqueRef} className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Sparkles className="h-4 w-4 text-primary" />
+        <h3 className="text-label label-caps text-muted-foreground">Critique</h3>
+        <span className="text-label text-muted-foreground">per course material, process not P&amp;L</span>
+      </div>
+      {critic.isError ? (
+        <Alert variant="default">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Couldn't run the critique</AlertTitle>
+          <AlertDescription>
+            {critic.error instanceof ApiError
+              ? (critic.error.detail ?? critic.error.message)
+              : "Something went wrong. Try again."}
+          </AlertDescription>
+        </Alert>
+      ) : critique ? (
+        <CritiquePanel result={critique} />
+      ) : null}
+    </section>
+  ) : null;
+
+  const bar = (
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => navigate(`/days/${trade.session_date}`)}
+        className="gap-1.5"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {formatDayMonth(trade.session_date)}
+      </Button>
+
+      {/* Critique (PRD-M9 R6) — only when the agent layer is available. */}
+      {agentAvailable && (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          onClick={() => navigate(`/days/${trade.session_date}`)}
+          onClick={runCritique}
+          disabled={critic.isPending}
           className="gap-1.5"
         >
-          <ArrowLeft className="h-4 w-4" />
-          {formatDayMonth(trade.session_date)}
+          <Sparkles className="h-4 w-4" />
+          {critic.isPending
+            ? "Critiquing…"
+            : critique
+              ? "Re-run critique"
+              : "Critique"}
         </Button>
+      )}
 
-        {/* Critique (PRD-M9 R6) — only when the agent layer is available. */}
-        {agentAvailable && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={runCritique}
-            disabled={critic.isPending}
-            className="gap-1.5"
-          >
-            <Sparkles className="h-4 w-4" />
-            {critic.isPending
-              ? "Critiquing…"
-              : critique
-                ? "Re-run critique"
-                : "Critique"}
-          </Button>
+      <div className="ml-auto flex items-center gap-1">
+        <Button
+          variant={reviewed ? "secondary" : "outline"}
+          size="sm"
+          aria-pressed={reviewed}
+          disabled={setReviewed.isPending}
+          onClick={() => setReviewed.mutate({ id: trade.id, reviewed: !reviewed })}
+          title={reviewed ? "Reviewed. Click to put it back in the review queue." : "Take this trade out of the review queue"}
+          className="mr-2 gap-1.5"
+        >
+          {reviewed ? <CheckCircle2 className="h-4 w-4 text-gain" /> : <Circle className="h-4 w-4" />}
+          {reviewed ? "Reviewed" : "Mark reviewed"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={prev == null}
+          onClick={() => prev && navigate(`/trades/${prev.id}${replaying ? "?replay=1" : ""}`)}
+          title={prev?.crossesDay && prevDay ? `Last trade of ${formatDayMonth(prevDay)}` : undefined}
+          className="gap-1"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          {prev?.crossesDay ? "Prev day" : "Prev"}
+        </Button>
+        {idx >= 0 && ids.length > 0 && (
+          <span className="tabular px-1 text-xs text-muted-foreground">
+            {idx + 1} / {ids.length}
+          </span>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={next == null}
+          onClick={() => next && navigate(`/trades/${next.id}${replaying ? "?replay=1" : ""}`)}
+          title={next?.crossesDay && nextDay ? `First trade of ${formatDayMonth(nextDay)}` : undefined}
+          className="gap-1"
+        >
+          {next?.crossesDay ? "Next day" : "Next"}
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </header>
+  );
 
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant={reviewed ? "secondary" : "outline"}
-            size="sm"
-            aria-pressed={reviewed}
-            disabled={setReviewed.isPending}
-            onClick={() => setReviewed.mutate({ id: trade.id, reviewed: !reviewed })}
-            title={reviewed ? "Reviewed. Click to put it back in the review queue." : "Take this trade out of the review queue"}
-            className="mr-2 gap-1.5"
-          >
-            {reviewed ? <CheckCircle2 className="h-4 w-4 text-gain" /> : <Circle className="h-4 w-4" />}
-            {reviewed ? "Reviewed" : "Mark reviewed"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={prev == null}
-            onClick={() => prev && navigate(`/trades/${prev.id}${replaying ? "?replay=1" : ""}`)}
-            title={prev?.crossesDay && prevDay ? `Last trade of ${formatDayMonth(prevDay)}` : undefined}
-            className="gap-1"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {prev?.crossesDay ? "Prev day" : "Prev"}
-          </Button>
-          {idx >= 0 && ids.length > 0 && (
-            <span className="tabular px-1 text-xs text-muted-foreground">
-              {idx + 1} / {ids.length}
-            </span>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={next == null}
-            onClick={() => next && navigate(`/trades/${next.id}${replaying ? "?replay=1" : ""}`)}
-            title={next?.crossesDay && nextDay ? `First trade of ${formatDayMonth(nextDay)}` : undefined}
-            className="gap-1"
-          >
-            {next?.crossesDay ? "Next day" : "Next"}
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4">
-          <VerdictBand
-            trade={trade}
-            label={label}
-            tally={tally}
+  return (
+    <>
+      {replaying ? (
+        <div className="flex h-full min-h-0 flex-col" data-testid="inline-replay">
+          <InlineTradeReplay
+            tradeId={trade.id}
+            onExit={() => setReplaying(false)}
+            onGoTrade={(tid) => navigate(`/trades/${tid}?replay=1`)}
           />
-          {option && (
-            <StoryStrip
-              data={excursions.data}
-              isLoading={excursions.isLoading}
-              isError={excursions.isError}
-            />
-          )}
-
-          {replaying && (
-            <section
-              className="h-[min(78vh,760px)] min-h-[520px] overflow-hidden rounded-lg border border-border bg-card"
-              data-testid="inline-replay"
-            >
-              <InlineTradeReplay
-                tradeId={trade.id}
-                onExit={() => setReplaying(false)}
-                onGoTrade={(tid) => navigate(`/trades/${tid}?replay=1`)}
-              />
-            </section>
-          )}
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-            {/* Chart + fills column. minmax(0, …) + min-w-0: the column is sized by the page,
-                never by its content, so the chart cannot grow (and resize) as its readout changes. */}
-            <div className="flex min-w-0 flex-col gap-4">
-              {!replaying && (
-                <ReviewStackChart
-                  trade={trade}
-                  fills={fills}
-                  hasOption={option != null}
-                  onPlay={() => setReplaying(true)}
-                />
-              )}
-
-              {/* Share trades carry their MFE/MAE here (basis: underlying); option trades
-                  show it in the story strip above. */}
-              {!option && excursion && <ExcursionReadout excursion={excursion} />}
-
-              <section className="space-y-2">
-                <h2 className="text-body font-semibold tracking-tight">Fills</h2>
-                <FillTable fills={fills} hoveredFillId={null} onHoverFill={() => {}} />
-              </section>
-
-              {/* Trade Critic output (PRD-M9). Errors surface inline; a
-                  successful run renders the cited rule checks + prescription,
-                  per-rule checks and the prescription. */}
-              {agentAvailable && (critic.isError || critique) && (
-                <section ref={critiqueRef} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <h2 className="text-sm font-semibold tracking-tight">
-                      Critique
-                    </h2>
-                    <span className="text-xs text-muted-foreground">
-                      per course material — process, not P&amp;L
-                    </span>
-                  </div>
-                  {critic.isError ? (
-                    <Alert variant="default">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Couldn't run the critique</AlertTitle>
-                      <AlertDescription>
-                        {critic.error instanceof ApiError
-                          ? (critic.error.detail ?? critic.error.message)
-                          : "Something went wrong. Try again."}
-                      </AlertDescription>
-                    </Alert>
-                  ) : critique ? (
-                    <CritiquePanel result={critique} />
-                  ) : null}
-                </section>
-              )}
-            </div>
-
-            <ReviewRail
+        </div>
+      ) : (
+        <TradeScreen
+          bar={bar}
+          chart={
+            <ReviewStackChart
               trade={trade}
-              excursions={excursions.data}
+              fills={fills}
+              hasOption={option != null}
+              onPlay={() => setReplaying(true)}
+            />
+          }
+          panel={
+            <ReviewPanel
+              trade={trade}
+              label={label}
+              tally={tally}
+              fills={fills}
+              option={option}
+              excursion={excursion}
+              excursions={{ data: excursions.data, isLoading: excursions.isLoading, isError: excursions.isError }}
               onOpenMore={() => setMoreOpen(true)}
               onReplay={() => setReplaying(true)}
               replaying={replaying}
+              critique={critiqueNode}
             />
-          </div>
-        </div>
-      </div>
+          }
+          panelLabel="Trade review"
+          panelWidth="w-[360px]"
+        />
+      )}
 
       <Drawer open={moreOpen} onClose={closeMore} title="More about this trade" className="max-w-lg">
         <DrawerHeader>

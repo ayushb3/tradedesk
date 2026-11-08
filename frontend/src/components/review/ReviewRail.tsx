@@ -29,19 +29,16 @@ export function ReviewRail({ trade, excursions, onOpenMore, onReplay, replaying 
   const rows = writtenBeforeEntry(trade, excursions);
 
   return (
-    <aside className="flex flex-col gap-4 rounded-lg border border-border bg-card/40 p-4" data-testid="review-rail">
-      <Button size="lg" className="w-full gap-2" onClick={onReplay} disabled={replaying}>
-        <Play className="h-4 w-4" />
-        {replaying ? "Replaying above" : "Replay this trade"}
-      </Button>
+    <div className="flex flex-col" data-testid="review-rail">
+      <CallSource trade={trade} />
 
-      <section className="space-y-2" data-testid="written-before-entry">
+      <section className="space-y-2 border-b border-border px-4 py-3" data-testid="written-before-entry">
         <h3 className="text-label label-caps text-muted-foreground">Written before entry</h3>
-        <dl className="space-y-1.5">
+        <dl className="space-y-1">
           {rows.map((r) => (
             <div key={r.key} className="flex items-baseline justify-between gap-3">
-              <dt className="text-body text-muted-foreground">{r.label}</dt>
-              <dd className={cn("num text-value", r.assumed && "text-stop")}>
+              <dt className="text-label text-muted-foreground">{r.label}</dt>
+              <dd className={cn("num text-label", r.assumed && "text-stop")}>
                 {r.value}
                 {r.assumed && <span className="ml-1.5 text-label label-caps">assumed</span>}
               </dd>
@@ -50,23 +47,30 @@ export function ReviewRail({ trade, excursions, onOpenMore, onReplay, replaying 
         </dl>
       </section>
 
-      <CallSource trade={trade} />
       <SetupTag trade={trade} />
       <Lesson trade={trade} />
-      <DayJournalField
-        key={trade.session_date}
-        date={trade.session_date}
-        field="notes"
-        label={`Day note · ${formatDayMonth(trade.session_date)}`}
-        placeholder="The day's note: what happened, the one adjustment for tomorrow."
-        rows={3}
-      />
+      <section className="border-b border-border px-4 py-3">
+        <DayJournalField
+          key={trade.session_date}
+          date={trade.session_date}
+          field="notes"
+          label={`Day note · ${formatDayMonth(trade.session_date)}`}
+          placeholder="The day's note: what happened, the one adjustment for tomorrow."
+          rows={3}
+        />
+      </section>
 
-      <Button variant="outline" className="w-full gap-2" onClick={onOpenMore}>
-        <MoreHorizontal className="h-4 w-4" />
-        More: grade, checklist, screenshots, debrief
-      </Button>
-    </aside>
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
+        <Button variant="outline" size="sm" className="w-full gap-2" onClick={onOpenMore}>
+          <MoreHorizontal className="h-4 w-4" />
+          More: grade, checklist, screenshots, debrief
+        </Button>
+        <Button size="sm" className="w-full gap-2" onClick={onReplay} disabled={replaying}>
+          <Play className="h-4 w-4" />
+          {replaying ? "Replaying" : "Replay this trade"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -74,7 +78,7 @@ function CallSource({ trade }: { trade: Trade }) {
   const set = useSetCallSource();
   const source = trade.enrichment?.call_source ?? null;
   return (
-    <section className="space-y-2">
+    <section className="space-y-2 border-b border-border px-4 py-3">
       <h3 className="text-label label-caps text-muted-foreground">Whose call</h3>
       <div className="inline-flex overflow-hidden rounded-md border border-border" role="group" aria-label="Call source">
         {(["mentor", "own"] as const).map((v) => (
@@ -85,7 +89,7 @@ function CallSource({ trade }: { trade: Trade }) {
             aria-pressed={source === v}
             onClick={() => set.mutate({ id: trade.id, callSource: source === v ? null : v })}
             className={cn(
-              "px-4 py-1.5 text-body capitalize transition-colors disabled:opacity-60",
+              "px-4 py-1 text-label capitalize transition-colors disabled:opacity-60",
               source === v ? "bg-play text-white" : "bg-transparent text-muted-foreground hover:bg-muted",
             )}
           >
@@ -128,7 +132,7 @@ function SetupTag({ trade }: { trade: Trade }) {
   };
 
   return (
-    <section className="space-y-2" data-testid="setup-tag">
+    <section className="space-y-2 border-b border-border px-4 py-3" data-testid="setup-tag">
       <h3 className="text-label label-caps text-muted-foreground">Setup</h3>
       <div className="flex flex-wrap gap-1.5">
         {(allTags ?? []).map((t) => (
@@ -187,7 +191,7 @@ function Lesson({ trade }: { trade: Trade }) {
   };
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-2 border-b border-border px-4 py-3">
       <label htmlFor="lesson" className="block text-label label-caps text-muted-foreground">
         Lesson, one line
       </label>
