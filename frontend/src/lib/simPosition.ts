@@ -31,6 +31,8 @@
 
 export const MULTIPLIER = 100;
 export const ASSUMED_STOP_FRAC = 0.3;
+/** Free replay trades the underlying, which moves far less than a premium: assume a 0.5% stop. */
+export const UNDERLYING_STOP_FRAC = 0.005;
 
 export interface SimFill {
   side: "buy" | "sell";
@@ -111,15 +113,16 @@ export const initialState = (): SimState => ({ position: flat(), trips: [] });
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
-/** The stop for a first buy at `price`: the written stop if usable, else -30%. */
+/** The stop for a first buy at `price`: the written stop if usable, else `assumedFrac` below (-30%). */
 export function initialStop(
   price: number,
   writtenStop: number | null | undefined,
+  assumedFrac: number = ASSUMED_STOP_FRAC,
 ): { stop: number; assumed: boolean } {
   if (writtenStop != null && Number.isFinite(writtenStop) && writtenStop > 0 && writtenStop < price) {
     return { stop: writtenStop, assumed: false };
   }
-  return { stop: round4(price * (1 - ASSUMED_STOP_FRAC)), assumed: true };
+  return { stop: round4(price * (1 - assumedFrac)), assumed: true };
 }
 
 /** Buy `qty` at `price`. The first buy of a round trip fixes the stop and 1R. */
@@ -127,13 +130,14 @@ export function buy(
   state: SimState,
   fill: { price: number; ts: string; qty?: number },
   writtenStop?: number | null,
+  assumedFrac?: number,
 ): SimState {
   const qty = fill.qty ?? 1;
   const p = state.position;
   if (!(qty > 0) || !(fill.price > 0)) return state;
 
   if (p.qty === 0) {
-    const { stop, assumed } = initialStop(fill.price, writtenStop);
+    const { stop, assumed } = initialStop(fill.price, writtenStop, assumedFrac);
     const position: Position = {
       fills: [{ side: "buy", qty, price: fill.price, ts: fill.ts }],
       qty,

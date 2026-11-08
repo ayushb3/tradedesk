@@ -50,6 +50,10 @@ eq("assumed flag", s.position.stopAssumed, true);
 eq("1R assumed = 30", s.position.risk, 30);
 s = buy(initialState(), { price: 1.0, ts: at(0) }, 1.2);
 eq("invalid written stop falls back", s.position.stopAssumed, true);
+// Free replay (underlying): a caller-chosen assumed fraction, here 0.5% below a $500 buy.
+s = buy(initialState(), { price: 500, ts: at(0) }, null, 0.005);
+eq("underlying assumed stop", s.position.stop, 497.5);
+eq("underlying 1R = 2.50 x 100", s.position.risk, 250);
 
 // 3) Add lower: blended average, flag, R denominator stays fixed.
 s = buy(initialState(), { price: 2.0, ts: at(0) }, 1.4); // risk = 60

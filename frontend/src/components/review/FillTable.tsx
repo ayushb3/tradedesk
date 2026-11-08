@@ -29,17 +29,17 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <table className="w-full text-sm">
+      <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-background/40 text-label uppercase tracking-wide text-muted-foreground">
-            <th className="px-3 py-2 text-left font-medium">Time (PT)</th>
-            <th className="px-3 py-2 text-left font-medium">Side</th>
-            <th className="px-3 py-2 text-left font-medium">Role</th>
-            <th className="px-3 py-2 text-right font-medium">Qty</th>
-            <th className="px-3 py-2 text-right font-medium">Price</th>
-            <th className="px-3 py-2 text-right font-medium">Value</th>
-            <th className="px-3 py-2 text-left font-medium">Type</th>
-            <th className="px-3 py-2 text-right font-medium">Fees</th>
+            <th className="px-1.5 py-2 text-left font-medium">Time (PT)</th>
+            <th className="px-1.5 py-2 text-left font-medium">Side</th>
+            <th className="px-1.5 py-2 text-left font-medium">Role</th>
+            <th className="px-1.5 py-2 text-right font-medium">Qty</th>
+            {/* Value sits under Price, so all eight fields fit the 360px review panel. */}
+            <th className="px-1.5 py-2 text-right font-medium" title="Fill price, with the fill value under it">Price</th>
+            <th className="px-1.5 py-2 text-left font-medium">Type</th>
+            <th className="px-1.5 py-2 text-right font-medium">Fees</th>
           </tr>
         </thead>
         <tbody>
@@ -56,35 +56,35 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
                   hovered ? "bg-muted" : "hover:bg-muted/50",
                 )}
               >
-                <td className="tabular px-3 py-1.5 text-muted-foreground">
+                <td className="tabular px-1.5 py-1.5 text-muted-foreground">
                   {formatClockSeconds(isoToUtcSeconds(f.ts))}
                 </td>
-                <td className="px-3 py-1.5">
+                <td className="px-1.5 py-1.5">
                   <span
                     className={cn(
-                      "text-xs font-medium uppercase",
+                      "font-medium uppercase",
                       isBuy ? "text-[#26a69a]" : "text-[#ef5350]",
                     )}
                   >
                     {f.side}
                   </span>
                 </td>
-                <td className="px-3 py-1.5">
-                  <span className="text-xs capitalize text-muted-foreground">
+                <td className="px-1.5 py-1.5">
+                  <span className="capitalize text-muted-foreground">
                     {f.role}
                   </span>
                 </td>
-                <td className="tabular px-3 py-1.5 text-right">{f.qty}</td>
-                <td className="tabular px-3 py-1.5 text-right">
-                  {f.price.toFixed(2)}
+                <td className="tabular px-1.5 py-1.5 text-right">{f.qty}</td>
+                <td className="tabular px-1.5 py-1.5 text-right">
+                  <div>{f.price.toFixed(2)}</div>
+                  <div className="text-muted-foreground">
+                    {fillValueText(Math.round(f.qty * f.price * f.multiplier * 100) / 100)}
+                  </div>
                 </td>
-                <td className="tabular px-3 py-1.5 text-right">
-                  {fillValueText(Math.round(f.qty * f.price * f.multiplier * 100) / 100)}
-                </td>
-                <td className="px-3 py-1.5 text-xs text-muted-foreground" title={f.order_type ?? undefined}>
+                <td className="max-w-16 truncate px-1.5 py-1.5 text-muted-foreground" title={f.order_type ?? undefined}>
                   {orderTypeLabel(f.order_type) || "—"}
                 </td>
-                <td className="tabular px-3 py-1.5 text-right text-muted-foreground">
+                <td className="tabular px-1.5 py-1.5 text-right text-muted-foreground">
                   {f.fees.toFixed(2)}
                 </td>
               </tr>

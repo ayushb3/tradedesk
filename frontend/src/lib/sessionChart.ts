@@ -7,7 +7,7 @@
  * draws or scales to a bar after the playhead, so nothing past `idx` reaches the screen.
  */
 import type { PaneSpec } from "@/components/chart/PriceChart";
-import type { Candle, IndicatorKey, LevelKey, ReplaySession, SimTrade } from "@/lib/api";
+import type { Candle, IndicatorKey, LevelKey, ReplaySession } from "@/lib/api";
 import { isoToUtcSeconds, valueAt } from "@/lib/chart";
 import { callerStyle, LEVEL_COLORS, lineLook, type LineStyleName } from "@/lib/chartColors";
 
@@ -97,13 +97,12 @@ export interface SessionChart {
 }
 
 /**
- * The session at bar `idx` as PriceChart props. `trades` (free replay's practice trades)
- * become markers; their legs after the playhead are left out.
+ * The session at bar `idx` as PriceChart props.
  */
 export function sessionChart(
   session: ReplaySession,
   idx: number,
-  opts: { visibility?: ChartVisibility; trades?: SimTrade[]; label?: string } = {},
+  opts: { visibility?: ChartVisibility; label?: string } = {},
 ): SessionChart | null {
   const { candles, indicators, levels } = session;
   if (candles.length === 0) return null;
@@ -134,15 +133,6 @@ export function sessionChart(
     }
   }
 
-  const markers: NonNullable<PaneSpec["markers"]> = [];
-  (opts.trades ?? []).forEach((t, ti) => {
-    const long = t.direction === "long";
-    for (const leg of t.entries)
-      markers.push({ sec: onGrid(isoToUtcSeconds(leg.ts), startSec, barSec), side: long ? "buy" : "sell", text: `#${ti + 1} ${long ? "L" : "S"}` });
-    for (const leg of t.exits)
-      markers.push({ sec: onGrid(isoToUtcSeconds(leg.ts), startSec, barSec), side: "exit", text: "exit" });
-  });
-
   return {
     pane: {
       label: opts.label ?? session.symbol,
@@ -151,7 +141,6 @@ export function sessionChart(
       emas: lines.length > 0 ? lines : undefined,
       levels: paneLevels,
       levelsOnAxis: true,
-      markers: markers.length > 0 ? markers : undefined,
     },
     startSec,
     endSec,

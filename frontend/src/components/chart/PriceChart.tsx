@@ -132,6 +132,12 @@ interface Props {
   targetPrice?: number | null;
   /** Extra buttons in the contract pane's header (replay: Buy to open / Sell to close). */
   topActions?: React.ReactNode;
+  /**
+   * With no top pane, trade on the bottom one (free replay): the stop, target, position pills,
+   * fill tags and `topActions` go on it. Off by default, so a single-pane chart of real option
+   * fills on the underlying (day replay) keeps its plain markers.
+   */
+  tradeOnBottom?: boolean;
   /** Called while dragging the target (final = false), on release (true); null clears it. */
   onTargetChange?: (price: number | null, final: boolean) => void;
   /** Fills of the user's sim buys/sells on the contract pane. */
@@ -312,6 +318,7 @@ function PriceChartCore({
   targetPrice = null,
   onTargetChange,
   topActions,
+  tradeOnBottom = false,
   simFills = NO_SIM_FILLS,
   onStopChange,
   fills,
@@ -374,6 +381,9 @@ function PriceChartCore({
   /** A time's bar open on this chart's grid (the minute on 1m bars; the 5m bar on 5m). */
   const onBar = (t: number) => startSec + Math.floor((t - startSec) / barSec) * barSec;
   const hasTop = top !== null;
+  /** The pane that carries the trading overlays: the contract pane, or the underlying when there is none. */
+  const bottomTrades = !hasTop && tradeOnBottom;
+  const tradeKey: "top" | "bottom" = bottomTrades ? "bottom" : "top";
   const lastIdx = timeline.length - 1;
   const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx), barSec);
   const viewFromIdx = defaultView ? indexOfSec(timeline[0] ?? startSec, defaultView.fromSec, Math.max(0, lastIdx), barSec) : 0;
@@ -430,6 +440,7 @@ function PriceChartCore({
     if (!bottomNode) return;
     const fmt = makeDisplayFormatters();
 
+    const tradeWhich: "top" | "bottom" = !topEl.current && bottomTrades ? "bottom" : "top";
     const make = (el: HTMLDivElement, which: "top" | "bottom", showAxis: boolean): PaneRuntime => {
       const chart = createChart(el, {
         layout: {
@@ -481,12 +492,12 @@ function PriceChartCore({
         lastValueVisible: true,
         // The visible played bars (whitespace is never counted), padded a few percent.
         autoscaleInfoProvider: (base: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
-          if (frozen.current && which === "top") return { priceRange: frozen.current };
+          if (frozen.current && which === tradeWhich) return { priceRange: frozen.current };
           const b = base();
           if (!b || !b.priceRange) return null;
           const d = paddedRange(
             { min: b.priceRange.minValue, max: b.priceRange.maxValue },
-            which === "top" ? live.current.extras : [],
+            which === tradeWhich ? live.current.extras : [],
             { floorZero: which === "top" },
           );
           if (!d) return b;
@@ -822,7 +833,7 @@ function PriceChartCore({
       avgLines.current = [];
       targetLine.current = null;
     };
-  }, [hasTop, contractBelow]);
+  }, [hasTop, contractBelow, bottomTrades]);
   const refitRef = useRef<(() => void) | null>(null);
   const snapRef = useRef<(() => void) | null>(null);
 
@@ -963,9 +974,9 @@ function PriceChartCore({
     return () => cancelAnimationFrame(id);
   }, [isReplay, topCandles, bottomCandles]);
 
-  // ---- stop line (amber), contract pane only ---------------------------------
+  // ---- stop line (amber), trade pane only ---------------------------------
   useEffect(() => {
-    const rt = panes.current?.top;
+    const rt = panes.current?.[tradeKey];
     if (!rt) return;
     if (stopLine.current) {
       rt.series.removePriceLine(stopLine.current);
@@ -983,11 +994,11 @@ function PriceChartCore({
       });
     }
     rt.chart.priceScale("right").applyOptions({ autoScale: true }); // re-run the autoscale with the new stop
-  }, [stopPrice, stopAssumed, hasTop, !!onStopChange]);
+  }, [stopPrice, stopAssumed, hasTop, bottomTrades, !!onStopChange]);
 
-  // ---- practice target (green dashed), contract pane only ------------------------
+  // ---- practice target (green dashed), trade pane only ------------------------
   useEffect(() => {
-    const rt = panes.current?.top;
+    const rt = panes.current?.[tradeKey];
     if (!rt) return;
     if (targetLine.current) {
       rt.series.removePriceLine(targetLine.current);
@@ -1004,12 +1015,12 @@ function PriceChartCore({
       });
     }
     rt.chart.priceScale("right").applyOptions({ autoScale: true });
-  }, [targetPrice, hasTop, !!onTargetChange]);
+  }, [targetPrice, hasTop, bottomTrades, !!onTargetChange]);
 
-  // ---- blended average entry per open position (dotted), contract pane only -------
+  // ---- blended average entry per open position (dotted), trade pane only -------
   const avgKey = positions.map((ps) => `${ps.kind}:${ps.avg}`).join("|");
   useEffect(() => {
-    const rt = panes.current?.top;
+    const rt = panes.current?.[tradeKey];
     if (!rt) return;
     for (const l of avgLines.current) rt.series.removePriceLine(l);
     avgLines.current = positions.map((ps) =>
@@ -1024,7 +1035,7 @@ function PriceChartCore({
     );
     rt.chart.priceScale("right").applyOptions({ autoScale: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [avgKey, hasTop]);
+  }, [avgKey, hasTop, bottomTrades]);
 
   // ---- fill markers: short arrows only (details go to the hover readout) -----
   // Real fills mark the fill minute on BOTH panes (arrow at that bar, no option price on the
@@ -1107,8 +1118,14 @@ function PriceChartCore({
     p.top?.series.setMarkers(
       [...(tagged ? [] : [...realMarkers(side), ...sim]), ...extra(top), ...hiLo(top)].sort(byTime),
     );
-    p.bottom.series.setMarkers([...realMarkers(side), ...extra(bottom), ...hiLo(bottom)].sort(byTime));
-  }, [fills, simFills, playheadSec, hasTop, timeline, top, bottom, fillLabels]);
+    // With no contract pane the underlying is the trade pane and carries the fills like the top one.
+    p.bottom.series.setMarkers(
+      (!bottomTrades
+        ? [...realMarkers(side), ...extra(bottom), ...hiLo(bottom)]
+        : [...(tagged ? [] : [...realMarkers(side), ...sim]), ...extra(bottom), ...hiLo(bottom)]
+      ).sort(byTime),
+    );
+  }, [fills, simFills, playheadSec, hasTop, bottomTrades, timeline, top, bottom, fillLabels]);
 
   // ---- fill tags (contract pane, replay): real and practice fills drawn so far ----
   const tagSources = useMemo(() => {
@@ -1160,6 +1177,8 @@ function PriceChartCore({
   useEffect(() => {
     const p = panes.current;
     if (!p) return;
+    const tradeRt = bottomTrades ? p.bottom : p.top;
+    const tradeEl = bottomTrades ? bottomEl.current : topEl.current;
     const measure = (rt: PaneRuntime | null, spec: PaneSpec | null): Layout => {
       if (!rt) return EMPTY_LAYOUT;
       const ts = rt.chart.timeScale();
@@ -1193,29 +1212,29 @@ function PriceChartCore({
         entryX: x(entrySec),
         exitX: x(exitSec),
         stopY:
-          rt === p.top && stopPrice != null
+          rt === tradeRt && stopPrice != null
             ? (rt.series.priceToCoordinate(stopPrice) as number | null)
             : null,
         targetY:
-          rt === p.top && targetPrice != null
+          rt === tradeRt && targetPrice != null
             ? (rt.series.priceToCoordinate(targetPrice) as number | null)
             : null,
         posYs:
-          rt === p.top
+          rt === tradeRt
             ? positions.flatMap((ps) => {
                 const y = rt.series.priceToCoordinate(ps.avg) as number | null;
                 return y === null ? [] : [{ key: ps.key, y }];
               })
             : [],
         fillTags:
-          rt === p.top && fillLabels === "arrows"
+          rt === tradeRt && fillLabels === "arrows"
             ? spreadTags(
                 tagSources.flatMap((t) => {
                   const tx = x(t.sec);
                   const ty = rt.series.priceToCoordinate(t.price) as number | null;
                   return tx === null || ty === null || tx < 0 || tx > width ? [] : [{ ...t, x: tx, y: ty }];
                 }),
-                (topEl.current?.clientHeight ?? Infinity) - rt.chart.timeScale().height(), // stay above the time axis
+                (tradeEl?.clientHeight ?? Infinity) - rt.chart.timeScale().height(), // stay above the time axis
               )
             : [],
         chips: chipSources.flatMap((c) => {
@@ -1229,8 +1248,8 @@ function PriceChartCore({
 
   // ---- dragging the stop ---------------------------------------------------------
   const priceAtPointer = (e: React.PointerEvent, grabDy = 0): number | null => {
-    const rt = panes.current?.top;
-    const el = topEl.current;
+    const rt = panes.current?.[tradeKey];
+    const el = bottomTrades ? bottomEl.current : topEl.current;
     if (!rt || !el) return null;
     const y = e.clientY - el.getBoundingClientRect().top - grabDy; // where the line is, not the finger
     const raw = rt.series.coordinateToPrice(y);
@@ -1244,18 +1263,18 @@ function PriceChartCore({
   const endDrag = () => {
     dragging.current = null;
     frozen.current = null;
-    panes.current?.top?.chart.priceScale("right").applyOptions({ autoScale: true });
+    panes.current?.[tradeKey]?.chart.priceScale("right").applyOptions({ autoScale: true });
   };
   /** Pointer handlers that drag one plan line (stop or target) on the contract pane. */
   const dragHandlers = (kind: "stop" | "target", price: number, onChange: (p: number, final: boolean) => void) => ({
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId);
       // Keep the grab offset, so the line does not jump to the pointer.
-      const lineY = panes.current?.top?.series.priceToCoordinate(price) as number | null | undefined;
-      const el = topEl.current;
+      const lineY = panes.current?.[tradeKey]?.series.priceToCoordinate(price) as number | null | undefined;
+      const el = bottomTrades ? bottomEl.current : topEl.current;
       const grabDy = lineY != null && el ? e.clientY - el.getBoundingClientRect().top - lineY : 0;
       dragging.current = { kind, price, moved: false, grabDy };
-      frozen.current = lastDomain.current.top;
+      frozen.current = lastDomain.current[tradeKey];
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
       const d = dragging.current;
@@ -1273,7 +1292,7 @@ function PriceChartCore({
     },
     onPointerCancel: endDrag,
   });
-  const topLayout = layouts.top;
+  const topLayout = layouts[tradeKey];
   const tradeOverlay = (
     <>
       {(() => {
@@ -1463,6 +1482,7 @@ function PriceChartCore({
     ) : null;
   const zoomNode = (
     <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5 pl-2" data-testid="chart-controls">
+      {bottomTrades && topActions}
       {!top && stopToggleNode}
       <span
         className="cursor-help rounded-md p-1 text-muted-foreground"
@@ -1567,8 +1587,18 @@ function PriceChartCore({
         timeframe={timeframeLabel(barSec)}
         showTicks={!top}
         tickTop={!top}
-        overlay={markHandles}
-        details={detailFor("bottom", shown)}
+        overlay={
+          !bottomTrades ? (
+            markHandles
+          ) : (
+            <>
+              {tradeOverlay}
+              {markHandles}
+            </>
+          )
+        }
+        // As on the contract pane, Replay tags each fill, so the trade pane gets no details box.
+        details={bottomTrades && fillLabels === "arrows" ? [] : detailFor("bottom", shown)}
         detailsAsBox={fillLabels === "arrows"}
         noData={noDataFor(bottom)}
         controls={zoomNode}

@@ -22,6 +22,8 @@ interface Options {
   sessionDate: string;
   /** The replayed trade's written stop, if any. */
   writtenStop: number | null;
+  /** How far below the first buy the stop is assumed when there is no written stop (default 30%). */
+  assumedStopFrac?: number;
 }
 
 /**
@@ -30,7 +32,7 @@ interface Options {
  * are sent in shares (contracts x 100) because the sim endpoint prices with a
  * multiplier of 1, which makes its dollar P&L correct for options.
  */
-export function useSimSession({ resetKey, symbol, sessionDate, writtenStop }: Options) {
+export function useSimSession({ resetKey, symbol, sessionDate, writtenStop, assumedStopFrac }: Options) {
   const [state, setState] = useState<SimState>(initialState);
   const stateRef = useRef(state);
   const [logError, setLogError] = useState<string | null>(null);
@@ -88,9 +90,9 @@ export function useSimSession({ resetKey, symbol, sessionDate, writtenStop }: Op
   const onBuy = useCallback(
     (c: Candle | null, qty = 1) => {
       if (!c) return;
-      apply(buy(stateRef.current, { price: c.close, ts: c.ts, qty }, writtenStop));
+      apply(buy(stateRef.current, { price: c.close, ts: c.ts, qty }, writtenStop, assumedStopFrac));
     },
-    [apply, writtenStop],
+    [apply, writtenStop, assumedStopFrac],
   );
   const onSell = useCallback(
     (c: Candle | null, qty = 1) => {
