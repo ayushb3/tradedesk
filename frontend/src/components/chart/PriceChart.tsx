@@ -11,7 +11,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronsRight, HelpCircle, Minus, Plus } from "lucide-react";
+import { ChevronsRight, HelpCircle, Lock, LockOpen, Minus, Plus, Search } from "lucide-react";
 
 import { api, type Candle, type ReplayFill } from "@/lib/api";
 import type { SimFill } from "@/lib/simPosition";
@@ -43,13 +43,13 @@ import {
 import {
   alignedCandles,
   buildTimeline,
-  floorMinute,
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
 import { LEVEL_SLATE, lineLook, type LineStyleName } from "@/lib/chartColors";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
+import { bucketOf, INTERVALS, RANGES, rollUp, rollUpLine } from "@/lib/chartInterval";
 
 const THEME = CHART_THEME;
 const PRICE_SCALE_WIDTH = 72;
@@ -171,6 +171,13 @@ interface Props {
   defaultView?: { fromSec: number; toSec?: number | null };
   /** Replay: the last second played (seconds precision), the latest time a bid/ask may come from. */
   revealSec?: number;
+  /** The bottom bar (ranges, interval, underlying/option, auto-scale). Default on. */
+  footer?: boolean;
+  /**
+   * A chart that loads its own bar size (free replay) drives the Interval buttons itself:
+   * the buttons in `options` are enabled and pick that size; nothing is rolled up here.
+   */
+  interval?: { value: string; options: readonly string[]; onChange: (label: string) => void };
 }
 
 interface Layout {
@@ -182,6 +189,7 @@ interface Layout {
   height: number;
   levelYs: { label: string; price: number; y: number; color?: string }[];
   markYs: { key: string; label: string; y: number }[];
+  /** Session high and low (of the bars drawn so far), tagged "H:" / "L:" at their candles. */
   chips: { x: number; text: string; side: "buy" | "sell" }[];
   /** Price at the bottom/top edge of the pane and the visible bar indices (also exposed as data-* for checks). */
   yMin: number | null;
@@ -251,7 +259,7 @@ interface ViewState {
  */
 const STOP_PREF_KEY = "td.chart.stopLine";
 
-export function PriceChart({
+function PriceChartCore({
   top,
   bottom,
   startSec,
@@ -276,7 +284,8 @@ export function PriceChart({
   fillLabels = "chips",
   defaultView,
   revealSec,
-}: Props) {
+  autoScale = true,
+}: Props & { autoScale?: boolean }) {
   const isReplay = mode.kind === "replay";
   // Stop line on/off (remembered per browser); hidden means not drawn and not in the autoscale.
   const [showStop, setShowStop] = useState<boolean>(() => {
@@ -317,6 +326,8 @@ export function PriceChart({
   });
 
   const timeline = useMemo(() => buildTimeline(startSec, endSec, barSec), [startSec, endSec, barSec]);
+  /** A time's bar open on this chart's grid (the minute on 1m bars; the 5m bar on 5m). */
+  const onBar = (t: number) => startSec + Math.floor((t - startSec) / barSec) * barSec;
   const hasTop = top !== null;
   const lastIdx = timeline.length - 1;
   const playIdx = indexOfSec(timeline[0] ?? startSec, playheadSec, Math.max(0, lastIdx), barSec);
@@ -374,13 +385,14 @@ export function PriceChart({
     const make = (el: HTMLDivElement, which: "top" | "bottom", showAxis: boolean): PaneRuntime => {
       const chart = createChart(el, {
         layout: {
-          background: { type: ColorType.Solid, color: "transparent" },
+          background: { type: ColorType.Solid, color: "transparent" }, // the container paints THEME.bg, so the overlays under the canvas show
           textColor: THEME.text,
           fontSize: 12,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         },
+        // Almost no grid: faint horizontal lines only.
         grid: {
-          vertLines: { color: THEME.grid },
+          vertLines: { visible: false },
           horzLines: { color: THEME.grid },
         },
         // A free crosshair that follows the mouse, with its price tagged on the right scale and
@@ -392,13 +404,13 @@ export function PriceChart({
         },
         // Padding comes from our own autoscale; no extra margins (premium must not dip below 0).
         rightPriceScale: {
-          borderColor: THEME.grid,
+          borderColor: THEME.border,
           minimumWidth: PRICE_SCALE_WIDTH,
           scaleMargins: { top: 0, bottom: 0 },
         },
         localization: { timeFormatter: fmt.timeFormatter },
         timeScale: {
-          borderColor: THEME.grid,
+          borderColor: THEME.border,
           timeVisible: true,
           secondsVisible: false,
           rightOffset: 0,
@@ -417,7 +429,8 @@ export function PriceChart({
         wickUpColor: THEME.up,
         wickDownColor: THEME.down,
         priceLineVisible: false,
-        lastValueVisible: false,
+        // The last drawn close, tagged on the price scale in the bar's color.
+        lastValueVisible: true,
         // The visible played bars (whitespace is never counted), padded a few percent.
         autoscaleInfoProvider: (base: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
           if (frozen.current && which === "top") return { priceRange: frozen.current };
@@ -433,11 +446,12 @@ export function PriceChart({
           return { priceRange: d };
         },
       });
+      // Every line gets a colored tag on the price scale at its last drawn value.
       const vwap = chart.addLineSeries({
         color: THEME.vwap,
         lineWidth: 1,
         priceLineVisible: false,
-        lastValueVisible: false,
+        lastValueVisible: true,
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null, // never part of the scale
       });
@@ -446,7 +460,7 @@ export function PriceChart({
           color: lineLook("ema", i).color,
           lineWidth: 1,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: true,
           crosshairMarkerVisible: false,
           autoscaleInfoProvider: () => null,
         }),
@@ -840,6 +854,19 @@ export function PriceChart({
     return () => cancelAnimationFrame(id);
   }, [timeline, top, bottom, playheadSec, hasTop, isReplay, reviewExit, windowKey]);
 
+  // ---- auto-scale lock: on, the price axis fits the visible bars; off, drag the price axis ----
+  useEffect(() => {
+    const p = panes.current;
+    if (!p) return;
+    for (const rt of [p.top, p.bottom]) {
+      if (!rt) continue;
+      rt.chart.applyOptions({
+        handleScale: { mouseWheel: false, pinch: false, axisPressedMouseMove: { time: false, price: !autoScale } },
+      });
+      rt.chart.priceScale("right").applyOptions({ autoScale });
+    }
+  }, [autoScale, hasTop]);
+
   // ---- replay crosshair: pinned to the latest candle unless the mouse is over the chart ----
   snapRef.current = () => {
     const p = panes.current;
@@ -937,7 +964,7 @@ export function PriceChart({
     if (!p) return;
     const realMarkers = (color: (f: ReplayFill) => string): SeriesMarker<UTCTimestamp>[] =>
       fills.flatMap((f) => {
-        const time = floorMinute(isoToUtcSeconds(f.ts));
+        const time = onBar(isoToUtcSeconds(f.ts));
         if (time > playheadSec) return []; // second guard; replay gates fills server-side
         const isBuy = f.side === "buy";
         return [
@@ -952,7 +979,7 @@ export function PriceChart({
       });
     const side = (f: ReplayFill) => (f.side === "buy" ? THEME.up : THEME.down);
     const sim: SeriesMarker<UTCTimestamp>[] = simFills.flatMap((f) => {
-      const time = floorMinute(isoToUtcSeconds(f.ts));
+      const time = onBar(isoToUtcSeconds(f.ts));
       if (time > playheadSec) return [];
       const isBuy = f.side === "buy";
       return [
@@ -982,15 +1009,37 @@ export function PriceChart({
           },
         ];
       });
-    p.top?.series.setMarkers([...realMarkers(side), ...sim, ...extra(top)].sort(byTime));
-    p.bottom.series.setMarkers([...realMarkers(side), ...extra(bottom)].sort(byTime));
+    // Session high / low so far: "H: x" over its candle, "L: x" under it (stacked with any fill
+    // arrow on that bar by the chart, so they never overlap). Bars after the playhead don't count.
+    const hiLo = (spec: PaneSpec | null): SeriesMarker<UTCTimestamp>[] => {
+      if (!spec) return [];
+      let hi: { t: number; p: number } | null = null;
+      let lo: { t: number; p: number } | null = null;
+      for (const c of spec.candles) {
+        const t = onBar(isoToUtcSeconds(c.ts));
+        if (t > playheadSec) continue;
+        if (!hi || c.high > hi.p) hi = { t, p: c.high };
+        if (!lo || c.low < lo.p) lo = { t, p: c.low };
+      }
+      const tag = (kind: "H" | "L", v: { t: number; p: number }): SeriesMarker<UTCTimestamp> => ({
+        time: v.t as UTCTimestamp,
+        position: kind === "H" ? "aboveBar" : "belowBar",
+        color: THEME.text,
+        shape: "circle",
+        size: 0.5,
+        text: `${kind}: ${v.p.toFixed(2)}`,
+      });
+      return [...(hi ? [tag("H", hi)] : []), ...(lo ? [tag("L", lo)] : [])];
+    };
+    p.top?.series.setMarkers([...realMarkers(side), ...sim, ...extra(top), ...hiLo(top)].sort(byTime));
+    p.bottom.series.setMarkers([...realMarkers(side), ...extra(bottom), ...hiLo(bottom)].sort(byTime));
   }, [fills, simFills, playheadSec, hasTop, timeline, top, bottom]);
 
   // ---- overlay geometry (px) for the shaded future / hold / chips ------------
   const chipSources = useMemo(
     () =>
       (fillLabels === "arrows" ? [] : fills)
-        .map((f) => ({ sec: floorMinute(isoToUtcSeconds(f.ts)), exact: isoToUtcSeconds(f.ts), side: f.side }))
+        .map((f) => ({ sec: onBar(isoToUtcSeconds(f.ts)), exact: isoToUtcSeconds(f.ts), side: f.side }))
         .filter((f) => f.sec <= playheadSec)
         .map((f) => ({
           sec: f.sec,
@@ -1007,7 +1056,12 @@ export function PriceChart({
       const ts = rt.chart.timeScale();
       const x = (sec: number | null) =>
         sec === null ? null : (ts.timeToCoordinate(sec as UTCTimestamp) as number | null);
-      const width = p.bottom.chart.timeScale().width(); // both panes share one plot width
+      // Both panes share one plot width: the pane minus its right price scale. (The time scale's
+      // own width() can read 0 before its first paint, which hid every overlay.)
+      const width = Math.max(
+        p.bottom.chart.timeScale().width(),
+        (bottomEl.current?.clientWidth ?? 0) - p.bottom.chart.priceScale("right").width(),
+      );
       const h = (rt === p.top ? topEl.current : bottomEl.current)?.clientHeight ?? 0;
       const vr = readRange(ts.getVisibleLogicalRange());
       return {
@@ -1151,7 +1205,7 @@ export function PriceChart({
     if (minute === null) return [];
     const out: string[] = [];
     for (const f of fills) {
-      const t = floorMinute(isoToUtcSeconds(f.ts));
+      const t = onBar(isoToUtcSeconds(f.ts));
       if (t !== minute || t > playheadSec) continue;
       // Every fill in the minute gets its own chip with its exact second and order type. The
       // underlying pane leaves out the option price (it is not a price on that axis), unless it
@@ -1160,7 +1214,7 @@ export function PriceChart({
     }
     if (which === "top") {
       for (const f of simFills) {
-        const t = floorMinute(isoToUtcSeconds(f.ts));
+        const t = onBar(isoToUtcSeconds(f.ts));
         if (t !== minute || t > playheadSec) continue;
         out.push(`sim ${f.side === "buy" ? "B" : "S"} ${f.qty} @ ${f.price.toFixed(2)}`);
       }
@@ -1170,7 +1224,7 @@ export function PriceChart({
 
   const noDataFor = (spec: PaneSpec): string | null => {
     if (isReplay && playheadLabel) return null; // Seconds mode: a quiet minute is not missing data
-    const last = spec.candles.length ? floorMinute(isoToUtcSeconds(spec.candles[spec.candles.length - 1].ts)) : null;
+    const last = spec.candles.length ? onBar(isoToUtcSeconds(spec.candles[spec.candles.length - 1].ts)) : null;
     let at: number | null = null;
     if (isReplay) {
       if (last !== null && playheadSec > last) at = last; // only once the playhead has passed it
@@ -1307,6 +1361,144 @@ export function PriceChart({
   );
 }
 
+/**
+ * The one price chart, with its bottom bar: ranges, Interval (minute bars rolled up on the
+ * client), Underlying/Option (which pane leads) and the Auto-scale lock.
+ */
+export function PriceChart({ footer = true, ...props }: Props) {
+  const [tfMin, setTfMin] = useState(1);
+  const [focus, setFocus] = useState<"top" | "bottom">(props.mainPane ?? "top");
+  const [autoScale, setAutoScale] = useState(true);
+  const baseBar = props.barSec ?? 60;
+  const ctl = props.interval;
+  const canRollUp = baseBar === 60 && !ctl;
+  const eff = useMemo(
+    () => (canRollUp && tfMin > 1 ? withInterval(props, tfMin * 60) : props),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canRollUp, tfMin, props.top, props.bottom, props.startSec, props.endSec, props.playheadSec, props.mode, props.defaultView, props.noDataAfterSec, props.initialBars],
+  );
+  const core = <PriceChartCore {...props} {...eff} mainPane={focus} autoScale={autoScale} />;
+  if (!footer) return core;
+  const seg = (on: boolean, enabled = true) =>
+    `num rounded px-1.5 py-0.5 text-label transition-colors ${
+      on ? "bg-muted text-foreground" : enabled ? "text-muted-foreground hover:text-foreground" : "cursor-not-allowed text-muted-foreground/40"
+    }`;
+  return (
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-chart">
+      <div className="min-h-0 flex-1">{core}</div>
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-chart px-3 py-1"
+        data-testid="chart-footer"
+      >
+        <div className="flex items-center gap-0.5" role="group" aria-label="Range">
+          {RANGES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              disabled={r !== "1D"}
+              aria-pressed={r === "1D"}
+              className={seg(r === "1D", r === "1D")}
+              title={r === "1D" ? "The trade day" : "Only the trade day is loaded"}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-0.5" role="group" aria-label="Interval">
+          <span className="mr-1 text-label text-muted-foreground">Interval:</span>
+          {INTERVALS.map((iv) => {
+            const ctlKey = ctl?.options.find((o) => o.toLowerCase() === iv.label.toLowerCase());
+            const enabled = ctl ? ctlKey !== undefined : iv.available && (canRollUp ? iv.min >= 1 : iv.min * 60 === baseBar);
+            const on = ctl ? ctl.value.toLowerCase() === iv.label.toLowerCase() : canRollUp ? tfMin === iv.min : iv.min * 60 === baseBar;
+            return (
+              <button
+                key={iv.label}
+                type="button"
+                disabled={!enabled}
+                aria-pressed={on}
+                onClick={() => {
+                  if (!enabled) return;
+                  if (ctl && ctlKey) ctl.onChange(ctlKey);
+                  else if (canRollUp) setTfMin(iv.min);
+                }}
+                className={seg(on, enabled)}
+                title={ctl ? (enabled ? `${iv.label} bars` : "Not offered for this chart") : !iv.available ? iv.why : !canRollUp ? "This chart sets its own bar size" : `${iv.label} bars`}
+                data-testid={`interval-${iv.label}`}
+              >
+                {iv.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          {props.top && (
+            <div className="flex items-center gap-0.5" role="group" aria-label="Which chart leads">
+              <button
+                type="button"
+                aria-pressed={focus === "bottom"}
+                onClick={() => setFocus("bottom")}
+                className={seg(focus === "bottom")}
+                title="The underlying gets most of the height"
+              >
+                Underlying
+              </button>
+              <button
+                type="button"
+                aria-pressed={focus === "top"}
+                onClick={() => setFocus("top")}
+                className={seg(focus === "top")}
+                title="The option gets most of the height"
+              >
+                Option
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-pressed={autoScale}
+            onClick={() => setAutoScale((v) => !v)}
+            className={`flex items-center gap-1 ${seg(autoScale)}`}
+            title={autoScale ? "Auto-scale on: the price axis fits the visible bars. Click to scale it yourself (drag the price axis)." : "Auto-scale off: drag the price axis to scale. Click to fit the bars again."}
+            data-testid="autoscale"
+          >
+            {autoScale ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+            Auto-scale
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The chart's props on `tfSec` bars: minute bars rolled up, times floored onto the new grid. */
+function withInterval(p: Props, tfSec: number): Partial<Props> {
+  const ph = p.playheadSec;
+  const pane = (s: PaneSpec | null): PaneSpec | null =>
+    s && {
+      ...s,
+      candles: rollUp(s.candles, tfSec, ph),
+      vwap: s.vwap ? rollUpLine(s.vwap, tfSec, ph) : undefined,
+      emas: s.emas?.map((e) => ({ ...e, values: rollUpLine(e.values, tfSec, ph) })),
+      markers: s.markers?.map((m) => ({ ...m, sec: bucketOf(m.sec, tfSec) })),
+    };
+  const b = (sec: number) => bucketOf(sec, tfSec);
+  return {
+    top: pane(p.top),
+    bottom: pane(p.bottom) as PaneSpec,
+    startSec: b(p.startSec),
+    endSec: b(p.endSec),
+    playheadSec: b(ph),
+    barSec: tfSec,
+    mode: p.mode.kind === "review" && p.mode.exitSec != null ? { kind: "review", exitSec: b(p.mode.exitSec) } : p.mode,
+    defaultView: p.defaultView && {
+      fromSec: b(p.defaultView.fromSec),
+      toSec: p.defaultView.toSec == null ? p.defaultView.toSec : b(p.defaultView.toSec),
+    },
+    noDataAfterSec: p.noDataAfterSec == null ? p.noDataAfterSec : b(p.noDataAfterSec),
+    initialBars: p.initialBars == null ? p.initialBars : Math.max(1, Math.ceil(p.initialBars / (tfSec / 60))),
+  };
+}
+
 function Pane({
   className,
   spec,
@@ -1355,6 +1547,18 @@ function Pane({
   controls?: React.ReactNode;
 }) {
   const bar = shown === null ? null : legendBar(spec.candles, shown, playheadSec);
+  // Header quote: the latest drawn close and its change since the session's first bar (never a bar after the playhead).
+  const session = useMemo(() => {
+    const first = spec.candles[0];
+    let last: Candle | null = null;
+    for (const c of spec.candles) {
+      if (isoToUtcSeconds(c.ts) > playheadSec) break;
+      last = c;
+    }
+    if (!first || !last || first.open === 0) return null;
+    const change = last.close - first.open;
+    return { last: last.close, change, pct: (change / first.open) * 100 };
+  }, [spec.candles, playheadSec]);
   const lineAt = (m: Map<number, number> | undefined) =>
     shown === null || shown > playheadSec ? undefined : valueAtOrBefore(m, shown, barSec);
   const quote = useLegendQuote(spec.quoteSymbol ?? null, quoteAt);
@@ -1381,7 +1585,19 @@ function Pane({
             OHLC text widened the page's grid column on hover, resizing the chart under the
             cursor (the Trade window "duplicate labels" glitch). */}
         <div className="flex w-0 min-w-0 flex-1 items-center gap-x-3 overflow-hidden">
-        <span className="label-caps text-label font-semibold">{spec.label}</span>
+        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="text-label font-semibold text-foreground">{spec.label}</span>
+        {session && (
+          <span className="num flex items-baseline gap-1.5 text-label" data-testid="pane-quote">
+            <span className="text-foreground">{session.last.toFixed(2)}</span>
+            <span
+              className={session.change >= 0 ? "text-up" : "text-down"}
+              title="Change since the first bar of the session drawn so far"
+            >
+              {session.change >= 0 ? "▲" : "▼"} {Math.abs(session.change).toFixed(2)} ({Math.abs(session.pct).toFixed(2)}%)
+            </span>
+          </span>
+        )}
         {spec.badge}
         <span className="num text-label text-muted-foreground">
           {shown === null
@@ -1391,6 +1607,24 @@ function Pane({
               : ptClock(shown)}
           {hovered ? "" : isReplay ? " · playhead" : " · last bar"}
         </span>
+        {lastOnly && (
+          <span className="flex items-center gap-0.5" role="group" aria-label="Option price" data-testid="option-price-source">
+            {(["Mid", "Bid", "Last", "Ask"] as const).map((k) => (
+              <span
+                key={k}
+                aria-disabled={k !== "Last"}
+                className={`num rounded px-1 text-label ${k === "Last" ? "bg-muted text-foreground" : "text-muted-foreground/40"}`}
+                title={
+                  k === "Last"
+                    ? "Bars are the option's last trade (or the estimated premium)"
+                    : "No historical option quotes in this data feed, so mid, bid and ask can't be drawn"
+                }
+              >
+                {k}
+              </span>
+            ))}
+          </span>
+        )}
         {!detailsAsBox &&
           details.map((d, i) => (
             <span key={`${i}:${d}`} className="num rounded border border-border px-1.5 text-label text-foreground">
@@ -1410,7 +1644,7 @@ function Pane({
             <span
               key={`${c.text}:${i}`}
               className={`num absolute whitespace-nowrap rounded border bg-card px-1 text-label ${
-                c.side === "buy" ? "border-gain/60 text-gain" : "border-loss/60 text-loss"
+                c.side === "buy" ? "border-up/60 text-up" : "border-down/60 text-down"
               }`}
               style={{ left: placed[i]?.left ?? 0, top: (placed[i]?.lane ?? 0) * CHIP_LANE_PX + 1 }}
             >
@@ -1419,7 +1653,7 @@ function Pane({
           ))}
         </div>
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1" style={{ background: THEME.bg }}>
         <div ref={elRef} className="absolute inset-0" />
         {/* Overlays share the plot area's width (the price scale sits to the right). */}
         <div className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden" style={{ width }}>
@@ -1476,11 +1710,11 @@ function Pane({
             <span className="font-semibold text-foreground">{legendSymbol(spec.label)}</span>
             <span className="text-muted-foreground">{timeframe}</span>
             {bar ? (
-              <span className={`flex flex-wrap gap-x-2 ${bar.close >= bar.open ? "text-gain" : "text-loss"}`}>
-                <span><span className="text-muted-foreground">O</span>{bar.open.toFixed(2)}</span>
-                <span><span className="text-muted-foreground">H</span>{bar.high.toFixed(2)}</span>
-                <span><span className="text-muted-foreground">L</span>{bar.low.toFixed(2)}</span>
-                <span><span className="text-muted-foreground">C</span>{bar.close.toFixed(2)}</span>
+              <span className={`flex flex-wrap gap-x-2 ${bar.close >= bar.open ? "text-up" : "text-down"}`}>
+                <span><span className="text-foreground">O </span>{bar.open.toFixed(2)}</span>
+                <span><span className="text-foreground">H </span>{bar.high.toFixed(2)}</span>
+                <span><span className="text-foreground">L </span>{bar.low.toFixed(2)}</span>
+                <span><span className="text-foreground">C </span>{bar.close.toFixed(2)}</span>
                 {bar.change != null && <span>{formatChange(bar)}</span>}
               </span>
             ) : (
@@ -1534,7 +1768,7 @@ function Pane({
               data-testid="fill-details"
             >
               {details.map((d, i) => (
-                <span key={`${i}:${d}`} className={d.startsWith("B ") ? "text-gain" : d.startsWith("S ") ? "text-loss" : undefined}>
+                <span key={`${i}:${d}`} className={d.startsWith("B ") ? "text-up" : d.startsWith("S ") ? "text-down" : undefined}>
                   {d}
                 </span>
               ))}

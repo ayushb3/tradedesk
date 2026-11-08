@@ -3,7 +3,7 @@
  *
  * Consolidates the previous Scrubber + ReplayControls into a single component.
  * Receives a ReplayState from useReplay() and renders:
- *   Row 1: transport (ReplayTransport) │ scrubber │ [HH:MM] │ speed (SpeedSlider) │ timeframe │ [Indicators]
+ *   Row 1: transport (ReplayTransport) │ scrubber │ [HH:MM] │ speed (SpeedSlider) │ [Indicators]
  *   Row 2: centered bar counter (barLabel)
  *
  * The component owns no playback logic — all state and actions live in useReplay.
@@ -17,17 +17,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { ReplayState } from "@/lib/useReplay";
 import { ReplayTransport } from "@/components/replay/ReplayTransport";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
-import { REPLAY_TIMEFRAMES, type IndicatorSeriesMap } from "@/lib/api";
+import type { IndicatorSeriesMap } from "@/lib/api";
 import {
   DEFAULT_REPLAY_CONFIG,
   emaKeys,
@@ -79,7 +72,7 @@ export function ReplayControlBar({
         backdrop-blur
       "
     >
-      {/* Row 1: transport + scrubber + jump-to-time + speed + timeframe + indicators */}
+      {/* Row 1: transport + scrubber + jump-to-time + speed + indicators */}
       <div className="flex items-center gap-1.5">
         <ReplayTransport engine={replay} disabled={off} showRestart />
 
@@ -113,28 +106,6 @@ export function ReplayControlBar({
         <div className="mx-1 h-4 w-px bg-border" />
 
         <SpeedSlider value={speed} onChange={onSpeedChange} disabled={off} max={maxSpeed} />
-
-        {/* Timeframe Select — triggers refetch via queryKey upstream */}
-        <Select
-          value={config.timeframe}
-          onValueChange={(v) =>
-            onConfigChange({ ...config, timeframe: v as typeof config.timeframe })
-          }
-        >
-          <SelectTrigger
-            className="h-7 w-[58px] tabular"
-            aria-label="Candle timeframe"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {REPLAY_TIMEFRAMES.map((tf) => (
-              <SelectItem key={tf} value={tf} className="tabular">
-                {tf}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {/* Indicators Popover */}
         <IndicatorsPopover

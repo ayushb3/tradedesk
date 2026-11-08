@@ -715,6 +715,7 @@ export function LearnDrillPage() {
           <div className="h-[30rem] overflow-hidden rounded-lg border border-border bg-card lg:h-[36rem]" data-testid="drill-chart">
             {bottom ? (
               <PriceChart
+                footer={false}
                 top={null}
                 bottom={bottom}
                 startSec={startSec}

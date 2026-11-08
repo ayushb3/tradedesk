@@ -55,7 +55,7 @@ import {
   DEFAULT_REPLAY_CONFIG,
   type ReplayConfig,
 } from "@/lib/replayConfig";
-import { api, ApiError, type ReplaySession, type SimTrade } from "@/lib/api";
+import { api, ApiError, REPLAY_TIMEFRAMES, type ReplaySession, type SimTrade } from "@/lib/api";
 
 /** Free replay starts on SPY and the most recent weekday; there is no stored default. */
 const FREE_SYMBOL = "SPY";
@@ -616,7 +616,17 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             </div>
           )}
           {ready && !inTrade && data && (
-            <FreeReplayChart session={data} index={replay.currentIndex} visibility={visibility} trades={trades} />
+            <FreeReplayChart
+              session={data}
+              index={replay.currentIndex}
+              visibility={visibility}
+              trades={trades}
+              interval={{
+                value: config.timeframe,
+                options: REPLAY_TIMEFRAMES,
+                onChange: (tf) => setConfig({ ...config, timeframe: tf as typeof config.timeframe }),
+              }}
+            />
           )}
           {inTrade ? (
             <TradeScrubber
@@ -695,11 +705,14 @@ function FreeReplayChart({
   index,
   visibility,
   trades,
+  interval,
 }: {
   session: ReplaySession;
   index: number;
   visibility: ChartVisibility;
   trades: SimTrade[];
+  /** The chart's Interval buttons pick the bar size this page loads. */
+  interval: { value: string; options: readonly string[]; onChange: (label: string) => void };
 }) {
   // Memoized: a new pane object makes PriceChart refeed every series.
   const c = useMemo(
@@ -724,6 +737,7 @@ function FreeReplayChart({
         mode={{ kind: "replay" }}
         stopPrice={null}
         fills={[]}
+        interval={interval}
       />
     </div>
   );
