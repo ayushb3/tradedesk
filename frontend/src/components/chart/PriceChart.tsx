@@ -39,6 +39,7 @@ import {
   formatBidAsk,
   type IndexRange,
   type PriceDomain,
+  spreadTags,
 } from "@/lib/priceChart";
 import {
   alignedCandles,
@@ -1208,11 +1209,14 @@ function PriceChartCore({
             : [],
         fillTags:
           rt === p.top && fillLabels === "arrows"
-            ? tagSources.flatMap((t) => {
-                const tx = x(t.sec);
-                const ty = rt.series.priceToCoordinate(t.price) as number | null;
-                return tx === null || ty === null || tx < 0 || tx > width ? [] : [{ ...t, x: tx, y: ty }];
-              })
+            ? spreadTags(
+                tagSources.flatMap((t) => {
+                  const tx = x(t.sec);
+                  const ty = rt.series.priceToCoordinate(t.price) as number | null;
+                  return tx === null || ty === null || tx < 0 || tx > width ? [] : [{ ...t, x: tx, y: ty }];
+                }),
+                (topEl.current?.clientHeight ?? Infinity) - rt.chart.timeScale().height(), // stay above the time axis
+              )
             : [],
         chips: chipSources.flatMap((c) => {
           const cx = x(c.sec);
@@ -1913,9 +1917,9 @@ function Pane({
             </div>
           )}
           {isReplay && playX !== null && <div className="absolute inset-y-0 w-px bg-play" style={{ left: playX }} />}
-          {spreadLabels(layout.levelYs, LEVEL_LABEL_GAP, layout.height).map((lv) => (
+          {spreadLabels(layout.levelYs, LEVEL_LABEL_GAP, layout.height).map((lv, i) => (
             <span
-              key={lv.label}
+              key={`${lv.label}:${lv.price}:${i}`}
               className="num absolute right-1 -translate-y-1/2 rounded bg-card/80 px-1 text-label text-grey"
               style={{ top: lv.labelY, color: lv.color }}
             >

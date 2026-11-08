@@ -147,7 +147,9 @@ export function fillChipText(side: "buy" | "sell", clock: string): string {
 export function orderTypeLabel(t: string | null | undefined): string {
   if (!t) return "";
   const k = t.toLowerCase();
-  return k === "limit" ? "LMT" : k === "market" ? "MKT" : k === "stop" ? "STOP" : k.toUpperCase();
+  // Short enough for the fills list's narrow type column; the full type stays in the row's title.
+  const short: Record<string, string> = { limit: "LMT", market: "MKT", stop: "STOP", stop_limit: "STPL", trailing_stop: "TSTP", settlement: "SETL" };
+  return short[k] ?? k.slice(0, 4).toUpperCase();
 }
 
 /**
@@ -286,4 +288,36 @@ export function quoteAtSec(barOpenSec: number, barSec: number, limitSec: number 
 /** "26.10 × 26.12": bid × ask to the cent. */
 export function formatBidAsk(bid: number, ask: number): string {
   return `${bid.toFixed(2)} × ${ask.toFixed(2)}`;
+}
+
+/**
+ * Move fill tags apart so two tags on the same bar and price (your real fill and a practice
+ * fill, say) never sit on top of each other. Buys step down and sells step up, away from the
+ * bar, until the tag clears every tag already placed. Keeps the input order.
+ */
+export function spreadTags<T extends { x: number; y: number; side: "buy" | "sell" }>(
+  tags: T[],
+  height = Infinity,
+  w = 30,
+  h = 18,
+): T[] {
+  if (!(height > 0)) height = Infinity; // pane not laid out yet
+  const placed: { x: number; y: number; side: "buy" | "sell" }[] = [];
+  const out = tags.map((t) => ({ ...t }));
+  const order = out.map((_, i) => i).sort((a, b) => out[a].x - out[b].x || out[a].y - out[b].y);
+  for (const i of order) {
+    const t = out[i];
+    const clashes = (y: number) => placed.some((p) => p.side === t.side && Math.abs(p.x - t.x) < w && Math.abs(p.y - y) < h);
+    const inside = (y: number) => y >= h / 2 && y <= height - h / 2;
+    const free = (step: number) => {
+      let y = t.y;
+      for (let n = 0; n < 20 && clashes(y); n++) y += step;
+      return y;
+    };
+    const away = t.side === "sell" ? -h : h;
+    const y = free(away);
+    t.y = inside(y) ? y : free(-away); // no room past the pane edge: step the other way
+    placed.push({ x: t.x, y: t.y, side: t.side }); // sells draw above the price, buys below: only the same side clashes
+  }
+  return out;
 }

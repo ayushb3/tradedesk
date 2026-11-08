@@ -81,7 +81,7 @@ export function FillTable({ fills, hoveredFillId, onHoverFill }: FillTableProps)
                 <td className="tabular px-3 py-1.5 text-right">
                   {fillValueText(Math.round(f.qty * f.price * f.multiplier * 100) / 100)}
                 </td>
-                <td className="px-3 py-1.5 text-xs text-muted-foreground">
+                <td className="px-3 py-1.5 text-xs text-muted-foreground" title={f.order_type ?? undefined}>
                   {orderTypeLabel(f.order_type) || "—"}
                 </td>
                 <td className="tabular px-3 py-1.5 text-right text-muted-foreground">

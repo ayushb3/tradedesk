@@ -56,7 +56,7 @@ export function FillsList({
                   {f.qty} @ {f.price.toFixed(2)}
                 </span>
                 <span className="text-right">{fillValueText(f.value)}</span>
-                <span className="text-right text-muted-foreground">{type || "—"}</span>
+                <span className="truncate text-right text-muted-foreground">{type || "—"}</span>
               </button>
             </li>
           );

@@ -35,7 +35,7 @@ export function TradeScreen({
         <div className="relative flex min-h-[70vh] min-w-0 flex-1 flex-col md:min-h-0">{chart}</div>
         <aside
           aria-label={panelLabel}
-          className={`w-full shrink-0 border-t border-border bg-background md:overflow-y-auto md:border-l md:border-t-0 ${MD_WIDTH[panelWidth] ?? "md:w-80"}`}
+          className={`w-full min-w-0 shrink-0 overflow-x-hidden border-t border-border bg-background md:overflow-y-auto md:border-l md:border-t-0 ${MD_WIDTH[panelWidth] ?? "md:w-80"}`}
           data-testid="trade-screen-panel"
         >
           {panel}
