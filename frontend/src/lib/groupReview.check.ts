@@ -4,6 +4,8 @@
  */
 import {
   adjacentEntry,
+  ceilMinute,
+  isPracticeDate,
   groupEntries,
   groupPnl,
   groupReplayHref,
@@ -36,29 +38,34 @@ const pos = (id: number, ticker: string, open: string, close: string, pnl: numbe
   ],
 });
 const P = [
-  pos(1, "SPY", "06:40", "06:50", 10),
-  pos(2, "SPY", "07:10", "07:20", -5),
-  pos(3, "SPXW", "10:10", "10:15", 3),
-  pos(4, "SPXW", "11:15", "11:30", 7),
-  pos(5, "SPXW", "11:40", "11:45", 2),
+  pos(1, "SPY", "05:20", "05:30", 10),
+  pos(2, "SPY", "05:50", "06:00", -5),
+  pos(3, "QQQ", "08:10", "08:15", 3),
+  pos(4, "QQQ", "09:45", "10:00", 7),
+  pos(5, "QQQ", "10:10", "10:15", 2),
 ];
-// Synthetic windows (placeholder times and labels).
+// Synthetic windows and labels (not anyone's real rules).
 const rules = {
   tz: "America/Los_Angeles",
-  window: { start: "06:30", end: "08:00" },
-  extra_windows: [{ start: "11:00", end: "12:00", label: "Late" }],
+  window: { start: "05:10", end: "06:20" },
+  extra_windows: [{ start: "09:35", end: "10:25", label: "Late" }],
 };
 eq(
   "sessions from trade times, named by window, else by phase",
   sessionGroups(P, rules).map((g) => [g.label, g.range, g.tradeIds]),
   [
-    ["Morning", "06:40–07:20", [1, 2]],
-    ["Midday", "10:10–10:15", [3]],
-    ["Late", "11:15–11:45", [4, 5]],
+    ["Morning", "05:20–06:00", [1, 2]],
+    ["Midday", "08:10–08:15", [3]],
+    ["Late", "09:45–10:15", [4, 5]],
   ],
 );
-// No rules: phases by New York time (12:42 PT = 15:42 ET is the last 30 minutes).
-const Q = [pos(6, "SPXW", "12:42", "12:43", 1), pos(7, "SPXW", "12:48", "12:50", 1), pos(8, "SPY", "11:15", "11:20", 1), pos(9, "SPY", "11:50", "11:55", 1)];
+// No rules: phases by New York time (12:36 PT = 15:36 ET is in the last 30 minutes).
+const Q = [
+  pos(6, "SPY", "12:36", "12:37", 1),
+  pos(7, "SPY", "12:39", "12:41", 1),
+  pos(8, "SPY", "10:55", "11:00", 1),
+  pos(9, "SPY", "11:30", "11:35", 1),
+];
 eq(
   "no rules: phases, a 20+ min pause splits, repeats numbered",
   sessionGroups(Q, null).map((g) => [g.label, g.tradeIds]),
@@ -68,24 +75,50 @@ eq(
     ["MOC", [6, 7]],
   ],
 );
-eq("an open trade bridges a pause", sessionGroups([pos(1, "SPY", "06:40", "07:30", 1), pos(2, "SPY", "07:20", "07:25", 1), pos(3, "SPY", "07:45", "07:50", 1)], null).map((g) => g.tradeIds), [[1, 2, 3]]);
+eq(
+  "an open trade bridges a pause",
+  sessionGroups([pos(1, "SPY", "05:20", "06:10", 1), pos(2, "SPY", "06:00", "06:05", 1), pos(3, "SPY", "06:25", "06:30", 1)], null).map(
+    (g) => g.tradeIds,
+  ),
+  [[1, 2, 3]],
+);
+// DST: 2026-07-01 is PDT (UTC-7); 05:20 PDT = 12:20Z, inside the 05:10 window.
+eq(
+  "summer time",
+  sessionGroups([{ trade_id: 1, fills: [{ side: "B" as const, qty: 1, px: 1, ts: "2026-07-01T12:20:00Z", ts_pt: "" }] }], rules).map((g) => [g.label, g.range]),
+  [["Morning", "05:20–05:20"]],
+);
 
 const w = groupWindow(P, [4, 5]);
-eq("window: 5 min before first entry, 10 after last exit", w && [w.startSec, w.endSec], [s("11:10"), s("11:55")]);
+eq("window: 5 min before first entry, 10 after last exit", w && [w.startSec, w.endSec], [s("09:40"), s("10:25")]);
 eq("window: none", groupWindow(P, [99]), null);
 
 const e = groupEntries(P, [5, 4]);
-eq("entries in order", e, [s("11:15"), s("11:40")]);
+eq("entries in order", e, [s("09:45"), s("10:10")]);
 eq("next entry", adjacentEntry(e, e[0], 1), e[1]);
-eq("prev from inside the second entry's minute", adjacentEntry(e, e[1] + 30, -1), e[0]);
+eq("prev from just after the second entry", adjacentEntry(e, e[1] + 30, -1), e[1]);
+eq("prev from on the second entry", adjacentEntry(e, e[1], -1), e[0]);
 eq("no next after last", adjacentEntry(e, e[1], 1), null);
+// Minute player: a mid-minute entry lands on the next bar open; that bar is "on" the entry.
+const mid = [s("09:45") + 30, s("10:10") + 30];
+eq("minute landing: next from the landed bar", adjacentEntry(mid, ceilMinute(mid[0]), 1, ceilMinute), mid[1]);
+eq("minute landing: prev from the landed bar", adjacentEntry(mid, ceilMinute(mid[1]), -1, ceilMinute), mid[0]);
+eq("minute landing: next from before", adjacentEntry(mid, s("09:45"), 1, ceilMinute), mid[0]);
 
-eq("pnl hidden until exit", groupPnl(P, [4, 5], s("11:29")), { pnl: 0, closed: 0, total: 2 });
-eq("pnl after one exit", groupPnl(P, [4, 5], s("11:30")), { pnl: 7, closed: 1, total: 2 });
-eq("pnl all", groupPnl(P, [4, 5], s("12:00")), { pnl: 9, closed: 2, total: 2 });
+eq("pnl hidden until exit", groupPnl(P, [4, 5], s("09:59")), { pnl: 0, closed: 0, total: 2 });
+eq("pnl after one exit", groupPnl(P, [4, 5], s("10:00")), { pnl: 7, closed: 1, total: 2 });
+eq("pnl all", groupPnl(P, [4, 5], s("10:30")), { pnl: 9, closed: 2, total: 2 });
 
-eq("practice symbol: the most-traded ticker", practiceSymbol(P), "SPXW");
+eq("practice symbol: the most-traded option root", practiceSymbol(P), "QQQ");
+eq("practice symbol: stocks fall back to SPY", practiceSymbol([{ ticker: "NVDA" }]), "SPY");
+eq("practice symbol: SPX practises on SPXW", practiceSymbol([{ ticker: "SPX" }]), "SPXW");
 eq("practice symbol default", practiceSymbol([]), "SPY");
+const today = new Date("2026-03-04T20:00:00Z");
+eq(
+  "practice date validation",
+  ["2026-03-04", "2026-03-07", "2026-13-45", "2026-02-30", "2026-03-05", "x"].map((d) => isPracticeDate(d, today)),
+  [true, false, false, false, false, false],
+);
 eq(
   "practice href",
   practiceHref("2026-03-04", "SPY", "/days/2026-03-04"),
@@ -93,8 +126,8 @@ eq(
 );
 eq(
   "group href",
-  groupReplayHref("2026-03-04", [5, 4], "SPXW"),
-  "/replay?day=2026-03-04&trades=4%2C5&symbol=SPXW&from=%2Fdays%2F2026-03-04",
+  groupReplayHref("2026-03-04", [5, 4], "QQQ"),
+  "/replay?day=2026-03-04&trades=4%2C5&symbol=QQQ&from=%2Fdays%2F2026-03-04",
 );
 eq("parse ids", [parseTradeIds("4,5,x,5,-1"), parseTradeIds(""), parseTradeIds("a")], [[4, 5], null, null]);
 

@@ -19,6 +19,7 @@ import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndic
 import { useReplay } from "@/lib/useReplay";
 import {
   adjacentEntry,
+  ceilMinute,
   groupEntries,
   groupPnl,
   groupWindow,
@@ -205,7 +206,12 @@ export function DayReplay({ day }: { day: string }) {
   const count = groupIds ? groupIds.length : (q.data?.trade_count ?? 0);
 
   // Group: one combined P&L (closed trades only, as of the playhead) and Next/Prev entry.
-  const gPnl = groupIds ? groupPnl(groupPositions, groupIds, lastSec) : null;
+  // Gated at the same moment as the fills (the bar open on minute bars, the second on a
+  // seconds clock), so a result never shows before its exit fill does.
+  const gateSec = fillsAt ? Math.floor(Date.parse(fillsAt) / 1000) : 0;
+  const gPnl = groupIds ? groupPnl(groupPositions, groupIds, gateSec) : null;
+  // A jump lands where the entry fill shows: its second, or the first bar open at/after it.
+  const land = sm.active ? (e: number) => e : ceilMinute;
   const entries = useMemo(() => (groupIds ? groupEntries(groupPositions, groupIds) : []), [groupIds, groupPositions]);
   const seekToSec = (sec: number) => {
     if (!played) return;
@@ -214,11 +220,12 @@ export function DayReplay({ day }: { day: string }) {
       sm.clock.setPlaySec(sec);
       return;
     }
-    const i = played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= floorMinute(sec));
-    if (i >= 0) replay.setIndex(i);
+    const at = land(sec);
+    const i = played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= at);
+    replay.setIndex(i >= 0 ? i : played.candles.length - 1);
   };
-  const prevEntry = adjacentEntry(entries, lastSec, -1);
-  const nextEntry = adjacentEntry(entries, lastSec, 1);
+  const prevEntry = adjacentEntry(entries, gateSec, -1, land);
+  const nextEntry = adjacentEntry(entries, gateSec, 1, land);
 
   return (
     <div className="flex h-full flex-col">
@@ -277,6 +284,11 @@ export function DayReplay({ day }: { day: string }) {
                   {q.error instanceof ApiError ? q.error.detail || q.error.message : "Something went wrong."}
                 </AlertDescription>
               </Alert>
+            </div>
+          )}
+          {pickedIds && deskDay.isError && (
+            <div className="absolute inset-0 flex items-center justify-center p-6 text-body text-muted-foreground" data-testid="group-error">
+              Could not load the day&apos;s trades for the group.
             </div>
           )}
           {pickedIds && full && deskDay.isSuccess && !win && (

@@ -13,15 +13,16 @@ import type { DeskPosition, DeskRules } from "@/lib/api";
 export const GROUP_LEAD_SEC = 5 * 60;
 export const GROUP_TAIL_SEC = 10 * 60;
 
-/** Free replay trades SPXW 0DTE for the SPX index. */
+/** Free replay trades 0DTE options on these; SPX trades practise on SPXW. */
+const PRACTICE_ROOTS = new Set(["SPY", "QQQ", "SPXW"]);
 const PRACTICE_PROXY: Record<string, string> = { SPX: "SPXW" };
 
-/** The underlying a day is practised on: its most-traded ticker, else SPY. */
+/** The underlying a day is practised on: its most-traded option root, else SPY. */
 export function practiceSymbol(positions: readonly Pick<DeskPosition, "ticker">[]): string {
   const n = new Map<string, number>();
   for (const p of positions) {
     const t = PRACTICE_PROXY[p.ticker.toUpperCase()] ?? p.ticker.toUpperCase();
-    n.set(t, (n.get(t) ?? 0) + 1);
+    if (PRACTICE_ROOTS.has(t)) n.set(t, (n.get(t) ?? 0) + 1);
   }
   let best = "SPY";
   let most = 0;
@@ -32,6 +33,15 @@ export function practiceSymbol(positions: readonly Pick<DeskPosition, "ticker">[
     }
   }
   return best;
+}
+
+/** A real calendar date (YYYY-MM-DD), not in the future, on a weekday: a practice day. */
+export function isPracticeDate(v: string | null | undefined, today = new Date()): v is string {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T12:00:00Z`);
+  if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return false;
+  const dow = d.getUTCDay();
+  return dow !== 0 && dow !== 6 && d.getTime() <= today.getTime() + 12 * 3600 * 1000;
 }
 
 /** Free replay on `date` (at the money is the player's default strike). */
@@ -71,7 +81,7 @@ function minuteOfDay(epochSec: number, tz: string): number {
 export interface SessionGroup {
   key: string;
   label: string;
-  /** The trades' span, first entry to last exit: "12:42–12:50" (in the rules' zone). */
+  /** The trades' span, first entry to last exit, "HH:MM–HH:MM" in the rules' zone. */
   range: string;
   tradeIds: number[];
 }
@@ -187,13 +197,24 @@ export function groupEntries(
     .sort((a, b) => a - b);
 }
 
-/** The entry after (dir 1) or before (dir -1) the playhead, or null. */
-export function adjacentEntry(entries: readonly number[], playSec: number, dir: 1 | -1): number | null {
-  if (dir > 0) return entries.find((e) => e > playSec) ?? null;
-  // Back: the entry before the current one (an entry within its first minute counts as current).
-  for (let i = entries.length - 1; i >= 0; i--) if (entries[i] < playSec - 59) return entries[i];
+/**
+ * The entry after (dir 1) or before (dir -1) the playhead `pos`, or null. `land` is where a
+ * jump to an entry puts the playhead (a minute player lands on the bar after a mid-minute
+ * entry, where its fill shows), so the entry just landed on is neither next nor previous.
+ */
+export function adjacentEntry(
+  entries: readonly number[],
+  pos: number,
+  dir: 1 | -1,
+  land: (entrySec: number) => number = (e) => e,
+): number | null {
+  if (dir > 0) return entries.find((e) => land(e) > pos) ?? null;
+  for (let i = entries.length - 1; i >= 0; i--) if (land(entries[i]) < pos) return entries[i];
   return null;
 }
+
+/** A minute player's landing for a moment: the first bar open at or after it. */
+export const ceilMinute = (sec: number) => Math.ceil(sec / 60) * 60;
 
 /**
  * The group's P&L as of the playhead: only trades whose last fill has been played count, so

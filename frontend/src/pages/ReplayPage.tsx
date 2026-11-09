@@ -62,6 +62,7 @@ import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
 import { useReplaySkip } from "@/lib/useReplaySkip";
 import { clampSkipSec, sizeLabel, skipIndex } from "@/lib/replaySkip";
+import { isPracticeDate } from "@/lib/groupReview";
 import {
   ruleCloseFill,
   sessionRealized,
@@ -160,12 +161,12 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   // Practice (?mode=symbol&date=...&symbol=...) opens on that day and ticker.
   const [initParams] = useSearchParams();
   const [symbol, setSymbol] = useState<string>(() => {
-    const s = initParams.get("symbol")?.trim().toUpperCase();
+    const s = embed ? null : initParams.get("symbol")?.trim().toUpperCase();
     return s && /^[A-Z.]{1,8}$/.test(s) ? s : FREE_SYMBOL;
   });
   const [date, setDate] = useState<string>(() => {
-    const d = initParams.get("date");
-    return isDay(d) ? d : previousWeekday();
+    const d = embed ? null : initParams.get("date");
+    return isPracticeDate(d) ? d : previousWeekday();
   });
   const [stackInd, setStackInd] = useState<StackIndicators>(
     DEFAULT_STACK_INDICATORS,
