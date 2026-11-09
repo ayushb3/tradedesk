@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
+import { ArrowLeft, ChevronsLeft, ChevronsRight, FastForward, FolderOpen, Pause, Play, RotateCcw, ServerCrash, StepBack, StepForward } from "lucide-react";
 
 import { PriceChart, type PaneSpec } from "@/components/chart/PriceChart";
 import { TradeScreen } from "@/components/screen/TradeScreen";
@@ -77,6 +77,7 @@ import {
 import { useLearnAnswer, useLearnBars, useLearnDrill, useLearnResult, useLearnToday } from "@/lib/queries";
 import { usePlayClock } from "@/lib/playClock";
 import { useReplayKeys } from "@/lib/replayKeys";
+import { skipTargetSec } from "@/lib/replaySkip";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
@@ -558,6 +559,18 @@ export function LearnDrillPage() {
   const playMinSec = n > 0 ? floorMinute(isoToUtcSeconds(candles[Math.min(idx, n - 1)].ts)) : 0;
   const stepMin = tfChoice === "auto" ? kcuTimeframe((playMinSec - anchorSec) / 60) : tfChoice;
   const revealed = useMemo(() => candles.slice(0, Math.min(idx, n - 1) + 1), [candles, idx, n]);
+
+  // Skip ([ / ]): one whole candle of the chart's bar size, to its close (its last tape bar).
+  // Buckets are aligned to the open, so the target is worked out relative to it.
+  const skipCandle = (dir: 1 | -1) => {
+    if (n === 0 || (dir > 0 && phase === "decision")) return;
+    setPlaying(false);
+    const target = anchorSec + skipTargetSec(playMinSec - anchorSec, stepMin * 60, dir, tapeSec);
+    let i = 0;
+    while (i + 1 < n && floorMinute(isoToUtcSeconds(candles[i + 1].ts)) <= target) i++;
+    setIdx(i);
+  };
+  useReplayKeys({ onSkip: skipCandle }, phase !== "loading");
   const chartBars = useMemo(() => aggregateBars(revealed, stepMin, anchorSec), [revealed, stepMin, anchorSec]);
   const levels = useMemo(
     () => [
@@ -780,10 +793,35 @@ export function LearnDrillPage() {
               type="button"
               variant="outline"
               size="sm"
+              disabled={phase === "loading" || idx === 0}
+              onClick={() => skipCandle(-1)}
+              aria-label={`Skip back ${tfLabel(stepMin)} ([)`}
+              title={`Skip back one ${tfLabel(stepMin)} candle, to its close ([)`}
+              data-testid="skip-back"
+            >
+              <ChevronsLeft /> {tfLabel(stepMin)}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={phase === "loading" || phase === "decision" || atEnd}
+              onClick={() => skipCandle(1)}
+              aria-label={`Skip forward ${tfLabel(stepMin)} (])`}
+              title={`Skip one ${tfLabel(stepMin)} candle, to its close (])`}
+              data-testid="skip-forward"
+            >
+              {tfLabel(stepMin)} <ChevronsRight />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               disabled={phase === "loading" || phase === "decision" || atEnd}
               onClick={skip}
+              title="To the decision point (End)"
             >
-              <FastForward /> Skip
+              <FastForward /> To decision
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={phase === "loading"} onClick={restart}>
               <RotateCcw /> {answered ? "Rewind" : "Restart"}
@@ -828,7 +866,7 @@ export function LearnDrillPage() {
               {fullBarsLoading ? " · loading the rest" : ""}
             </span>
             <span className="ml-auto hidden text-label text-muted-foreground md:inline">
-              ←/→ step · ↑/↓ speed · Space plays or pauses · End skips
+              ←/→ step · [ / ] one candle · ↑/↓ speed · Space plays or pauses · End to decision
             </span>
           </div>
         </>

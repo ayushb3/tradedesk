@@ -60,6 +60,8 @@ import { useSimSession } from "@/lib/useSimSession";
 import { optionTagFromLabel } from "@/lib/chartLook";
 import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
+import { useReplaySkip } from "@/lib/useReplaySkip";
+import { sizeLabel } from "@/lib/replaySkip";
 import {
   ruleCloseFill,
   sessionRealized,
@@ -422,7 +424,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       ? isoToUtcSeconds(data.candles[minuteReplay.currentIndex].ts)
       : null;
   const freeIndexOfMinute = useCallback(
-    (m: number) => (data ? Math.max(0, data.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m)) : 0),
+    (m: number) => {
+      if (!data) return 0;
+      const i = data.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m);
+      return i < 0 ? data.candles.length - 1 : i; // past the end: the last bar
+    },
     [data],
   );
   const freeSm = useSecondsMode({
@@ -444,12 +450,45 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     pendingSeek.current = null;
     minuteSetIndex(freeIndexOfMinute(Math.floor(at / 60) * 60));
   }, [data, minuteSetIndex, freeIndexOfMinute]);
-  const replay: ReplayState = freeSm.active
+  const replayBase: ReplayState = freeSm.active
     ? {
         ...freeSm.replay,
         barLabel: freeSm.playSec != null ? formatClockSecondsPt(freeSm.playSec) : minuteReplay.barLabel,
       }
     : tradeReplayState;
+
+  // Skip ([ / ]): one whole candle of the chart's interval, to its close. The playhead moves
+  // in seconds on a seconds clock (trade replay ≥60x, free replay 5s/15s/30s), else by bar.
+  const [candleSec, setCandleSec] = useState(60);
+  const dataBarSec = data && data.candles.length > 1 ? barSecOf(data.candles) : 60;
+  const onSecondsClock = useSeconds || freeSm.active;
+  const barTs = data?.candles[replayBase.currentIndex]?.ts;
+  const skipPos = useSeconds ? secs.playSec : freeSm.active ? freeSm.playSec : barTs ? isoToUtcSeconds(barTs) : null;
+  const { seek: skipSecsSeek } = secs;
+  const { setPlaySec: freeSetPlaySec } = freeSm.clock;
+  const { pause: basePause, setIndex: baseSetIndex } = replayBase;
+  const skipSeek = useCallback(
+    (sec: number) => {
+      basePause();
+      if (useSeconds) skipSecsSeek(sec);
+      else if (freeSm.active) freeSetPlaySec(sec);
+      else if (data) baseSetIndex(minuteIndexAt(data.candles, sec));
+    },
+    [basePause, useSeconds, skipSecsSeek, freeSm.active, freeSetPlaySec, data, baseSetIndex],
+  );
+  const skip = useReplaySkip({
+    posSec: skipPos,
+    candleSec,
+    unitSec: onSecondsClock ? 1 : dataBarSec,
+    seek: skipSeek,
+    enabled: Boolean(data && data.candles.length > 0),
+  });
+  const replay: ReplayState = {
+    ...replayBase,
+    ...(skip ?? {}),
+    // Free replay on server 5m/15m bars steps one of those bars.
+    stepLabel: !onSecondsClock && dataBarSec !== 60 ? sizeLabel(dataBarSec) : undefined,
+  };
 
   const playheadTs =
     inTrade && data
@@ -1028,6 +1067,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                 defaultView={{ fromSec: startSec }}
                 playheadSec={playheadSec}
                 revealSec={useSeconds ? secs.playSec : playheadSec + 59}
+                onCandleSec={setCandleSec}
                 mode={{ kind: "replay" }}
                 stopPrice={windowed.contractCandles ? simPos.stop : null}
                 stopAssumed={simPos.stopAssumed}
@@ -1051,6 +1091,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
           {ready && !inTrade && data && (
             <FreeReplayChart
               session={data}
+              onCandleSec={setCandleSec}
               // Seconds clock inside a minute: the minute view and its levels stop at the last finished minute.
               index={midMinute ? Math.max(0, replay.currentIndex - 1) : replay.currentIndex}
               visibility={visibility}
@@ -1229,7 +1270,10 @@ function FreeReplayChart({
   seconds,
   secondsView,
   secondsStatus,
+  onCandleSec,
 }: {
+  /** Told the chart's candle size (for Skip). */
+  onCandleSec: (sec: number) => void;
   /** The 5s/15s/30s buttons (free replay draws second bars). */
   seconds: NonNullable<ComponentProps<typeof PriceChart>["seconds"]>;
   /** While a seconds interval is on: the second bars and their grid (replaces the minute view). */
@@ -1318,6 +1362,7 @@ function FreeReplayChart({
         revealSec={sv ? sv.playSec : undefined}
         playheadLabel={sv ? formatClockSecondsPt(sv.playSec) : undefined}
         seconds={seconds}
+        onCandleSec={onCandleSec}
         mode={{ kind: "replay" }}
         stopPrice={top ? trade.stopPrice : null}
         stopAssumed={trade.stopAssumed}
