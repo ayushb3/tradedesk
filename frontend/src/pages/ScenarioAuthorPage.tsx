@@ -13,7 +13,7 @@
  * - The drill player (6.1.2) will later call /api/training/scenarios/{id}/session
  *   to get the sliced, optionally-blinded view — that's separate from this page.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -43,13 +43,15 @@ import { ReplayTransport } from "@/components/replay/ReplayTransport";
 import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { useReplayKeys } from "@/lib/replayKeys";
+import { useReplaySkip } from "@/lib/useReplaySkip";
+import { skipIndex } from "@/lib/replaySkip";
 import { AUTHOR_DEFAULT_SPEED, AUTHOR_MAX_SPEED } from "@/lib/replaySpeed";
 import { barSecOf, sessionChart } from "@/lib/sessionChart";
 import { SYMBOLS, type Symbol } from "@/components/replay/ReplayToolbar";
 import { ApiError, type ReplaySession } from "@/lib/api";
 import { useReplaySession } from "@/lib/queries";
 import { useReplayEngine } from "@/lib/useReplayEngine";
-import { formatEt } from "@/lib/chart";
+import { formatEt, isoToUtcSeconds } from "@/lib/chart";
 import { DISPLAY_TZ_LABEL } from "@/lib/format";
 import {
   ALL_ATTEMPT_ACTION_TYPES,
@@ -132,6 +134,26 @@ export function ScenarioAuthorPage() {
     onStep: (dir) => (dir > 0 ? engine.stepForward() : engine.stepBack()),
   });
   const ready = !isLoading && !isError && data && total > 0;
+  // Skip ([ / ]): one whole candle of the chart's interval, to its close.
+  const [candleSec, setCandleSec] = useState(60);
+  const authorBarSec = data ? barSecOf(data.candles) : 60;
+  const authorBarTs = data?.candles[engine.currentIndex]?.ts;
+  const { pause: enginePause, setIndex: engineSetIndex } = engine;
+  const skipSeek = useCallback(
+    (sec: number, dir: 1 | -1) => {
+      enginePause();
+      if (data) engineSetIndex(skipIndex(data.candles.map((c) => isoToUtcSeconds(c.ts)), engine.currentIndex, sec, dir));
+    },
+    [enginePause, engineSetIndex, data, engine.currentIndex],
+  );
+  const skip = useReplaySkip({
+    posSec: authorBarTs ? isoToUtcSeconds(authorBarTs) : null,
+    candleSec,
+    unitSec: authorBarSec,
+    seek: skipSeek,
+    enabled: Boolean(ready),
+  });
+  const transport = skip ? { ...engine, ...skip } : engine;
 
   // Reset engine when session changes
   const sessionKey = `${symbol}:${date}`;
@@ -278,7 +300,7 @@ export function ScenarioAuthorPage() {
 
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
-            <ReplayTransport engine={engine} disabled={!ready} showRestart />
+            <ReplayTransport engine={transport} disabled={!ready} showRestart />
             <SpeedSlider value={engine.speed} onChange={engine.setSpeed} disabled={!ready} max={AUTHOR_MAX_SPEED} />
           </div>
         </div>
@@ -303,7 +325,7 @@ export function ScenarioAuthorPage() {
                 endBar={endBar}
                 session={data}
               />
-              <AuthorChart session={data} index={engine.currentIndex} />
+              <AuthorChart session={data} index={engine.currentIndex} onCandleSec={setCandleSec} />
               {/* Scrubber */}
               <div className="pointer-events-auto absolute inset-x-3 bottom-2 z-10 flex items-center gap-3 rounded-md bg-card/80 px-3 py-1.5 backdrop-blur">
                 <input
@@ -784,7 +806,15 @@ function ChartError({ error }: { error: unknown }) {
 }
 
 /** The tape on the shared chart. */
-function AuthorChart({ session, index }: { session: ReplaySession; index: number }) {
+function AuthorChart({
+  session,
+  index,
+  onCandleSec,
+}: {
+  session: ReplaySession;
+  index: number;
+  onCandleSec: (sec: number) => void;
+}) {
   // Memoized: typing in the form must not refeed the chart.
   const c = useMemo(() => sessionChart(session, index), [session, index]);
   if (!c) return null;
@@ -797,6 +827,7 @@ function AuthorChart({ session, index }: { session: ReplaySession; index: number
         endSec={c.endSec}
         playheadSec={c.playheadSec}
         barSec={c.barSec}
+        onCandleSec={onCandleSec}
         mode={{ kind: "replay" }}
         stopPrice={null}
         fills={[]}

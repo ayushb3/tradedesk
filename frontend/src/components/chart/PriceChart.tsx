@@ -11,7 +11,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ChevronsRight, HelpCircle, Lock, LockOpen, Minus, Plus, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, HelpCircle, Lock, LockOpen, Minus, Plus, Search } from "lucide-react";
 
 import { api, type Candle, type ReplayFill } from "@/lib/api";
 import type { SimFill } from "@/lib/simPosition";
@@ -89,6 +89,8 @@ const FAINT_SIZE = 0.6;
 /** How to use the chart, in the "?" tooltip (kept out of the header so the legend never clips). */
 const HELP_TEXT = "Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset";
 const HELP_TEXT_TV = "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset";
+const HELP_TEXT_REPLAY =
+  "Drag to pan · scroll or pinch to zoom at the cursor · −/+ zoom on the playhead · double-click to reset";
 
 export interface PaneSpec {
   /** Header, e.g. "SPY, proxy for SPX". */
@@ -221,6 +223,8 @@ interface Props {
    * seconds come from (e.g. the SPY proxy); `why` greys the buttons out with its reason.
    */
   seconds?: { value: string | null; onChange: (label: string | null) => void; note?: string | null; why?: string | null };
+  /** Told the candle size the chart shows (its interval, rolled up or not), for Skip. */
+  onCandleSec?: (sec: number) => void;
 }
 
 export interface ChartPosition {
@@ -445,7 +449,7 @@ function PriceChartCore({
   const viewFromIdx = defaultView ? indexOfSec(timeline[0] ?? startSec, defaultView.fromSec, Math.max(0, lastIdx), barSec) : 0;
   const viewToIdx =
     defaultView?.toSec != null ? indexOfSec(timeline[0] ?? startSec, defaultView.toSec, Math.max(0, lastIdx), barSec) : null;
-  // Replay: is the view following the latest candle? (false shows "Jump to latest").
+  // Replay: is the view following the latest candle? (false shows "→ Live").
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
   const noteFollow = (f: boolean) => {
@@ -710,15 +714,17 @@ function PriceChartCore({
     /**
      * Record a range. Replay: it follows the latest candle while that candle is in view (it
      * grows from the window start when the view starts there, else it slides at this width);
-     * scrolled back into history it stays put and "Jump to latest" shows.
+     * scrolled or zoomed so the playhead is out of view it stays put and "→ Live" shows.
      */
-    const commit = (r: IndexRange) => {
+    const commit = (r: IndexRange, zoomed = false) => {
       const vs = viewState.current;
       vs.view = r;
       if (live.current.isReplay) {
         const inView = latestInView(r, live.current.playIdx);
         vs.follow = inView;
-        vs.slideWidth = inView && Math.abs(r.from - live.current.viewFrom) > 0.6 ? r.to - r.from : null;
+        // A zoom always keeps its width (slide mode), even with the left edge unmoved, or the
+        // next refit would grow the view back from the window start and undo it.
+        vs.slideWidth = inView && (zoomed || Math.abs(r.from - live.current.viewFrom) > 0.6) ? r.to - r.from : null;
         live.current.noteFollow(inView);
       }
     };
@@ -758,10 +764,14 @@ function PriceChartCore({
       const r = readRange(bottomPane.chart.timeScale().getVisibleLogicalRange());
       if (!r) return;
       const lim = limits();
-      const at = anchor ?? (live.current.isReplay ? r.to : (r.from + r.to) / 2);
+      // −/+ buttons: replay zooms on the playhead (the right edge if it is off screen).
+      const play = live.current.playIdx;
+      const at =
+        anchor ??
+        (live.current.isReplay ? (play >= r.from && play <= r.to ? play : r.to) : (r.from + r.to) / 2);
       const next = clampRange(zoomRange(r, at, factor, lim.rightLimit, lim.minBars), lim);
       apply(next);
-      commit(next);
+      commit(next, true);
     };
     controls.current = {
       zoom: (f) => zoomBy(f),
@@ -803,12 +813,14 @@ function PriceChartCore({
     const attach = (el: HTMLDivElement | null, rt: PaneRuntime | null) => {
       if (!el || !rt) return;
       const onWheel = (e: WheelEvent) => {
-        if (!live.current.tradingView && !isZoomWheel(e)) return; // plain wheel: the page scrolls
+        // Replay and TradingView-style charts own the wheel; elsewhere a plain wheel scrolls the page.
+        const ownsWheel = live.current.tradingView || live.current.isReplay;
+        if (!ownsWheel && !isZoomWheel(e)) return;
         e.preventDefault();
         const ts = rt.chart.timeScale();
         const r = readRange(ts.getVisibleLogicalRange());
         if (!r) return;
-        if (live.current.tradingView && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        if (ownsWheel && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
           // Sideways wheel (trackpad): pan by a share of the visible bars.
           const shift = (e.deltaX / Math.max(1, ts.width())) * (r.to - r.from);
           const next = clampRange({ from: r.from + shift, to: r.to + shift }, limits());
@@ -817,9 +829,9 @@ function PriceChartCore({
           return;
         }
         const x = e.clientX - el.getBoundingClientRect().left;
-        // Replay, following the playhead: zoom about the right edge so the view stays pinned to it.
-        const anchor =
-          live.current.isReplay && viewState.current.follow ? r.to : (ts.coordinateToLogical(x) ?? (r.from + r.to) / 2);
+        // Wheel and trackpad pinch (a ctrl+wheel) zoom at the cursor, replay included. If that
+        // pushes the playhead out of view, follow turns off (commit) and "→ Live" brings it back.
+        const anchor = ts.coordinateToLogical(x) ?? (r.from + r.to) / 2;
         zoomBy(e.deltaY > 0 ? WHEEL_ZOOM : 1 / WHEEL_ZOOM, anchor);
       };
       const onDbl = () => controls.current?.reset();
@@ -1635,8 +1647,8 @@ function PriceChartCore({
       {!top && stopToggleNode}
       <span
         className="cursor-help rounded-md p-1 text-muted-foreground"
-        title={tradingView ? HELP_TEXT_TV : HELP_TEXT}
-        aria-label={tradingView ? HELP_TEXT_TV : HELP_TEXT}
+        title={tradingView ? HELP_TEXT_TV : isReplay ? HELP_TEXT_REPLAY : HELP_TEXT}
+        aria-label={tradingView ? HELP_TEXT_TV : isReplay ? HELP_TEXT_REPLAY : HELP_TEXT}
         role="img"
       >
         <HelpCircle className="h-4 w-4" />
@@ -1644,7 +1656,7 @@ function PriceChartCore({
       <button
         type="button"
         aria-label="Zoom out"
-        title="Zoom out (both charts)"
+        title={isReplay ? "Zoom out on the playhead (both charts)" : "Zoom out (both charts)"}
         onClick={() => controls.current?.zoom(BUTTON_ZOOM)}
         className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-muted"
       >
@@ -1653,7 +1665,7 @@ function PriceChartCore({
       <button
         type="button"
         aria-label="Zoom in"
-        title="Zoom in (both charts)"
+        title={isReplay ? "Zoom in on the playhead (both charts)" : "Zoom in (both charts)"}
         onClick={() => controls.current?.zoom(1 / BUTTON_ZOOM)}
         className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-muted"
       >
@@ -1680,11 +1692,11 @@ function PriceChartCore({
           onClick={() => controls.current?.jumpLatest()}
           className="absolute bottom-9 z-30 flex items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1 text-label text-foreground shadow-sm transition-colors hover:bg-muted"
           style={{ right: PRICE_SCALE_WIDTH + 12 }}
-          title="Scroll to the latest candle and follow it again"
+          title="Back to the playhead, and follow it again"
+          aria-label="Live: back to the playhead"
           data-testid="jump-latest"
         >
-          Jump to latest
-          <ChevronsRight className="h-3.5 w-3.5" />
+          → Live
         </button>
       )}
       {top && (
@@ -1785,6 +1797,12 @@ export function PriceChart({ footer = true, ...props }: Props) {
       props.mode.kind === "review" ? props.mode.exitSec : null, props.defaultView?.fromSec, props.defaultView?.toSec,
       props.noDataAfterSec, props.initialBars, props.fills, props.simFills, props.revealSec],
   );
+  // The candle size on screen: second bars, the caller's own interval, or the footer's roll-up.
+  const candleSec = canRollUp && !secOn ? tfMin * 60 : baseBar;
+  const onCandleSec = props.onCandleSec;
+  useEffect(() => {
+    onCandleSec?.(candleSec);
+  }, [candleSec, onCandleSec]);
   const core = <PriceChartCore {...props} {...eff} mainPane={focus} autoScale={autoScale} />;
   if (!footer) return core;
   const seg = (on: boolean, enabled = true) =>

@@ -13,14 +13,18 @@ function eq(name: string, got: unknown, want: unknown) {
 }
 
 eq("space toggles", replayKeyOf({ key: " " }), { kind: "toggle" });
-eq("right = one candle", replayKeyOf({ key: "ArrowRight" }), { kind: "step", dir: 1, fine: false });
-eq("left = one candle back", replayKeyOf({ key: "ArrowLeft" }), { kind: "step", dir: -1, fine: false });
+eq("right = one minute", replayKeyOf({ key: "ArrowRight" }), { kind: "step", dir: 1, fine: false });
+eq("left = one minute back", replayKeyOf({ key: "ArrowLeft" }), { kind: "step", dir: -1, fine: false });
 eq("shift+right = one second", replayKeyOf({ key: "ArrowRight", shiftKey: true }), { kind: "step", dir: 1, fine: true });
 eq("shift+left = one second back", replayKeyOf({ key: "ArrowLeft", shiftKey: true }), { kind: "step", dir: -1, fine: true });
 eq("up doubles", replayKeyOf({ key: "ArrowUp" }), { kind: "speed", dir: 1 });
 eq("down halves", replayKeyOf({ key: "ArrowDown" }), { kind: "speed", dir: -1 });
 eq("end skips", replayKeyOf({ key: "End" }), { kind: "end" });
-eq("[ and ] are not keys", [replayKeyOf({ key: "[" }), replayKeyOf({ key: "]" })], [null, null]);
+eq("] skips a candle forward, [ back", [replayKeyOf({ key: "]" }), replayKeyOf({ key: "[" })], [
+  { kind: "skip", dir: 1 },
+  { kind: "skip", dir: -1 },
+]);
+eq("ctrl+[ passes through", replayKeyOf({ key: "[", ctrlKey: true }), null);
 eq("ctrl/cmd/alt pass through", [
   replayKeyOf({ key: "ArrowRight", ctrlKey: true }),
   replayKeyOf({ key: " ", metaKey: true }),

@@ -18,6 +18,8 @@ import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay"
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { useReplay } from "@/lib/useReplay";
 import { formatClockSeconds, formatClockSecondsPt } from "@/lib/secondsReplay";
+import { clampSkipSec, skipIndex } from "@/lib/replaySkip";
+import { useReplaySkip } from "@/lib/useReplaySkip";
 import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
 
@@ -72,7 +74,11 @@ export function DayReplay({ day }: { day: string }) {
   const playTs = played?.candles[minuteReplay.currentIndex]?.ts ?? null;
   const playheadSec = playTs ? floorMinute(isoToUtcSeconds(playTs)) : (win?.startSec ?? 0);
   const indexOfMinute = useCallback(
-    (m: number) => (played ? Math.max(0, played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m)) : 0),
+    (m: number) => {
+      if (!played) return 0;
+      const i = played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m);
+      return i < 0 ? played.candles.length - 1 : i; // past the end: the last bar
+    },
     [played],
   );
   const sm = useSecondsMode({
@@ -136,6 +142,27 @@ export function DayReplay({ day }: { day: string }) {
     if (i >= 0) replay.setIndex(i);
   };
 
+  // Skip ([ / ]): one whole candle of the chart's interval, to its close.
+  const [candleSec, setCandleSec] = useState(60);
+  const skipSeek = useCallback(
+    (sec: number, dir: 1 | -1) => {
+      if (!played || played.candles.length === 0) return;
+      replay.pause();
+      const opens = played.candles.map((c) => isoToUtcSeconds(c.ts));
+      if (sm.active) sm.clock.setPlaySec(clampSkipSec(sec, opens[0], opens[opens.length - 1]));
+      else replay.setIndex(skipIndex(opens, replay.currentIndex, sec, dir));
+    },
+    [replay, sm.active, sm.clock, played],
+  );
+  const skip = useReplaySkip({
+    posSec: sm.active ? sm.playSec : playTs ? playheadSec : null,
+    candleSec,
+    unitSec: sm.active ? 1 : 60,
+    seek: skipSeek,
+    enabled: played !== undefined && replay.total > 0,
+  });
+  const transport = useMemo(() => (skip ? { ...replay, ...skip } : replay), [replay, skip]);
+
   const here = `/replay?${params.toString()}`;
   const exit = () => navigate(exitTarget(from, null) ?? `/days/${day}`);
   const ready = !q.isLoading && !q.isError && played !== undefined && replay.total > 0;
@@ -147,7 +174,7 @@ export function DayReplay({ day }: { day: string }) {
         contract={`${symbol || "Day"} · ${count} trade${count === 1 ? "" : "s"}`}
         date={day}
         clock={sm.active && sm.playSec != null ? formatClockSeconds(sm.playSec) : playTs ? formatClock(playTs) : null}
-        replay={replay}
+        replay={transport}
         disabled={!ready}
         onExit={exit}
         speed={speed}
@@ -205,6 +232,7 @@ export function DayReplay({ day }: { day: string }) {
                   onChange: (v) => setSecRes(v as SecondsRes | null),
                   note: sm.chart.sourceLabel,
                 }}
+                onCandleSec={setCandleSec}
                 mode={{ kind: "replay" }}
                 stopPrice={null}
                 fills={fills as ReplayFill[]}

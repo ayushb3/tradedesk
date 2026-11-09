@@ -31,6 +31,12 @@ export interface ReplayEngine {
   /** Sets the engine's own speed; ignored when the page drives `chartSpeed`. */
   setSpeed: (s: number) => void;
   setIndex: (i: number) => void;
+  /** Skip one whole candle of the chart's interval (set by the page: lib/useReplaySkip). */
+  skip?: (dir: 1 | -1) => void;
+  /** The candle size a skip moves ("5m"). */
+  skipLabel?: string;
+  /** The step size when it is not one minute ("5m" on server 5m bars). */
+  stepLabel?: string;
 }
 
 export interface EngineOptions {

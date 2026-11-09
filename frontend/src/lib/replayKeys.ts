@@ -2,8 +2,9 @@
  * The one replay keymap, used by every player (trade/day replay, free replay, Learn drills,
  * the scenario author):
  *   Space        play / pause
- *   ← / →        one candle
- *   Shift+← / →  one second (where the player has second bars; otherwise one candle)
+ *   ← / →        step: one minute (the base bar)
+ *   Shift+← / →  one second (where the player has second bars; otherwise one minute)
+ *   [ / ]        skip: one whole candle of the chart's interval, landing on its close
  *   ↑ / ↓        speed ×2 / ÷2
  * Keys are ignored while typing, inside a dialog, or with Ctrl/Cmd/Alt held, and never
  * scroll the page.
@@ -24,11 +25,12 @@ export function isInputFocused(target: EventTarget | null): boolean {
 
 /** Help text for tooltips. */
 export const REPLAY_KEYS_HELP =
-  "←/→ one candle · Shift+←/→ one second · ↑/↓ speed ×2 / ÷2 · Space play/pause";
+  "←/→ one minute · Shift+←/→ one second · [ / ] one candle · ↑/↓ speed ×2 / ÷2 · Space play/pause";
 
 export type ReplayKey =
   | { kind: "toggle" }
   | { kind: "step"; dir: 1 | -1; fine: boolean }
+  | { kind: "skip"; dir: 1 | -1 }
   | { kind: "speed"; dir: 1 | -1 }
   | { kind: "end" };
 
@@ -48,6 +50,10 @@ export function replayKeyOf(e: {
       return { kind: "step", dir: 1, fine: Boolean(e.shiftKey) };
     case "ArrowLeft":
       return { kind: "step", dir: -1, fine: Boolean(e.shiftKey) };
+    case "]":
+      return { kind: "skip", dir: 1 };
+    case "[":
+      return { kind: "skip", dir: -1 };
     case "ArrowUp":
       return { kind: "speed", dir: 1 };
     case "ArrowDown":
@@ -63,6 +69,8 @@ export interface ReplayKeyHandlers {
   onToggle?: () => void;
   /** `fine`: Shift was held (one second where the player supports it). */
   onStep?: (dir: 1 | -1, fine: boolean) => void;
+  /** `[` / `]`: one whole candle of the chart's interval. */
+  onSkip?: (dir: 1 | -1) => void;
   onSpeed?: (dir: 1 | -1) => void;
   onEnd?: () => void;
 }
@@ -87,6 +95,9 @@ export function useReplayKeys(handlers: ReplayKeyHandlers, enabled = true): void
       } else if (k.kind === "step" && h.onStep) {
         e.preventDefault();
         h.onStep(k.dir, k.fine);
+      } else if (k.kind === "skip" && h.onSkip) {
+        e.preventDefault();
+        h.onSkip(k.dir);
       } else if (k.kind === "speed" && h.onSpeed) {
         e.preventDefault();
         h.onSpeed(k.dir);
