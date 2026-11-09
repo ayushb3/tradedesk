@@ -61,7 +61,7 @@ import { optionTagFromLabel } from "@/lib/chartLook";
 import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
 import { useReplaySkip } from "@/lib/useReplaySkip";
-import { sizeLabel } from "@/lib/replaySkip";
+import { clampSkipSec, sizeLabel, skipIndex } from "@/lib/replaySkip";
 import {
   ruleCloseFill,
   sessionRealized,
@@ -466,15 +466,17 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   const skipPos = useSeconds ? secs.playSec : freeSm.active ? freeSm.playSec : barTs ? isoToUtcSeconds(barTs) : null;
   const { seek: skipSecsSeek } = secs;
   const { setPlaySec: freeSetPlaySec } = freeSm.clock;
-  const { pause: basePause, setIndex: baseSetIndex } = replayBase;
+  const { pause: basePause, setIndex: baseSetIndex, currentIndex: baseIndex } = replayBase;
   const skipSeek = useCallback(
-    (sec: number) => {
+    (sec: number, dir: 1 | -1) => {
+      if (!data || data.candles.length === 0) return;
       basePause();
-      if (useSeconds) skipSecsSeek(sec);
-      else if (freeSm.active) freeSetPlaySec(sec);
-      else if (data) baseSetIndex(minuteIndexAt(data.candles, sec));
+      const opens = data.candles.map((c) => isoToUtcSeconds(c.ts));
+      if (useSeconds) skipSecsSeek(sec); // clamps to the trade window itself
+      else if (freeSm.active) freeSetPlaySec(clampSkipSec(sec, opens[0], opens[opens.length - 1]));
+      else baseSetIndex(skipIndex(opens, baseIndex, sec, dir));
     },
-    [basePause, useSeconds, skipSecsSeek, freeSm.active, freeSetPlaySec, data, baseSetIndex],
+    [basePause, useSeconds, skipSecsSeek, freeSm.active, freeSetPlaySec, data, baseSetIndex, baseIndex],
   );
   const skip = useReplaySkip({
     posSec: skipPos,

@@ -30,3 +30,26 @@ export function sizeLabel(sec: number): string {
   if (sec % 3600 === 0) return `${sec / 3600}h`;
   return `${Math.round(sec / 60)}m`;
 }
+
+/**
+ * A skip target on a seconds clock, kept inside the session: no earlier than the first bar's
+ * open, no later than the last bar's last second (a clock that rides on minute bars would
+ * otherwise land on the wrong side of the edge).
+ */
+export function clampSkipSec(sec: number, firstOpen: number, lastOpen: number, lastBarSec = 60): number {
+  return Math.max(firstOpen, Math.min(sec, lastOpen + lastBarSec - 1));
+}
+
+/**
+ * A skip target on a bar player: the last bar opening at or before `targetSec`, but always
+ * at least one bar in the skip's direction, so a gap in the bars cannot stall it.
+ */
+export function skipIndex(opens: readonly number[], cur: number, targetSec: number, dir: 1 | -1): number {
+  const n = opens.length;
+  if (n === 0) return 0;
+  let i = 0;
+  while (i + 1 < n && opens[i + 1] <= targetSec) i++;
+  if (dir > 0 && i <= cur) i = Math.min(cur + 1, n - 1);
+  if (dir < 0 && i >= cur) i = Math.max(cur - 1, 0);
+  return i;
+}

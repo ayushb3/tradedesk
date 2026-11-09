@@ -44,7 +44,7 @@ import { SpeedSlider } from "@/components/replay/SpeedSlider";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { useReplayKeys } from "@/lib/replayKeys";
 import { useReplaySkip } from "@/lib/useReplaySkip";
-import { minuteIndexAt } from "@/lib/secondsReplay";
+import { skipIndex } from "@/lib/replaySkip";
 import { AUTHOR_DEFAULT_SPEED, AUTHOR_MAX_SPEED } from "@/lib/replaySpeed";
 import { barSecOf, sessionChart } from "@/lib/sessionChart";
 import { SYMBOLS, type Symbol } from "@/components/replay/ReplayToolbar";
@@ -140,11 +140,11 @@ export function ScenarioAuthorPage() {
   const authorBarTs = data?.candles[engine.currentIndex]?.ts;
   const { pause: enginePause, setIndex: engineSetIndex } = engine;
   const skipSeek = useCallback(
-    (sec: number) => {
+    (sec: number, dir: 1 | -1) => {
       enginePause();
-      if (data) engineSetIndex(minuteIndexAt(data.candles, sec));
+      if (data) engineSetIndex(skipIndex(data.candles.map((c) => isoToUtcSeconds(c.ts)), engine.currentIndex, sec, dir));
     },
-    [enginePause, engineSetIndex, data],
+    [enginePause, engineSetIndex, data, engine.currentIndex],
   );
   const skip = useReplaySkip({
     posSec: authorBarTs ? isoToUtcSeconds(authorBarTs) : null,

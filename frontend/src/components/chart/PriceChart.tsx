@@ -716,13 +716,15 @@ function PriceChartCore({
      * grows from the window start when the view starts there, else it slides at this width);
      * scrolled or zoomed so the playhead is out of view it stays put and "→ Live" shows.
      */
-    const commit = (r: IndexRange) => {
+    const commit = (r: IndexRange, zoomed = false) => {
       const vs = viewState.current;
       vs.view = r;
       if (live.current.isReplay) {
         const inView = latestInView(r, live.current.playIdx);
         vs.follow = inView;
-        vs.slideWidth = inView && Math.abs(r.from - live.current.viewFrom) > 0.6 ? r.to - r.from : null;
+        // A zoom always keeps its width (slide mode), even with the left edge unmoved, or the
+        // next refit would grow the view back from the window start and undo it.
+        vs.slideWidth = inView && (zoomed || Math.abs(r.from - live.current.viewFrom) > 0.6) ? r.to - r.from : null;
         live.current.noteFollow(inView);
       }
     };
@@ -769,7 +771,7 @@ function PriceChartCore({
         (live.current.isReplay ? (play >= r.from && play <= r.to ? play : r.to) : (r.from + r.to) / 2);
       const next = clampRange(zoomRange(r, at, factor, lim.rightLimit, lim.minBars), lim);
       apply(next);
-      commit(next);
+      commit(next, true);
     };
     controls.current = {
       zoom: (f) => zoomBy(f),

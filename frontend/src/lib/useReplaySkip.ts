@@ -27,7 +27,7 @@ export function useReplaySkip({
   candleSec: number;
   unitSec: number;
   /** Move the playhead to this second (a bar open on a minute player); the caller pauses. */
-  seek: (sec: number) => void;
+  seek: (sec: number, dir: 1 | -1) => void;
   enabled?: boolean;
 }): ReplaySkip | null {
   const bar = Math.max(candleSec, unitSec);
@@ -35,7 +35,7 @@ export function useReplaySkip({
     (dir: 1 | -1) => {
       if (posSec == null) return;
       // A minute player's playhead is the bar open; skip lands on the candle's last minute open.
-      seek(skipTargetSec(posSec, bar, dir, unitSec));
+      seek(skipTargetSec(posSec, bar, dir, unitSec), dir);
     },
     [posSec, bar, unitSec, seek],
   );

@@ -799,7 +799,7 @@ export function LearnDrillPage() {
               title={`Skip back one ${tfLabel(stepMin)} candle, to its close ([)`}
               data-testid="skip-back"
             >
-              <ChevronsLeft /> {tfLabel(stepMin)}
+              <ChevronsLeft /> Skip {tfLabel(stepMin)}
             </Button>
             <Button
               type="button"
@@ -811,7 +811,7 @@ export function LearnDrillPage() {
               title={`Skip one ${tfLabel(stepMin)} candle, to its close (])`}
               data-testid="skip-forward"
             >
-              {tfLabel(stepMin)} <ChevronsRight />
+              Skip {tfLabel(stepMin)} <ChevronsRight />
             </Button>
             <Button
               type="button"

@@ -17,7 +17,8 @@ import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
 import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { useReplay } from "@/lib/useReplay";
-import { formatClockSeconds, formatClockSecondsPt, minuteIndexAt } from "@/lib/secondsReplay";
+import { formatClockSeconds, formatClockSecondsPt } from "@/lib/secondsReplay";
+import { clampSkipSec, skipIndex } from "@/lib/replaySkip";
 import { useReplaySkip } from "@/lib/useReplaySkip";
 import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
@@ -144,10 +145,12 @@ export function DayReplay({ day }: { day: string }) {
   // Skip ([ / ]): one whole candle of the chart's interval, to its close.
   const [candleSec, setCandleSec] = useState(60);
   const skipSeek = useCallback(
-    (sec: number) => {
+    (sec: number, dir: 1 | -1) => {
+      if (!played || played.candles.length === 0) return;
       replay.pause();
-      if (sm.active) sm.clock.setPlaySec(sec);
-      else if (played) replay.setIndex(minuteIndexAt(played.candles, sec));
+      const opens = played.candles.map((c) => isoToUtcSeconds(c.ts));
+      if (sm.active) sm.clock.setPlaySec(clampSkipSec(sec, opens[0], opens[opens.length - 1]));
+      else replay.setIndex(skipIndex(opens, replay.currentIndex, sec, dir));
     },
     [replay, sm.active, sm.clock, played],
   );

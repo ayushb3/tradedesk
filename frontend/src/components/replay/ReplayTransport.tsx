@@ -51,7 +51,7 @@ export function ReplayTransport({
         data-testid={dir > 0 ? "skip-forward" : "skip-back"}
       >
         {dir < 0 && <ChevronsLeft className="h-3.5 w-3.5" />}
-        <span className="num">{engine.skipLabel}</span>
+        <span>Skip {engine.skipLabel}</span>
         {dir > 0 && <ChevronsRight className="h-3.5 w-3.5" />}
       </Button>
     ) : null;
