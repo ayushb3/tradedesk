@@ -8,8 +8,11 @@ import {
   closeAll,
   initialState,
   openR,
+  ruleCloseFill,
   sell,
+  totalPnl,
   setStop,
+  sessionRealized as sessionRealizedOf,
   setTarget,
   unrealized,
   type SimState,
@@ -191,6 +194,37 @@ eq("api-assumed flag wins over a usable stop", rt?.stopAssumed, true);
 rt = summarizeRealTrade(real, null, true);
 eq("assumed stop value", rt?.stop ?? NaN, 1.4);
 eq("no entry -> null", summarizeRealTrade([], 1, true) === null, true);
+
+// 9) Fees: buy 2 @1.00 fee 0.04/ct, sell 2 @1.50 fee 0.04/ct -> gross 100, fees 0.16, net 99.84.
+s = buy(initialState(), { price: 1.0, ts: at(0), qty: 2, feePerContract: 0.04 }, 0.8);
+eq("buy fee on fill", s.position.fills[0].fee ?? NaN, 0.08);
+eq("position fees after buy", s.position.fees, 0.08);
+eq("totalPnl open subtracts fees", totalPnl(s.position, 1.5), 100 - 0.08);
+eq("open R net of fees", openR(s.position, 1.5)!, (100 - 0.08) / 40);
+eq("realized stays gross in position", s.position.realized, 0);
+s = closeAll(s, { price: 1.5, ts: at(1), feePerContract: 0.04 });
+eq("trip gross", s.trips[0].gross, 100);
+eq("trip fees", s.trips[0].fees, 0.16);
+eq("trip realized net", s.trips[0].realized, 99.84);
+eq("trip r uses net", s.trips[0].r, 99.84 / 40);
+eq("sell fee on fill", s.trips[0].fills[1].fee ?? NaN, 0.08);
+eq("flat fees 0", s.position.fees, 0);
+eq("sessionRealized net", sessionRealizedOf(s), 99.84);
+// No fee given -> no fee field, numbers unchanged.
+s = closeAll(buy(initialState(), { price: 1.0, ts: at(0) }, 0.8), { price: 1.1, ts: at(1) });
+eq("no fee -> undefined", s.trips[0].fills[0].fee === undefined, true);
+eq("no fee -> fees 0", s.trips[0].fees, 0);
+// Option pricing in a pure way: ask = close + 0.01, bid = close - 0.01.
+s = buy(initialState(), { price: 1.0 + 0.01, ts: at(0), feePerContract: 0.04 }, null);
+s = closeAll(s, { price: 1.0 - 0.01, ts: at(1), feePerContract: 0.04 });
+eq("spread round trip net", s.trips[0].realized, -2 - 0.08);
+
+// 10) ruleCloseFill: -50% rule on a long.
+const held = buy(initialState(), { price: 2.0, ts: at(0) }).position; // threshold 1.00
+eq("rule flat -> null", ruleCloseFill(initialState().position, { open: 1, low: 0.1, ts: at(1) }, 0.5) === null, true);
+eq("rule gap -> open", ruleCloseFill(held, { open: 0.8, low: 0.6, ts: at(1) }, 0.5), 0.8);
+eq("rule touch -> threshold", ruleCloseFill(held, { open: 1.5, low: 1.0, ts: at(1) }, 0.5), 1.0);
+eq("rule no touch -> null", ruleCloseFill(held, { open: 1.5, low: 1.01, ts: at(1) }, 0.5) === null, true);
 
 if (failures > 0) {
   console.error(`${failures} check(s) failed`);

@@ -78,6 +78,18 @@ export function useCandles(params: CandlesParams) {
  * Timeframe + indicator params (EMA lengths, RSI period, OR minutes) are part of
  * the query key, so changing any of them refetches from the backend.
  */
+/** Free replay: one picked contract's premium bars for the day (null spec = nothing picked). */
+export function useReplayOptionBars(
+  spec: { underlying: string; type: "call" | "put"; strike: number; date: string; timeframe: string } | null,
+) {
+  return useQuery({
+    queryKey: ["replay-option-bars", spec?.underlying, spec?.type, spec?.strike, spec?.date, spec?.timeframe],
+    queryFn: () => api.replayOptionBars(spec!),
+    enabled: spec !== null,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useReplaySession(params: ReplaySessionParams) {
   const { symbol, date, timeframe = "1m", emaPeriods, rsiPeriod, orMinutes, enabled = true } = params;
   return useQuery<ReplaySession>({

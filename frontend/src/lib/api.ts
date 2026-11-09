@@ -228,6 +228,22 @@ export interface ReplayContract {
   fills: ReplayFill[];
 }
 
+/**
+ * GET /api/replay/option-bars: one 0DTE contract's premium bars for a day (free replay).
+ * The whole day comes back; the chart never draws past the playhead.
+ */
+export interface ReplayOptionBars {
+  available: boolean;
+  reason: string | null;
+  symbol: string;
+  contract_key: string;
+  underlying: string;
+  option_type: "call" | "put";
+  strike: number;
+  expiry: string;
+  candles: Candle[];
+}
+
 /** GET /api/replay/trade/{id}/seconds: tick-trade bars, cut at the playhead on the server. */
 export interface ReplaySeconds {
   trade_id: number;
@@ -863,6 +879,7 @@ export interface DeskDaySummary {
 export interface DeskRules {
   tz?: string;
   window?: { start?: string; end?: string };
+  extra_windows?: { start: string; end: string; label?: string }[];
   daily_stop?: number;
   daily_target?: number;
   default_risk_pct?: number;
@@ -1592,6 +1609,23 @@ export const api = {
     if (opts.after) qs.set("after", opts.after);
     if (opts.lead !== undefined) qs.set("lead_minutes", String(opts.lead));
     return request<ReplaySeconds>(`/replay/trade/${tradeId}/seconds?${qs.toString()}`);
+  },
+
+  replayOptionBars(p: {
+    underlying: string;
+    type: "call" | "put";
+    strike: number;
+    date: string;
+    timeframe: string;
+  }): Promise<ReplayOptionBars> {
+    const qs = new URLSearchParams({
+      underlying: p.underlying,
+      type: p.type,
+      strike: String(p.strike),
+      date: p.date,
+      timeframe: p.timeframe,
+    });
+    return request<ReplayOptionBars>(`/replay/option-bars?${qs.toString()}`);
   },
 
   /** The underlying's bid/ask at or before `at` (ISO); a replay passes at most its playhead. */

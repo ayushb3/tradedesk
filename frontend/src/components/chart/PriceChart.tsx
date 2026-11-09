@@ -944,8 +944,13 @@ function PriceChartCore({
             break;
           }
         }
-        if (row) rt.chart.setCrosshairPosition(row.close as number, row.time as UTCTimestamp, rt.series);
-        else rt.chart.clearCrosshairPosition();
+        try {
+          if (row) rt.chart.setCrosshairPosition(row.close as number, row.time as UTCTimestamp, rt.series);
+          else rt.chart.clearCrosshairPosition();
+        } catch {
+          // A pane created after mount (free replay's contract pane, once its bars load) has no
+          // laid-out time scale for a frame; the next playhead step pins it.
+        }
       }
     } finally {
       crossProg.current = false;

@@ -29,11 +29,13 @@ from app.models.replay import (
     ReplayDayTrade,
     ReplayFillsResponse,
     ReplayNeighbors,
+    ReplayOptionBarsResponse,
     ReplaySecondsResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
     StockQuoteResponse,
 )
+from app.models.market import OptionContract
 from app.providers.base import DataProvider
 
 router = APIRouter(tags=["replay"])
@@ -314,6 +316,69 @@ def replay_trade_contract(
         fills=revealed_fills(trade_id, head),
         **base,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Free replay: any 0DTE contract's premium bars
+# --------------------------------------------------------------------------- #
+_OPTION_ROOTS = {"SPY": 0.5, "QQQ": 0.5, "SPXW": 5.0}  # root -> strike multiple
+
+
+@router.get("/replay/option-bars", response_model=ReplayOptionBarsResponse)
+def replay_option_bars(
+    underlying: str = Query(..., description="SPY, QQQ or SPXW"),
+    type_: str = Query(..., alias="type", description="call or put"),
+    strike: float = Query(...),
+    date_: date = Query(..., alias="date", description="Session date; also the 0DTE expiry."),
+    timeframe: str = Query("1m"),
+    provider: DataProvider = Depends(provider_dep),
+) -> ReplayOptionBarsResponse:
+    """One 0DTE contract's real premium bars for the whole day (expiry = `date`).
+
+    The full series is sent, like `/replay/trade/{id}/contract`: the client gates
+    it to its playhead. Provider bars only, with no Black-Scholes fallback (there
+    are no fills to anchor one). Provider failures or an empty day answer
+    `available=false` with a reason, never a 500."""
+    root = underlying.strip().upper()
+    if root not in _OPTION_ROOTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported underlying {underlying!r}; expected one of {sorted(_OPTION_ROOTS)}",
+        )
+    kind = type_.strip().lower()
+    if kind not in ("call", "put"):
+        raise HTTPException(status_code=400, detail="type must be 'call' or 'put'")
+    step = _OPTION_ROOTS[root]
+    if not (strike > 0) or strike == float("inf") or (strike / step) != round(strike / step):
+        raise HTTPException(
+            status_code=400,
+            detail=f"strike must be positive and a multiple of {step:g} for {root}",
+        )
+    if timeframe not in _SUPPORTED_TIMEFRAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported timeframe {timeframe!r}; "
+            f"expected one of {sorted(_SUPPORTED_TIMEFRAMES)}",
+        )
+
+    contract = OptionContract(
+        underlying=root, option_type=kind.upper(), strike=strike, expiry=date_.isoformat()
+    )
+    base = dict(
+        symbol=contract.descriptor, contract_key=contract.contract_key, underlying=root,
+        option_type=kind, strike=strike, expiry=date_,
+    )
+    try:
+        bars = provider.get_option_bars(contract, date_, timeframe)
+    except Exception:  # a provider outage must not 500 the picker
+        return ReplayOptionBarsResponse(
+            available=False, reason="option bars could not be loaded", **base
+        )
+    if not bars:
+        return ReplayOptionBarsResponse(
+            available=False, reason="no option prints for this contract on that day", **base
+        )
+    return ReplayOptionBarsResponse(available=True, candles=list(bars), **base)
 
 
 @router.get("/replay/trade/{trade_id}/seconds", response_model=ReplaySecondsResponse)

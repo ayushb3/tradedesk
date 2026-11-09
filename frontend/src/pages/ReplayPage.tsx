@@ -16,11 +16,14 @@ import { ReplayControlBar } from "@/components/replay/ReplayControlBar";
 import { PriceChart, type ChartPosition } from "@/components/chart/PriceChart";
 import { RealTradeCard } from "@/components/replay/RealTradeCard";
 import { OrderPanel } from "@/components/replay/OrderPanel";
+import { ContractPicker, type OptionSide } from "@/components/replay/ContractPicker";
 import { TradeScreen } from "@/components/screen/TradeScreen";
 import { EstimatedBadge } from "@/components/review/EstimatedBadge";
 import {
+  useDeskRules,
   useReplayDaySoFar,
   useReplayContract,
+  useReplayOptionBars,
   useReplaySession,
   useReplaySecondsProbe,
   useReplayTrade,
@@ -54,7 +57,26 @@ import {
   replaySeries,
 } from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
-import { UNDERLYING_STOP_FRAC, type SimFill } from "@/lib/simPosition";
+import {
+  ruleCloseFill,
+  sessionRealized,
+  totalPnl,
+  type SimFill,
+} from "@/lib/simPosition";
+import {
+  atmStrike,
+  contractBarAt,
+  contractLabel,
+  dayLimitHit,
+  inTradingWindow,
+  isOptionRoot,
+  OPTION_ROOTS,
+  pricing,
+  ptMinutesOf,
+  RULE_CLOSE_FRAC,
+  underlyingScale,
+  type OptionRoot,
+} from "@/lib/freeOptions";
 import { openPnl, positionAt } from "@/lib/positionAt";
 import { isoToUtcSeconds } from "@/lib/chart";
 import {
@@ -70,6 +92,7 @@ import {
   api,
   ApiError,
   REPLAY_TIMEFRAMES,
+  type Candle,
   type ReplaySession,
 } from "@/lib/api";
 
@@ -543,25 +566,73 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     };
   }, [inTrade, data, revealedFills, playheadSec]);
 
+  // Free replay trades 0DTE option contracts (SPY, QQQ, SPXW): the underlying on top, the
+  // picked contract below. A new symbol or date starts a fresh practice day.
+  const sessionKey = `${symbol}:${date}`;
+  const root: OptionRoot | null =
+    !inTrade && isOptionRoot(symbol.toUpperCase())
+      ? (symbol.toUpperCase() as OptionRoot)
+      : null;
+  const underBar =
+    !inTrade && data ? (data.candles[replay.currentIndex] ?? null) : null;
+  const underSec = underBar ? isoToUtcSeconds(underBar.ts) : null;
+  // SPXW's underlying is the labelled SPY proxy on Alpaca (no SPX index bars), so its strikes
+  // sit about 10x the chart; an unproxied index series is already on the strike scale.
+  const proxied = Boolean(data?.meta.source_label);
+  const atm =
+    root && underBar
+      ? atmStrike(root, proxied ? underBar.close : underBar.close / underlyingScale(root))
+      : null;
+  const [pick, setPick] = useState<{
+    key: string;
+    side: OptionSide;
+    strike: number | null;
+  }>({ key: sessionKey, side: "call", strike: null });
+  const side: OptionSide = pick.key === sessionKey ? pick.side : "call";
+  const pickedStrike = pick.key === sessionKey ? pick.strike : null;
+  // Until a strike is picked, start at the money (as of the first bar the page shows).
+  useEffect(() => {
+    if (root && atm != null && pickedStrike == null)
+      setPick({ key: sessionKey, side, strike: atm });
+  }, [root, atm, pickedStrike, sessionKey, side]);
+  const strike = pickedStrike ?? atm;
+  const optionSpec =
+    root && strike != null
+      ? { underlying: root, type: side, strike, date, timeframe: config.timeframe }
+      : null;
+  const optQuery = useReplayOptionBars(optionSpec);
+  const optCandles = optQuery.data?.available ? optQuery.data.candles : null;
+  const optAt =
+    optCandles && underSec != null ? contractBarAt(optCandles, underSec) : null;
+  const optLabel =
+    root && strike != null ? contractLabel(root, side, strike, date) : "";
+
   // Trade-mode sim: fills at the playhead bar's close on the premium pane.
   // Seconds mode: the latest print so far (never the minute's final close).
-  // Free replay: the playhead bar's close on the underlying.
+  // Free replay: the picked contract's bar at the playhead (the last print when that minute
+  // has none: "stale").
   const playCandle = data
-    ? inTrade && useSeconds
-      ? liveCandle(windowed?.contractCandles ?? [], secs.playSec)
-      : (data.candles[replay.currentIndex] ?? null)
+    ? inTrade
+      ? useSeconds
+        ? liveCandle(windowed?.contractCandles ?? [], secs.playSec)
+        : (data.candles[replay.currentIndex] ?? null)
+      : optAt && underBar
+        ? optAt.stale
+          ? { ...optAt.bar, ts: underBar.ts } // last price, stamped at the playhead
+          : optAt.bar
+        : null
     : null;
-  // Free replay: a new symbol or date starts a fresh practice session.
-  const sessionKey = `${symbol}:${date}`;
   const tradeSymbol = inTrade
     ? (contractData?.symbol ?? tradeSession?.symbol ?? "")
-    : symbol;
+    : optLabel;
   const sim = useSimSession({
     resetKey: inTrade ? endKey : `free:${sessionKey}`,
     symbol: tradeSymbol,
     sessionDate: tradeSession?.session_date ?? date,
     writtenStop: inTrade ? (contractData?.stop_price ?? null) : null,
-    assumedStopFrac: inTrade ? undefined : UNDERLYING_STOP_FRAC,
+    // Free replay: the stop starts at the -50% close rule; fills pay a spread and fees.
+    assumedStopFrac: inTrade ? undefined : RULE_CLOSE_FRAC,
+    pricing: root ? pricing(root) : undefined,
   });
   const simPos = sim.state.position;
   // Positions on the chart, marked at the playhead bar's close (Seconds mode: the latest print):
@@ -607,9 +678,84 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   // useReplay). Ignored while focus is in an input, with Ctrl/Meta held, or with nothing to trade
   // (trade replay: no premium bars; free replay: no session loaded yet).
   const ready = !isLoading && !isError && data && replay.total > 0;
+
+  // Free replay rules. Close at -50%: checked on every contract bar after the last fill up
+  // to the playhead (scrubbing forward can't skip one). Rule 12 has no exceptions.
+  const { onRuleClose, onCloseAll: simCloseAll } = sim;
+  useEffect(() => {
+    if (inTrade || !optCandles || underSec == null || simPos.qty === 0) return;
+    if (sim.stateKey !== `free:${sessionKey}`) return; // a position from the previous day/symbol
+    const last = simPos.fills[simPos.fills.length - 1];
+    if (!last) return;
+    const after = isoToUtcSeconds(last.ts);
+    for (const b of optCandles) {
+      const t = isoToUtcSeconds(b.ts);
+      if (t <= after) continue;
+      if (t > underSec) break;
+      const px = ruleCloseFill(simPos, b, RULE_CLOSE_FRAC);
+      if (px != null) {
+        onRuleClose(px, b.ts);
+        break;
+      }
+    }
+  }, [inTrade, optCandles, underSec, simPos, onRuleClose, sim.stateKey, sessionKey]);
+
+  // The practice day ends at the daily stop or target (from the rules file), like live:
+  // the position is closed and new orders are off for this symbol and day.
+  const deskRules = useDeskRules();
+  const dayStop = deskRules.data?.daily_stop ?? null;
+  const dayTarget = deskRules.data?.daily_target ?? null;
+  const dayPnl =
+    sessionRealized(sim.state) +
+    (simPos.qty > 0 && playCandle ? totalPnl(simPos, playCandle.close) : 0);
+  const [dayDone, setDayDone] = useState<{
+    key: string;
+    why: "stop" | "target";
+  } | null>(null);
+  const doneWhy = !inTrade && dayDone?.key === sessionKey ? dayDone.why : null;
+  useEffect(() => {
+    // The sim resets one commit after the session key changes: don't judge the old day's P&L.
+    if (inTrade || doneWhy || sim.stateKey !== `free:${sessionKey}`) return;
+    const hit = dayLimitHit(dayPnl, dayStop, dayTarget);
+    if (!hit) return;
+    if (simPos.qty > 0) {
+      if (!playCandle) return; // no price to close at yet: lock once it can be closed
+      simCloseAll(playCandle);
+    }
+    setDayDone({ key: sessionKey, why: hit });
+  }, [inTrade, doneWhy, sim.stateKey, dayPnl, dayStop, dayTarget, sessionKey, simPos.qty, simCloseAll, playCandle]);
+
+  // Outside the trading windows (rules file: the main window plus any extra ones) practice
+  // still works; the panel says so.
+  const windows = deskRules.data
+    ? [deskRules.data.window, ...(deskRules.data.extra_windows ?? [])].filter(
+        (w): w is { start: string; end: string } => Boolean(w?.start && w?.end),
+      )
+    : [];
+  const outsideWindow =
+    !inTrade &&
+    underBar != null &&
+    windows.length > 0 &&
+    !inTradingWindow(ptMinutesOf(underBar.ts), windows);
+
+  const freeNote: string | undefined = inTrade
+    ? undefined
+    : !root
+      ? `Options trade on ${OPTION_ROOTS.join(", ")}. Pick one of those.`
+      : doneWhy
+        ? `Practice day done: the day hit its ${doneWhy === "stop" ? "daily stop" : "daily target"}. Pick another date to keep practicing.`
+        : optQuery.isLoading
+          ? `Loading ${optLabel}…`
+          : optQuery.isError
+            ? `${optLabel}: option bars could not be loaded.`
+            : optQuery.data && !optQuery.data.available
+              ? `${optLabel}: ${optQuery.data.reason ?? "no option bars"}.`
+              : !optAt
+                ? `${optLabel} has no prints yet. Play to the open.`
+                : undefined;
   const canTrade = inTrade
     ? windowed?.contractCandles != null
-    : Boolean(ready && playCandle);
+    : Boolean(ready && optAt && !doneWhy);
   const [orderQty, setOrderQty] = useState(1);
   // One practice order of `orderQty` contracts (one fill row, 1R from the whole first buy).
   const buyQty = () => sim.onBuy(playCandle, orderQty);
@@ -750,6 +896,25 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             onSymbolChange={setSymbol}
             date={date}
             onDateChange={setDate}
+            suggestions={OPTION_ROOTS}
+            extra={
+              root && strike != null ? (
+                <ContractPicker
+                  root={root}
+                  side={side}
+                  onSideChange={(s) =>
+                    setPick({ key: sessionKey, side: s, strike })
+                  }
+                  strike={strike}
+                  onStrikeChange={(k) =>
+                    setPick({ key: sessionKey, side, strike: k })
+                  }
+                  atm={atm}
+                  date={date}
+                  locked={simPos.qty > 0}
+                />
+              ) : null
+            }
             controls={
               <button
                 type="button"
@@ -832,6 +997,20 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               session={data}
               index={replay.currentIndex}
               visibility={visibility}
+              label={
+                root === "SPXW" && data.meta.source_label
+                  ? `SPXW · ${data.meta.source_label}: strikes ≈ SPY × ${underlyingScale(root)}`
+                  : undefined
+              }
+              contract={
+                optCandles && optLabel
+                  ? {
+                      label: optLabel,
+                      candles: optCandles,
+                      stale: optAt?.stale ?? false,
+                    }
+                  : null
+              }
               trade={{
                 positions: chartPositions,
                 simFills,
@@ -897,10 +1076,26 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               onSeekFill={ready ? seekToFill : undefined}
             />
           )}
+          {!inTrade && (outsideWindow || optAt?.stale) && (
+            <div className="space-y-1 border-b border-border px-3 py-2 text-label text-muted-foreground" role="status">
+              {optAt?.stale && (
+                <p>
+                  <StaleTag /> No print this minute: fills use the last price.
+                </p>
+              )}
+              {outsideWindow && (
+                <p>
+                  Outside your trading window (
+                  {windows.map((w) => `${w.start}–${w.end}`).join(", ")} PT).
+                  Practice still works.
+                </p>
+              )}
+            </div>
+          )}
           <OrderPanel
             candle={playCandle}
             bars={
-              inTrade ? (windowed?.contractCandles ?? []) : (data?.candles ?? [])
+              inTrade ? (windowed?.contractCandles ?? []) : (optCandles ?? [])
             }
             state={sim.state}
             symbol={tradeSymbol}
@@ -911,11 +1106,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
             onSell={sellQty}
             onCloseAll={flatten}
             logError={sim.logError}
-            unit={inTrade ? undefined : FREE_UNIT}
-            greeks={inTrade}
-            disabledNote={
-              inTrade ? undefined : "Load a session with bars to place practice orders."
-            }
+            disabledNote={freeNote}
           />
         </>
       }
@@ -923,23 +1114,38 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   );
 }
 
-/** Free replay trades the underlying in lots of 100 shares (the sim prices x100). */
-const FREE_UNIT = { one: "lot (100 sh)", many: "lots (100 sh)" };
 const NO_FILLS: never[] = [];
 
-/** Free replay on the shared chart: the session's underlying, levels and practice orders. */
+/** The contract has no print in the playhead minute: its last price stands in. */
+function StaleTag() {
+  return (
+    <span className="rounded border border-border px-1 text-label text-muted-foreground">
+      stale
+    </span>
+  );
+}
 
+/**
+ * Free replay on the shared chart: the session's underlying (levels, indicators) on top and
+ * the picked option contract below it, where the practice orders, pills, stop and target go.
+ */
 function FreeReplayChart({
   session,
   index,
   visibility,
+  label,
+  contract,
   trade,
   interval,
 }: {
   session: ReplaySession;
   index: number;
   visibility: ChartVisibility;
-  /** The practice position on the underlying: pills, stop, target, fill tags, order buttons. */
+  /** Underlying pane header; default "SYMBOL · source". */
+  label?: string;
+  /** The picked contract's bars (the whole day; nothing after the playhead is drawn). */
+  contract: { label: string; candles: Candle[]; stale: boolean } | null;
+  /** The practice position on the contract: pills, stop, target, fill tags, order buttons. */
   trade: {
     positions: ChartPosition[];
     simFills: SimFill[];
@@ -962,34 +1168,48 @@ function FreeReplayChart({
     () =>
       sessionChart(session, index, {
         visibility,
-        label: session.meta.source_label
-          ? `${session.symbol} · ${session.meta.source_label}`
-          : session.symbol,
+        label:
+          label ??
+          (session.meta.source_label
+            ? `${session.symbol} · ${session.meta.source_label}`
+            : session.symbol),
       }),
-    [session, index, visibility],
+    [session, index, visibility, label],
+  );
+  const top = useMemo(
+    () =>
+      contract
+        ? {
+            label: contract.label,
+            candles: contract.candles,
+            badge: contract.stale ? <StaleTag /> : undefined,
+          }
+        : null,
+    [contract?.label, contract?.candles, contract?.stale],
   );
   if (!c) return null;
   return (
     <div className="absolute inset-0 pb-24">
       <PriceChart
-        top={null}
+        top={top}
         bottom={c.pane}
         startSec={c.startSec}
         endSec={c.endSec}
         playheadSec={c.playheadSec}
         barSec={c.barSec}
         mode={{ kind: "replay" }}
-        stopPrice={trade.stopPrice}
+        stopPrice={top ? trade.stopPrice : null}
         stopAssumed={trade.stopAssumed}
         onStopChange={trade.onStopChange}
-        targetPrice={trade.targetPrice}
+        targetPrice={top ? trade.targetPrice : null}
         onTargetChange={trade.onTargetChange}
-        positions={trade.positions}
-        simFills={trade.simFills}
+        positions={top ? trade.positions : []}
+        simFills={top ? trade.simFills : []}
         fills={NO_FILLS}
         fillLabels="arrows"
         topActions={trade.actions}
-        tradeOnBottom
+        mainPane="bottom"
+        contractBelow
         interval={interval}
       />
     </div>
