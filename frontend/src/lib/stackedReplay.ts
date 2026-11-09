@@ -34,6 +34,14 @@ export function candlesInWindow(candles: Candle[], startSec: number, endSec: num
 }
 
 /**
+ * A bar's slot on the chart grid: its minute on minute (and larger) bars, its own bar open on
+ * second bars (a 15s grid also holds 1-minute bars, at their minute opens).
+ */
+export function barKey(sec: number, barSec: number = MINUTE): number {
+  return barSec < MINUTE ? Math.floor(sec / barSec) * barSec : floorMinute(sec);
+}
+
+/**
  * Candlestick data on the shared grid, revealed up to `playheadSec`: bars after
  * the playhead and minutes with no bar are whitespace.
  */
@@ -41,9 +49,10 @@ export function alignedCandles(
   timeline: UTCTimestamp[],
   candles: Candle[],
   playheadSec: number,
+  barSec = MINUTE,
 ): (CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>)[] {
   const byMinute = new Map<number, Candle>();
-  for (const c of candles) byMinute.set(floorMinute(isoToUtcSeconds(c.ts)), c);
+  for (const c of candles) byMinute.set(barKey(isoToUtcSeconds(c.ts), barSec), c);
   return timeline.map((time) => {
     const c = time <= playheadSec ? byMinute.get(time) : undefined;
     return c

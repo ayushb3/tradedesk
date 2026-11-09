@@ -10,6 +10,9 @@ index with candles: value at i uses only candles[0..i]. See models/replay.py.
 """
 from __future__ import annotations
 
+import re
+import threading
+from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -31,6 +34,7 @@ from app.models.replay import (
     ReplayNeighbors,
     ReplayOptionBarsResponse,
     ReplaySecondsResponse,
+    ReplaySecondsWindowResponse,
     ReplaySessionResponse,
     ReplayTradeResponse,
     StockQuoteResponse,
@@ -430,6 +434,92 @@ def replay_trade_seconds(
         underlying=cut(found.underlying), contract_label=found.contract_label,
         underlying_symbol=found.underlying_symbol, source_label=found.source_label, **base,
     )
+
+
+_SECONDS_SYMBOL = re.compile(r"^[A-Z.]{1,10}$")
+_MAX_SECONDS_WINDOW = timedelta(minutes=30)
+# Closed windows never change, so their 1s bars are kept (server-side, bounded).
+_SECONDS_CACHE_MAX = 32
+_seconds_cache: "OrderedDict[tuple, tuple[str | None, list]]" = OrderedDict()
+_seconds_lock = threading.Lock()  # routes run in a threadpool
+
+
+def clear_seconds_cache() -> None:
+    _seconds_cache.clear()
+
+
+@router.get("/replay/seconds", response_model=ReplaySecondsWindowResponse)
+def replay_seconds_window(
+    symbol: str = Query(..., description="Ticker, e.g. SPY. Index roots (SPX/SPXW) serve SPY, labelled."),
+    start: datetime = Query(..., description="Window start (ISO 8601)."),
+    end: datetime = Query(..., description="Window end (ISO 8601); at most 30 minutes after start."),
+    res: str = Query("1s", description="Bar resolution: 1s, 5s, 15s or 30s."),
+    playhead: datetime | None = Query(
+        None, description="Reveal only bars whose last second is at or before this second."
+    ),
+    provider: DataProvider = Depends(provider_dep),
+) -> ReplaySecondsWindowResponse:
+    """Tick-trade second bars (real volume) for any symbol over a short window. Provider
+    failures, missing prints and empty windows answer `available=false` with a reason;
+    bars are never synthesized."""
+    from app.providers.alpaca.symbols import INDEX_PROXY, PROXY_LABEL
+    from app.providers.seconds import parse_res, rebucket, revealed
+
+    sym = symbol.strip().upper()
+    if not _SECONDS_SYMBOL.match(sym):
+        raise HTTPException(status_code=400, detail="symbol must be letters and dots only")
+    try:
+        res_s = parse_res(res)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    s, e = _as_utc(start).replace(microsecond=0), _as_utc(end).replace(microsecond=0)
+    if e <= s:
+        raise HTTPException(status_code=400, detail="end must be after start")
+    if e - s > _MAX_SECONDS_WINDOW:
+        raise HTTPException(status_code=400, detail="window must be at most 30 minutes")
+    head = _as_utc(playhead).replace(microsecond=0) if playhead is not None else None
+    base = dict(symbol=sym, res=res, start=s, end=e, playhead=head)
+
+    fetch_sym = INDEX_PROXY.get(sym, sym)
+    label = PROXY_LABEL if sym in INDEX_PROXY else None
+    base["source_label"] = label
+
+    key = (fetch_sym, s, e)
+    with _seconds_lock:
+        cached = _seconds_cache.get(key)
+        if cached is not None:
+            _seconds_cache.move_to_end(key)
+    if cached is not None:
+        bars = cached
+    else:
+        from app.providers.seconds import SecondsUnavailable
+
+        if not hasattr(provider, "get_second_bars"):
+            return ReplaySecondsWindowResponse(
+                available=False, reason="this data source has no trade prints", **base
+            )
+        try:
+            bars = list(provider.get_second_bars(fetch_sym, s, e))
+        except SecondsUnavailable as exc:
+            return ReplaySecondsWindowResponse(available=False, reason=str(exc), **base)
+        except Exception:  # a provider outage must not 500 the replay
+            return ReplaySecondsWindowResponse(
+                available=False, reason="second bars could not be loaded", **base
+            )
+        if bars and e < datetime.now(timezone.utc) - timedelta(minutes=20):
+            with _seconds_lock:
+                _seconds_cache[key] = bars
+                while len(_seconds_cache) > _SECONDS_CACHE_MAX:
+                    _seconds_cache.popitem(last=False)
+    if not bars:
+        return ReplaySecondsWindowResponse(
+            available=False, reason="no trade prints in this window", **base
+        )
+
+    out = rebucket(bars, res_s) if res_s != 1 else list(bars)
+    if head is not None:
+        out = revealed(out, head, res_s)
+    return ReplaySecondsWindowResponse(available=True, candles=out, **base)
 
 
 @router.get("/replay/trade/{trade_id}/day-so-far", response_model=DaySoFarResponse)

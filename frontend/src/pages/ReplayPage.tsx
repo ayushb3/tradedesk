@@ -1,5 +1,4 @@
-import { optionTagFromLabel } from "@/lib/chartLook";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ServerCrash } from "lucide-react";
@@ -47,7 +46,7 @@ import {
 import { exitTarget, isDay, safeFrom } from "@/lib/replayNav";
 import { useReplay, type ReplayState } from "@/lib/useReplay";
 import { isInputFocused } from "@/lib/replayKeys";
-import { sessionChart, type ChartVisibility } from "@/lib/sessionChart";
+import { barSecOf, sessionChart, type ChartVisibility } from "@/lib/sessionChart";
 import { useSecondsReplay } from "@/lib/useSecondsReplay";
 import {
   finishedOnly,
@@ -58,6 +57,9 @@ import {
   replaySeries,
 } from "@/lib/secondsReplay";
 import { useSimSession } from "@/lib/useSimSession";
+import { optionTagFromLabel } from "@/lib/chartLook";
+import type { SecondsRes } from "@/lib/secondsChart";
+import { useSecondsMode } from "@/lib/useSecondsMode";
 import {
   ruleCloseFill,
   sessionRealized,
@@ -381,8 +383,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
 
   // The session is already cut to the trade window, so the replay starts at bar 0
   // (the engine resets to the first bar whenever the bar count changes).
+  // Free replay, 5s / 15s / 30s: second bars on a second-level clock (lib/useSecondsMode).
+  const [freeSecRes, setFreeSecRes] = useState<SecondsRes | null>(null);
+  const freeSecOn = !inTrade && freeSecRes !== null;
   const minuteReplay = useReplay(data, {
-    keyboardEnabled: !useSeconds,
+    keyboardEnabled: !useSeconds && !freeSecOn,
     // The speed control drives the minute clock (64x ≈ one 1m bar per second).
     chartSpeed: inTrade ? speed : freeSpeed,
   });
@@ -390,7 +395,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
   // In Seconds mode the seconds clock is the truth and the transport controls drive it; the
   // minute engine only supplies the bar count. Everything below reads `replay`.
   const secIndex = data ? minuteIndexAt(data.candles, secs.playSec) : 0;
-  const replay: ReplayState = useSeconds
+  const tradeReplayState: ReplayState = useSeconds
     ? {
         ...minuteReplay,
         currentIndex: secIndex,
@@ -412,6 +417,39 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
         barLabel: formatClockSecondsPt(secs.playSec),
       }
     : minuteReplay;
+  const freeMinuteSec =
+    !inTrade && data?.candles[minuteReplay.currentIndex]
+      ? isoToUtcSeconds(data.candles[minuteReplay.currentIndex].ts)
+      : null;
+  const freeIndexOfMinute = useCallback(
+    (m: number) => (data ? Math.max(0, data.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m)) : 0),
+    [data],
+  );
+  const freeSm = useSecondsMode({
+    replay: tradeReplayState,
+    // Second bars ride on 1-minute bars only (the clock counts minutes by bar index).
+    res: inTrade || !data || barSecOf(data.candles) !== 60 ? null : freeSecRes,
+    symbol: inTrade ? null : symbol,
+    minuteSec: freeMinuteSec,
+    speed: freeSpeed,
+    indexOfMinute: freeIndexOfMinute,
+  });
+  // Picking a seconds interval from 5m reloads 1m bars, and the engine restarts at bar 0 when
+  // the bar count changes: seek back to where the playhead was.
+  const pendingSeek = useRef<number | null>(null);
+  const { setIndex: minuteSetIndex } = minuteReplay;
+  useEffect(() => {
+    const at = pendingSeek.current;
+    if (at == null || !data || data.candles.length === 0 || barSecOf(data.candles) !== 60) return;
+    pendingSeek.current = null;
+    minuteSetIndex(freeIndexOfMinute(Math.floor(at / 60) * 60));
+  }, [data, minuteSetIndex, freeIndexOfMinute]);
+  const replay: ReplayState = freeSm.active
+    ? {
+        ...freeSm.replay,
+        barLabel: freeSm.playSec != null ? formatClockSecondsPt(freeSm.playSec) : minuteReplay.barLabel,
+      }
+    : tradeReplayState;
 
   const playheadTs =
     inTrade && data
@@ -603,8 +641,20 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
       : null;
   const optQuery = useReplayOptionBars(optionSpec);
   const optCandles = optQuery.data?.available ? optQuery.data.candles : null;
-  const optAt =
-    optCandles && underSec != null ? contractBarAt(optCandles, underSec) : null;
+  // Seconds mode, mid-minute: the option has only 1-minute bars, so its price is the last
+  // finished minute's (the forming minute's close would be look-ahead).
+  const midMinute = freeSm.active && freeSm.clock.offset < 59;
+  const optSec = underSec != null && midMinute ? underSec - 60 : underSec;
+  const optFound =
+    optCandles && optSec != null ? contractBarAt(optCandles, optSec) : null;
+  const optAt = optFound && midMinute ? { ...optFound, stale: true } : optFound;
+  const optShown = useMemo(
+    () =>
+      optCandles && midMinute && optSec != null
+        ? optCandles.filter((c) => isoToUtcSeconds(c.ts) <= optSec)
+        : optCandles,
+    [optCandles, midMinute, optSec],
+  );
   const optLabel =
     root && strike != null ? contractLabel(root, side, strike, date) : "";
 
@@ -619,7 +669,11 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
         : (data.candles[replay.currentIndex] ?? null)
       : optAt && underBar
         ? optAt.stale
-          ? { ...optAt.bar, ts: underBar.ts } // last price, stamped at the playhead
+          ? {
+              ...optAt.bar,
+              // last price, stamped at the playhead (its second in seconds mode)
+              ts: freeSm.active && freeSm.playSec != null ? new Date(freeSm.playSec * 1000).toISOString() : underBar.ts,
+            }
           : optAt.bar
         : null
     : null;
@@ -692,14 +746,14 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     for (const b of optCandles) {
       const t = isoToUtcSeconds(b.ts);
       if (t <= after) continue;
-      if (t > underSec) break;
+      if (optSec == null || t > optSec) break;
       const px = ruleCloseFill(simPos, b, RULE_CLOSE_FRAC);
       if (px != null) {
         onRuleClose(px, b.ts);
         break;
       }
     }
-  }, [inTrade, optCandles, underSec, simPos, onRuleClose, sim.stateKey, sessionKey]);
+  }, [inTrade, optCandles, underSec, optSec, simPos, onRuleClose, sim.stateKey, sessionKey]);
 
   // The practice day ends at the daily stop or target (from the rules file), like live:
   // the position is closed and new orders are off for this symbol and day.
@@ -997,7 +1051,8 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
           {ready && !inTrade && data && (
             <FreeReplayChart
               session={data}
-              index={replay.currentIndex}
+              // Seconds clock inside a minute: the minute view and its levels stop at the last finished minute.
+              index={midMinute ? Math.max(0, replay.currentIndex - 1) : replay.currentIndex}
               visibility={visibility}
               label={
                 root === "SPXW" && data.meta.source_label
@@ -1005,10 +1060,10 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                   : undefined
               }
               contract={
-                optCandles && optLabel
+                optShown && optLabel
                   ? {
                       label: optLabel,
-                      candles: optCandles,
+                      candles: optShown,
                       stale: optAt?.stale ?? false,
                     }
                   : null
@@ -1032,6 +1087,38 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                     timeframe: tf as typeof config.timeframe,
                   }),
               }}
+              seconds={{
+                value: freeSecRes,
+                onChange: (v: string | null) => {
+                  // Second bars ride on the 1-minute player.
+                  if (v && config.timeframe !== "1m") {
+                    pendingSeek.current = freeMinuteSec;
+                    setConfig({ ...config, timeframe: "1m" });
+                  }
+                  setFreeSecRes(v as SecondsRes | null);
+                },
+                note: freeSm.chart.sourceLabel,
+              }}
+              secondsView={
+                freeSm.active && !freeSm.chart.reason && freeSm.chart.candles.length > 0 && freeSm.playSec != null && freeSm.barOpenSec != null
+                  ? {
+                      candles: freeSm.chart.candles,
+                      startSec: freeSm.chart.startSec,
+                      endSec: freeSm.chart.endSec,
+                      barSec: freeSm.resSec,
+                      barOpenSec: freeSm.barOpenSec,
+                      playSec: freeSm.playSec,
+                      note: `${freeSecRes}${freeSm.chart.sourceLabel ? ` from ${freeSm.chart.sourceLabel}` : ""}`,
+                    }
+                  : null
+              }
+              secondsStatus={
+                freeSm.active && (freeSm.chart.loading || freeSm.chart.reason)
+                  ? freeSm.chart.reason
+                    ? `No second bars here (${freeSm.chart.reason}). Showing ${config.timeframe} bars.`
+                    : "Loading second bars…"
+                  : null
+              }
             />
           )}
           {inTrade ? (
@@ -1139,7 +1226,23 @@ function FreeReplayChart({
   contract,
   trade,
   interval,
+  seconds,
+  secondsView,
+  secondsStatus,
 }: {
+  /** The 5s/15s/30s buttons (free replay draws second bars). */
+  seconds: NonNullable<ComponentProps<typeof PriceChart>["seconds"]>;
+  /** While a seconds interval is on: the second bars and their grid (replaces the minute view). */
+  secondsView: {
+    candles: Candle[];
+    startSec: number;
+    endSec: number;
+    barSec: number;
+    barOpenSec: number;
+    playSec: number;
+    note: string;
+  } | null;
+  secondsStatus: string | null;
   session: ReplaySession;
   index: number;
   visibility: ChartVisibility;
@@ -1189,16 +1292,32 @@ function FreeReplayChart({
         : null,
     [contract?.label, contract?.candles, contract?.stale],
   );
-  if (!c) return null;
+  const sv = secondsView;
+  const bottom = useMemo(
+    () => (c && sv ? { ...c.pane, label: `${c.pane.label} · ${sv.note}`, candles: sv.candles } : c?.pane),
+    [c, sv],
+  );
+  if (!c || !bottom) return null;
   return (
     <div className="absolute inset-0 pb-24">
+      {secondsStatus && (
+        <div
+          className="absolute left-1/2 top-10 z-40 -translate-x-1/2 rounded-md border border-border bg-card/95 px-2 py-1 text-label text-muted-foreground"
+          data-testid="seconds-status"
+        >
+          {secondsStatus}
+        </div>
+      )}
       <PriceChart
         top={top}
-        bottom={c.pane}
-        startSec={c.startSec}
-        endSec={c.endSec}
-        playheadSec={c.playheadSec}
-        barSec={c.barSec}
+        bottom={bottom}
+        startSec={sv ? sv.startSec : c.startSec}
+        endSec={sv ? sv.endSec : c.endSec}
+        playheadSec={sv ? sv.barOpenSec : c.playheadSec}
+        barSec={sv ? sv.barSec : c.barSec}
+        revealSec={sv ? sv.playSec : undefined}
+        playheadLabel={sv ? formatClockSecondsPt(sv.playSec) : undefined}
+        seconds={seconds}
         mode={{ kind: "replay" }}
         stopPrice={top ? trade.stopPrice : null}
         stopAssumed={trade.stopAssumed}

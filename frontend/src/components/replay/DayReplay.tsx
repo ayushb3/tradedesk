@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
@@ -17,6 +17,9 @@ import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
 import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { useReplay } from "@/lib/useReplay";
+import { formatClockSeconds, formatClockSecondsPt } from "@/lib/secondsReplay";
+import type { SecondsRes } from "@/lib/secondsChart";
+import { useSecondsMode } from "@/lib/useSecondsMode";
 
 /**
  * /replay?day=YYYY-MM-DD: the day's trades on one underlying, in order, as one session.
@@ -63,20 +66,43 @@ export function DayReplay({ day }: { day: string }) {
     [full],
   );
 
-  const replay = useReplay(played, { chartSpeed: speed });
-  const playTs = played?.candles[replay.currentIndex]?.ts ?? null;
+  // 5s / 15s / 30s: second bars from trade prints, on a second-level clock (lib/useSecondsMode).
+  const [secRes, setSecRes] = useState<SecondsRes | null>(null);
+  const minuteReplay = useReplay(played, { chartSpeed: speed, keyboardEnabled: secRes === null });
+  const playTs = played?.candles[minuteReplay.currentIndex]?.ts ?? null;
   const playheadSec = playTs ? floorMinute(isoToUtcSeconds(playTs)) : (win?.startSec ?? 0);
+  const indexOfMinute = useCallback(
+    (m: number) => (played ? Math.max(0, played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= m)) : 0),
+    [played],
+  );
+  const sm = useSecondsMode({
+    replay: minuteReplay,
+    res: secRes,
+    symbol: full?.symbol,
+    minuteSec: playTs ? playheadSec : null,
+    speed,
+    indexOfMinute,
+  });
+  const replay = sm.replay;
+  // The last second shown: the playhead second in seconds mode, else the end of the minute.
+  const lastSec = sm.active && sm.playSec != null ? sm.playSec : playheadSec + 59;
+  // Second bars drawn once they have landed; while loading or unavailable the minute chart
+  // stands in, cut at the last finished minute when the clock is inside a minute.
+  const secShown = sm.active && !sm.chart.reason && sm.chart.candles.length > 0;
+  const minuteCut = sm.midMinute ? playheadSec - 60 : playheadSec;
+  // Fills: the server gates them at the playhead, so in seconds mode ask at the second.
+  const fillsAt = sm.active && sm.playSec != null ? new Date(sm.playSec * 1000).toISOString() : playTs;
 
   // Same rule as a trade replay on minute bars: the playhead is the bar open.
   const fillsQ = useQuery({
-    queryKey: ["replay-day-fills", day, symbol, playTs],
-    queryFn: () => api.replayDayFills(day, playTs as string, symbol),
-    enabled: Boolean(q.data && playTs),
+    queryKey: ["replay-day-fills", day, symbol, fillsAt],
+    queryFn: () => api.replayDayFills(day, fillsAt as string, symbol),
+    enabled: Boolean(q.data && fillsAt),
     placeholderData: (prev) => prev,
   });
   const fills = useMemo(
-    () => (fillsQ.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= playheadSec + 59),
-    [fillsQ.data, playheadSec],
+    () => (fillsQ.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= lastSec),
+    [fillsQ.data, lastSec],
   );
   const trades = fillsQ.data?.trades ?? [];
 
@@ -84,7 +110,8 @@ export function DayReplay({ day }: { day: string }) {
     if (!full || !played || !lines) return null;
     let idx = -1;
     for (let i = 0; i < full.candles.length; i++) {
-      if (floorMinute(isoToUtcSeconds(full.candles[i].ts)) > playheadSec) break;
+      // Levels as of the last finished minute while the seconds clock is inside one.
+      if (floorMinute(isoToUtcSeconds(full.candles[i].ts)) > minuteCut) break;
       idx = i;
     }
     const ls = [...(ind.ema ? lines.emas : []), ...(ind.sma ? lines.smas : [])];
@@ -95,12 +122,16 @@ export function DayReplay({ day }: { day: string }) {
       levels: paneLevels(full, idx, ind),
       emas: ls.length > 0 ? ls : undefined,
     };
-  }, [full, played, lines, playheadSec, ind, day]);
+  }, [full, played, lines, minuteCut, ind, day]);
 
   const seekToFill = (f: { ts: string }) => {
     if (!played) return;
     const sec = Math.ceil(isoToUtcSeconds(f.ts));
     replay.pause();
+    if (sm.active) {
+      sm.clock.setPlaySec(sec);
+      return;
+    }
     const i = played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= sec);
     if (i >= 0) replay.setIndex(i);
   };
@@ -115,13 +146,13 @@ export function DayReplay({ day }: { day: string }) {
       <TradeReplayBar
         contract={`${symbol || "Day"} · ${count} trade${count === 1 ? "" : "s"}`}
         date={day}
-        clock={playTs ? formatClock(playTs) : null}
+        clock={sm.active && sm.playSec != null ? formatClockSeconds(sm.playSec) : playTs ? formatClock(playTs) : null}
         replay={replay}
         disabled={!ready}
         onExit={exit}
         speed={speed}
         onSpeedChange={setSpeed}
-        minuteTag={{ reason: "a day replay plays minute bars (second bars are per trade)" }}
+        minuteTag={sm.active ? null : { reason: "pick 5s, 15s or 30s under the chart to play second bars" }}
       />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">
@@ -142,14 +173,38 @@ export function DayReplay({ day }: { day: string }) {
               </Alert>
             </div>
           )}
+          {ready && sm.active && (sm.chart.loading || sm.chart.reason) && (
+            <div
+              className="absolute left-1/2 top-10 z-40 -translate-x-1/2 rounded-md border border-border bg-card/95 px-2 py-1 text-label text-muted-foreground"
+              data-testid="seconds-status"
+            >
+              {sm.chart.reason ? `No second bars here (${sm.chart.reason}). Showing 1m bars.` : "Loading second bars…"}
+            </div>
+          )}
           {ready && pane && win && (
             <div className="absolute inset-x-0 bottom-10 top-0">
               <PriceChart
                 top={null}
-                bottom={pane}
-                startSec={win.startSec}
-                endSec={win.endSec}
-                playheadSec={playheadSec}
+                bottom={
+                  secShown
+                    ? {
+                        ...pane,
+                        label: `${pane.label} · ${secRes}${sm.chart.sourceLabel ? ` from ${sm.chart.sourceLabel}` : ""}`,
+                        candles: sm.chart.candles,
+                      }
+                    : pane
+                }
+                startSec={secShown ? sm.chart.startSec : win.startSec}
+                endSec={secShown ? sm.chart.endSec : win.endSec}
+                playheadSec={secShown ? (sm.barOpenSec as number) : minuteCut}
+                barSec={secShown ? sm.resSec : 60}
+                revealSec={secShown ? (sm.playSec as number) : undefined}
+                playheadLabel={secShown && sm.playSec != null ? formatClockSecondsPt(sm.playSec) : undefined}
+                seconds={{
+                  value: secRes,
+                  onChange: (v) => setSecRes(v as SecondsRes | null),
+                  note: sm.chart.sourceLabel,
+                }}
                 mode={{ kind: "replay" }}
                 stopPrice={null}
                 fills={fills as ReplayFill[]}
