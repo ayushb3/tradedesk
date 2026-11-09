@@ -20,39 +20,60 @@ const UP_TINT = "hsl(var(--chart-up) / 0.15)";
 const DOWN_TINT = "hsl(var(--chart-down) / 0.15)";
 
 export interface PositionPillProps {
-  y: number;
-  qty: number;
-  pnl: number | null;
+  /** "+10", "-2". */
+  qtyText: string;
+  /** Open % at the playhead; null when there is no mark. Colors the pill (green up, orange down). */
+  pct: number | null;
+  /** "▲17.08%". */
+  pctText: string;
+  /** "+$12.50": shown in place of the % while hovered. */
   pnlText: string;
-  avgText: string;
-  left?: number;
-  /** Laid out by a parent row (no absolute positioning). */
-  inline?: boolean;
+  /** Hover title: the size and average. */
+  title: string;
+  /** An option position on its underlying's chart: "11/27 Call". */
+  tag?: string;
+  /** The ×: hide this pill on this chart. */
+  onHide?: () => void;
 }
 
-export function PositionPill({ y, qty, pnl, pnlText, avgText, left = 8, inline = false }: PositionPillProps) {
-  const tone =
-    pnl !== null && pnl > 0
-      ? "border-up/60 text-up"
-      : pnl !== null && pnl < 0
-        ? "border-down/60 text-down"
-        : "border-border bg-card text-muted-foreground";
-  const tint = pnl !== null && pnl > 0 ? solidTint(UP_TINT) : pnl !== null && pnl < 0 ? solidTint(DOWN_TINT) : undefined;
+/**
+ * Legend's compact position pill on the average-cost line, hugging the price scale:
+ * `+10 ▲17.08% ×`. Hover swaps the % for the dollar P&L.
+ */
+export function PositionPill({ qtyText, pct, pctText, pnlText, title, tag, onHide }: PositionPillProps) {
+  const [hover, setHover] = useState(false);
+  const up = pct !== null && pct > 0;
+  const down = pct !== null && pct < 0;
+  const tone = up ? "border-up/70 text-up" : down ? "border-down/70 text-down" : "border-border text-muted-foreground";
+  const tint = up ? solidTint(UP_TINT) : down ? solidTint(DOWN_TINT) : { backgroundColor: "hsl(var(--chart-bg))" };
   return (
     <div
       data-testid="position-pill"
-      title={avgText}
+      title={title}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       className={cn(
-        "pointer-events-none flex items-stretch overflow-hidden rounded border text-label",
-        !inline && "absolute -translate-y-1/2",
+        "num pointer-events-auto flex h-4 items-center gap-1 whitespace-nowrap rounded-sm border pl-1 text-[10px] leading-none",
+        !onHide && "pr-1",
         tone,
       )}
-      style={inline ? tint : { top: y, left, ...tint }}
+      style={tint}
     >
-      <span className="num bg-muted px-1.5 font-bold text-foreground">
-        {qty > 0 ? `+${qty}` : qty}
-      </span>
-      <span className="num px-1.5">{pnlText}</span>
+      <span className="font-bold text-foreground">{qtyText}</span>
+      {tag && <span className="text-foreground">{tag}</span>}
+      <span data-testid="position-pill-value">{hover ? pnlText : pctText}</span>
+      {onHide && (
+        <button
+          type="button"
+          aria-label="Hide this position pill"
+          title="Hide on this chart"
+          className="flex h-full items-center px-0.5 text-muted-foreground hover:text-foreground"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onHide}
+        >
+          <X className="h-2.5 w-2.5" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
@@ -155,8 +176,8 @@ export function FillTag({ x, y, side, text, details, placeAbove, sim }: FillTagP
     ? { color: "#3b82f6", borderColor: "#3b82f6", ...solidTint("#3b82f626") }
     : undefined;
   const placement: React.CSSProperties = placeAbove
-    ? { left: x, bottom: `calc(100% - ${y - 6}px)` }
-    : { left: x, top: y + 6 };
+    ? { left: x, bottom: `calc(100% - ${y - 4}px)` }
+    : { left: x, top: y + 4 };
   return (
     <button
       type="button"
@@ -168,7 +189,7 @@ export function FillTag({ x, y, side, text, details, placeAbove, sim }: FillTagP
       onFocus={() => setOpen(true)}
       onBlur={() => setOpen(false)}
       className={cn(
-        "num pointer-events-auto absolute -translate-x-1/2 rounded border bg-chart px-1 text-label",
+        "num pointer-events-auto absolute -translate-x-1/2 whitespace-nowrap rounded-sm border bg-chart px-[3px] text-[9px] leading-[12px]",
         tone,
       )}
       style={{ ...placement, ...simStyle }}

@@ -221,6 +221,8 @@ export interface LegendBar {
   /** close - previous close; null for the first bar in the window. */
   change: number | null;
   changePct: number | null;
+  /** The bar's volume, when the data carries it. */
+  volume?: number;
 }
 
 /**
@@ -228,7 +230,7 @@ export interface LegendBar {
  * Bars match on their open time, rounded to the minute like the rest of the chart.
  */
 export function legendBar(
-  candles: { ts: string; open: number; high: number; low: number; close: number }[],
+  candles: { ts: string; open: number; high: number; low: number; close: number; volume?: number }[],
   sec: number,
   playheadSec: number,
 ): LegendBar | null {
@@ -240,7 +242,7 @@ export function legendBar(
   const prev = i > 0 ? candles[i - 1].close : null;
   const change = prev == null ? null : c.close - prev;
   const changePct = prev ? (change as number) / prev * 100 : null;
-  return { open: c.open, high: c.high, low: c.low, close: c.close, change, changePct };
+  return { open: c.open, high: c.high, low: c.low, close: c.close, change, changePct, volume: c.volume };
 }
 
 /** "+0.12 (+1.05%)", "−0.40 (−2.10%)"; "" when there is no previous bar. */

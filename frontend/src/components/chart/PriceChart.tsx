@@ -11,7 +11,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronsRight, HelpCircle, Lock, LockOpen, Minus, Plus, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronsRight, HelpCircle, Lock, LockOpen, Minus, Plus, Search } from "lucide-react";
 
 import { api, type Candle, type ReplayFill } from "@/lib/api";
 import type { SimFill } from "@/lib/simPosition";
@@ -44,6 +44,7 @@ import {
 import {
   alignedCandles,
   buildTimeline,
+  floorMinute,
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
@@ -51,7 +52,8 @@ import { LEVEL_SLATE, lineLook, type LineStyleName } from "@/lib/chartColors";
 import { CHART_THEME } from "@/lib/chartTheme";
 import { FillTag, LinePill, PositionPill } from "@/components/chart/ChartPills";
 import { formatPnl } from "@/lib/positionAt";
-import { greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
+import { AFTER_EXIT_GREY, greyAfterExit, isZoomWheel, zoomRange } from "@/lib/reviewChart";
+import { closeAtOrBefore, formatVolume, pillPctText, pillQtyText, positionPct, volumeBars } from "@/lib/chartLook";
 import { bucketOf, INTERVALS, RANGES, rollUp, rollUpLine } from "@/lib/chartInterval";
 
 const THEME = CHART_THEME;
@@ -74,6 +76,16 @@ const LINE_STYLE: Record<LineStyleName, LineStyle> = {
   dots: LineStyle.SparseDotted,
 };
 const LEVEL_LABEL_GAP = 16;
+/** Volume sits in the bottom fifth of a pane, like Legend; the candles keep the rest. */
+const VOLUME_SHARE = 0.2;
+const VOL_PREF_KEY = "td.chart.volume";
+/** Volume bars are the candle colors, see-through so the candles above them stay the focus. */
+const VOL_UP = `${CHART_THEME.up}66`;
+const VOL_DOWN = `${CHART_THEME.down}66`;
+const VOL_GREY = `${AFTER_EXIT_GREY}55`;
+/** Arrows on a pane that only marks the trade (the underlying above an option): half see-through. */
+const FAINT = "80";
+const FAINT_SIZE = 0.6;
 /** How to use the chart, in the "?" tooltip (kept out of the header so the legend never clips). */
 const HELP_TEXT = "Drag to pan · Ctrl or Cmd + scroll to zoom · double-click to reset";
 const HELP_TEXT_TV = "Drag to pan · scroll to zoom · drag a line to move it · double-click to reset";
@@ -130,6 +142,11 @@ interface Props {
   positions?: ChartPosition[];
   /** The practice profit target (green); draggable when `onTargetChange` is given. */
   targetPrice?: number | null;
+  /**
+   * The option position's short name ("11/27 Call"). Given with a contract pane, the position
+   * also gets a pill on the underlying chart at its last price, the way Legend tags it.
+   */
+  positionTag?: string;
   /** Extra buttons in the contract pane's header (replay: Buy to open / Sell to close). */
   topActions?: React.ReactNode;
   /**
@@ -223,6 +240,10 @@ interface Layout {
   /** Contract pane, replay: one tag per fill drawn so far, at its bar and price. */
   fillTags: { key: string; x: number; y: number; side: "buy" | "sell"; sim: boolean; text: string; details: string[] }[];
   height: number;
+  /** Plot height above the time axis (the volume fifth sits at its bottom). */
+  plotH: number;
+  /** The y of the last drawn close (the underlying's option-position pill). */
+  lastY: number | null;
   levelYs: { label: string; price: number; y: number; color?: string }[];
   markYs: { key: string; label: string; y: number }[];
   /** Session high and low (of the bars drawn so far), tagged "H:" / "L:" at their candles. */
@@ -247,6 +268,8 @@ const EMPTY_LAYOUT: Layout = {
   posYs: [],
   fillTags: [],
   height: 0,
+  plotH: 0,
+  lastY: null,
   levelYs: [],
   markYs: [],
   chips: [],
@@ -277,6 +300,8 @@ interface PaneRuntime {
   series: ISeriesApi<"Candlestick">;
   vwap: ISeriesApi<"Line">;
   emas: ISeriesApi<"Line">[];
+  /** Volume histogram on its own hidden scale in the bottom fifth of the pane. */
+  volume: ISeriesApi<"Histogram">;
   levelLines: IPriceLine[];
 }
 
@@ -316,6 +341,7 @@ function PriceChartCore({
   stopAssumed = false,
   positions = NO_POSITIONS,
   targetPrice = null,
+  positionTag,
   onTargetChange,
   topActions,
   tradeOnBottom = false,
@@ -355,6 +381,29 @@ function PriceChartCore({
       return !v;
     });
   const stopPrice = showStop ? stopPriceProp : null;
+  // Volume on/off per pane, remembered per browser: "main" (the underlying or only pane) and
+  // "option" (the contract pane, where volume is lumpy, so it has its own switch).
+  const [volOn, setVolOn] = useState<{ top: boolean; bottom: boolean }>(() => {
+    const read = (k: string) => {
+      try {
+        return window.localStorage.getItem(`${VOL_PREF_KEY}.${k}`) !== "off";
+      } catch {
+        return true;
+      }
+    };
+    return { top: read("option"), bottom: read("main") };
+  });
+  const toggleVol = (which: "top" | "bottom") =>
+    setVolOn((v) => {
+      try {
+        window.localStorage.setItem(`${VOL_PREF_KEY}.${which === "top" ? "option" : "main"}`, v[which] ? "off" : "on");
+      } catch {
+        /* storage blocked: the toggle still works for this view */
+      }
+      return { ...v, [which]: !v[which] };
+    });
+  // Position pills hidden with their × (this chart only), keyed "pane:position".
+  const [hiddenPills, setHiddenPills] = useState<string[]>([]);
   const reviewExit = mode.kind === "review" ? mode.exitSec : null;
   const topEl = useRef<HTMLDivElement>(null);
   const bottomEl = useRef<HTMLDivElement>(null);
@@ -524,7 +573,14 @@ function PriceChartCore({
           autoscaleInfoProvider: () => null,
         }),
       );
-      return { chart, series, vwap, emas, levelLines: [] };
+      const volume = chart.addHistogramSeries({
+        priceScaleId: "vol",
+        priceFormat: { type: "volume" },
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 1 - VOLUME_SHARE, bottom: 0 }, visible: false });
+      return { chart, series, vwap, emas, volume, levelLines: [] };
     };
 
     const topPane = topEl.current ? make(topEl.current, "top", contractBelow) : null;
@@ -850,6 +906,16 @@ function PriceChartCore({
     const feed = (rt: PaneRuntime, spec: PaneSpec) => {
       const aligned = alignedCandles(timeline, spec.candles, playheadSec);
       rt.series.setData(!isReplay ? greyAfterExit(aligned, reviewExit) : aligned);
+      const volAt = new Map<number, number>();
+      for (const c of spec.candles) volAt.set(floorMinute(isoToUtcSeconds(c.ts)), c.volume); // keyed like alignedCandles
+      rt.volume.setData(
+        volumeBars(aligned as { time: number; open?: number; close?: number }[], (t) => volAt.get(t), {
+          up: VOL_UP,
+          down: VOL_DOWN,
+          grey: VOL_GREY,
+          greyAfterSec: isReplay ? null : reviewExit,
+        }) as { time: UTCTimestamp; value: number; color: string }[],
+      );
       const line = spec.vwap
         ? timeline
             .filter((t) => t <= playheadSec && spec.vwap!.has(t))
@@ -926,6 +992,27 @@ function PriceChartCore({
       rt.chart.priceScale("right").applyOptions({ autoScale });
     }
   }, [autoScale, hasTop, contractBelow]);
+
+  // ---- volume: the bottom fifth of each pane; collapsed, the candles take the whole height ----
+  useEffect(() => {
+    const p = panes.current;
+    if (!p) return;
+    for (const [rt, on] of [[p.top, volOn.top], [p.bottom, volOn.bottom]] as const) {
+      if (!rt) continue;
+      rt.volume.applyOptions({ visible: on });
+      rt.chart.priceScale("right").applyOptions({ scaleMargins: { top: 0, bottom: on ? VOLUME_SHARE + 0.02 : 0 } });
+    }
+    setLayoutTick((n) => n + 1);
+  }, [volOn, hasTop, contractBelow, bottomTrades]);
+
+  // A closed position's hidden pill comes back with the next position.
+  const posKeys = positions.map((ps) => ps.key).join("|");
+  useEffect(() => {
+    setHiddenPills((h) => {
+      const keep = h.filter((k) => posKeys.split("|").includes(k.slice(k.indexOf(":") + 1)));
+      return keep.length === h.length ? h : keep;
+    });
+  }, [posKeys]);
 
   // ---- replay crosshair: pinned to the latest candle unless the mouse is over the chart ----
   snapRef.current = () => {
@@ -1048,7 +1135,7 @@ function PriceChartCore({
   useEffect(() => {
     const p = panes.current;
     if (!p) return;
-    const realMarkers = (color: (f: ReplayFill) => string): SeriesMarker<UTCTimestamp>[] =>
+    const realMarkers = (color: (f: ReplayFill) => string, faint = false): SeriesMarker<UTCTimestamp>[] =>
       fills.flatMap((f) => {
         const time = onBar(isoToUtcSeconds(f.ts));
         if (time > playheadSec) return []; // second guard; replay gates fills server-side
@@ -1057,9 +1144,9 @@ function PriceChartCore({
           {
             time: time as UTCTimestamp,
             position: isBuy ? ("belowBar" as const) : ("aboveBar" as const),
-            color: color(f),
+            color: faint ? `${color(f)}${FAINT}` : color(f),
             shape: isBuy ? ("arrowUp" as const) : ("arrowDown" as const),
-            size: 1,
+            size: faint ? FAINT_SIZE : 1,
           },
         ];
       });
@@ -1080,7 +1167,7 @@ function PriceChartCore({
     });
     const byTime = (a: SeriesMarker<UTCTimestamp>, b: SeriesMarker<UTCTimestamp>) =>
       (a.time as number) - (b.time as number);
-    const extra = (spec: PaneSpec | null): SeriesMarker<UTCTimestamp>[] =>
+    const extra = (spec: PaneSpec | null, faint = false): SeriesMarker<UTCTimestamp>[] =>
       (spec?.markers ?? []).flatMap((m) => {
         if (m.sec > playheadSec) return [];
         const up = m.side === "buy";
@@ -1088,10 +1175,10 @@ function PriceChartCore({
           {
             time: m.sec as UTCTimestamp,
             position: m.side === "sell" ? ("aboveBar" as const) : m.side === "exit" ? ("aboveBar" as const) : ("belowBar" as const),
-            color: m.side === "exit" ? THEME.neutral : up ? THEME.up : THEME.down,
+            color: `${m.side === "exit" ? THEME.neutral : up ? THEME.up : THEME.down}${faint ? FAINT : ""}`,
             shape: m.side === "exit" ? ("square" as const) : up ? ("arrowUp" as const) : ("arrowDown" as const),
             text: m.text,
-            size: 1,
+            size: faint ? FAINT_SIZE : 1,
           },
         ];
       });
@@ -1125,8 +1212,10 @@ function PriceChartCore({
     );
     // With no contract pane the underlying is the trade pane and carries the fills like the top one.
     p.bottom.series.setMarkers(
+      // Real fills here are option fills marked on their underlying: small, see-through arrows
+      // beyond the wick, so the candles read through them.
       (!bottomTrades
-        ? [...realMarkers(side), ...extra(bottom), ...hiLo(bottom)]
+        ? [...realMarkers(side, true), ...extra(bottom, hasTop), ...hiLo(bottom)]
         : [...(tagged ? [] : [...realMarkers(side), ...sim]), ...extra(bottom), ...hiLo(bottom)]
       ).sort(byTime),
     );
@@ -1158,7 +1247,7 @@ function PriceChartCore({
         side: f.side,
         sim: true,
         text: `${f.side === "buy" ? "B" : "S"} ${f.qty}`,
-        details: [fillDetailText(f, ptClock(sec)), "Practice fill (TradeDesk only)"],
+        details: [fillDetailText(f, ptClockSec(isoToUtcSeconds(f.ts))), "Practice fill (TradeDesk only)"],
       }];
     });
     return [...real, ...practice];
@@ -1204,6 +1293,11 @@ function PriceChartCore({
         to: vr ? vr.to : null,
         width,
         height: (rt === p.top ? topEl.current : bottomEl.current)?.clientHeight ?? 0,
+        plotH: Math.max(0, h - (ts.options().visible ? ts.height() : 0)),
+        lastY: (() => {
+          const c = spec ? closeAtOrBefore(spec.candles, playheadSec) : null;
+          return c === null ? null : (rt.series.priceToCoordinate(c) as number | null);
+        })(),
         levelYs: (spec?.levelsOnAxis ? [] : (spec?.levels ?? [])).flatMap((lv) => {
           const y = rt.series.priceToCoordinate(lv.price) as number | null;
           return y === null ? [] : [{ label: lv.label, price: lv.price, y, color: lv.color }];
@@ -1240,6 +1334,8 @@ function PriceChartCore({
                   return tx === null || ty === null || tx < 0 || tx > width ? [] : [{ ...t, x: tx, y: ty }];
                 }),
                 (tradeEl?.clientHeight ?? Infinity) - rt.chart.timeScale().height(), // stay above the time axis
+                22,
+                13,
               )
             : [],
         chips: chipSources.flatMap((c) => {
@@ -1298,38 +1394,67 @@ function PriceChartCore({
     onPointerCancel: endDrag,
   });
   const topLayout = layouts[tradeKey];
+  // The traded instrument's last drawn close: the mark for the pills' % change.
+  const tradeSpec = bottomTrades ? bottom : top;
+  const tradeMark = tradeSpec ? closeAtOrBefore(tradeSpec.candles, playheadSec) : null;
+  // Legend tags an option position on its underlying's chart too ("+1 11/27 Call ▲x%"), at the
+  // underlying's last price.
+  const underlyingPills =
+    hasTop && !bottomTrades && positionTag && layouts.bottom.lastY !== null
+      ? positions
+          .filter((ps) => !hiddenPills.includes(`bottom:${ps.key}`))
+          .map((ps, i) => {
+            const pct = positionPct(ps.avg, tradeMark, ps.qty);
+            const y = Math.min(layouts.bottom.height - 10, Math.max(PILL_TOP_PX, (layouts.bottom.lastY as number) + i * 18));
+            return (
+              <div key={ps.key} className="absolute -translate-y-1/2" style={{ top: y, right: 2 }} data-testid="underlying-position-pill">
+                <PositionPill
+                  qtyText={pillQtyText(ps.qty)}
+                  tag={positionTag}
+                  pct={pct}
+                  pctText={pillPctText(pct)}
+                  pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
+                  title={`${ps.kind === "sim" ? "Practice" : "Your"} ${positionTag}: ${ps.qty} @ ${ps.avg.toFixed(2)} avg${ps.pnl === null ? "" : ` · ${formatPnl(ps.pnl)}`}`}
+                  onHide={() => setHiddenPills((h) => [...h, `bottom:${ps.key}`])}
+                />
+              </div>
+            );
+          })
+      : null;
   const tradeOverlay = (
     <>
       {(() => {
-        // One row per position: the pill, then "+ Target" beside the practice one. Rows closer
-        // than a pill's height are nudged apart so two positions never overlap.
+        // One row per position on the right, hugging the price scale (Legend): "+ Target" beside
+        // the practice pill, then the pill. Rows closer than a pill's height are nudged apart.
         const rows = positions
           .flatMap((ps) => {
             const y = topLayout.posYs.find((v) => v.key === ps.key)?.y;
             return y === undefined ? [] : [{ ps, y: Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, y)) }];
           })
           .sort((a, b) => a.y - b.y);
-        for (let i = 1; i < rows.length; i++) rows[i].y = Math.max(rows[i].y, rows[i - 1].y + 20);
+        for (let i = 1; i < rows.length; i++) rows[i].y = Math.max(rows[i].y, rows[i - 1].y + 18);
+        // The stop and target pills share the right edge: step a row off them when they meet.
+        const lines = [
+          stopPrice != null && onStopChange ? topLayout.stopY : null,
+          targetPrice != null && onTargetChange ? topLayout.targetY : null,
+        ].filter((v): v is number => v !== null);
+        for (const r of rows) {
+          for (const ly of lines) if (Math.abs(r.y - ly) < 17) r.y = r.y <= ly ? ly - 17 : ly + 17;
+          r.y = Math.min(topLayout.height - 10, Math.max(PILL_TOP_PX, r.y));
+        }
         return rows.map(({ ps, y }) => {
           const risk = ps.riskPerShare;
           const suggested =
             ps.kind === "sim" && targetPrice == null && onTargetChange && risk != null && risk > 0
               ? Math.round((ps.avg + 2 * risk) * 100) / 100
               : null;
+          const pct = positionPct(ps.avg, tradeMark, ps.qty);
           return (
-            <div key={ps.key} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ top: y, left: 44 }}>
-              <PositionPill
-                y={0}
-                qty={ps.qty}
-                pnl={ps.pnl}
-                pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
-                avgText={`${ps.kind === "sim" ? "Practice" : "Your"} position: ${ps.qty} @ ${ps.avg.toFixed(2)} avg`}
-                inline
-              />
+            <div key={ps.key} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ top: y, right: 2 }}>
               {suggested !== null && (
                 <button
                   type="button"
-                  className="pointer-events-auto rounded border border-up/60 bg-chart px-1.5 text-label text-up hover:bg-up/15"
+                  className="pointer-events-auto rounded-sm border border-up/60 bg-chart px-1 text-[10px] leading-[14px] text-up hover:bg-up/15"
                   onClick={() => onTargetChange?.(suggested, true)}
                   title={`Set a practice target at ${suggested.toFixed(2)} (2R off the risk at your first buy); drag it to move`}
                   data-testid="add-target"
@@ -1337,6 +1462,14 @@ function PriceChartCore({
                   + Target
                 </button>
               )}
+              {!hiddenPills.includes(`${tradeKey}:${ps.key}`) && <PositionPill
+                qtyText={pillQtyText(ps.qty)}
+                pct={pct}
+                pctText={pillPctText(pct)}
+                pnlText={ps.pnl === null ? "—" : formatPnl(ps.pnl)}
+                title={`${ps.kind === "sim" ? "Practice" : "Your"} position: ${ps.qty} @ ${ps.avg.toFixed(2)} avg${ps.pnl === null ? "" : ` · ${formatPnl(ps.pnl)}`}`}
+                onHide={() => setHiddenPills((h) => [...h, `${tradeKey}:${ps.key}`])}
+              />}
             </div>
           );
         });
@@ -1562,6 +1695,7 @@ function PriceChartCore({
           details={fillLabels === "arrows" ? [] : detailFor("top", shown)}
           detailsAsBox={fillLabels === "arrows"}
           noData={noDataFor(top)}
+          volume={{ on: volOn.top, onToggle: () => toggleVol("top"), what: "option" }}
           controls={
             topActions ? (
               <>
@@ -1594,7 +1728,10 @@ function PriceChartCore({
         tickTop={!top}
         overlay={
           !bottomTrades ? (
-            markHandles
+            <>
+              {underlyingPills}
+              {markHandles}
+            </>
           ) : (
             <>
               {tradeOverlay}
@@ -1606,6 +1743,7 @@ function PriceChartCore({
         details={bottomTrades && fillLabels === "arrows" ? [] : detailFor("bottom", shown)}
         detailsAsBox={fillLabels === "arrows"}
         noData={noDataFor(bottom)}
+        volume={{ on: volOn.bottom, onToggle: () => toggleVol("bottom"), what: "main" }}
         controls={zoomNode}
         quoteAt={bottom.quoteSymbol ? quoteAt : null}
         barSec={barSec}
@@ -1786,7 +1924,10 @@ function Pane({
   lastOnly = false,
   quoteAt = null,
   barSec = 60,
+  volume,
 }: {
+  /** The volume fifth: on/off (the collapse arrow) for this pane. */
+  volume?: { on: boolean; onToggle: () => void; what: "main" | "option" };
   /** "1m", shown after the symbol in the legend. */
   timeframe: string;
   /** Read the bid/ask (spec.quoteSymbol) at this second; null: no quote line. */
@@ -1835,6 +1976,8 @@ function Pane({
     [layout.chips, width],
   );
   const lanes = Math.max(1, ...placed.map((p) => p.lane + 1));
+  // An estimated premium (no prints) has no volume: no label for an empty pane.
+  const hasVolume = useMemo(() => spec.candles.some((c) => c.volume > 0), [spec.candles]);
   return (
     <div
       className={`flex min-h-0 flex-col ${className}`}
@@ -1967,6 +2110,22 @@ function Pane({
             </span>
           )}
         </div>
+        {/* Volume label with its collapse arrow, at the top of the volume fifth (or the bottom
+            of the plot while collapsed). */}
+        {volume && hasVolume && layout.plotH > 0 && (
+          <button
+            type="button"
+            aria-expanded={volume.on}
+            onClick={volume.onToggle}
+            className="num absolute left-9 z-10 flex items-center gap-0.5 rounded-sm px-0.5 text-[10px] leading-[14px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            style={{ top: volume.on ? Math.round(layout.plotH * (1 - VOLUME_SHARE)) + 1 : layout.plotH - 16 }}
+            title={volume.on ? "Collapse volume" : "Show volume"}
+            data-testid={`volume-toggle-${volume.what}`}
+          >
+            {volume.on ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Volume
+          </button>
+        )}
         {/* Interactive pieces (pills, tags, drag handles) sit above the chart canvas. */}
         {overlay && (
           <div className="pointer-events-none absolute inset-y-0 left-0 z-10" style={{ width: layout.width }}>
@@ -1986,6 +2145,9 @@ function Pane({
                 <span><span className="text-foreground">H </span>{bar.high.toFixed(2)}</span>
                 <span><span className="text-foreground">L </span>{bar.low.toFixed(2)}</span>
                 <span><span className="text-foreground">C </span>{bar.close.toFixed(2)}</span>
+                {hasVolume && (
+                  <span data-testid="legend-volume"><span className="text-foreground">V </span>{formatVolume(bar.volume)}</span>
+                )}
                 {bar.change != null && <span>{formatChange(bar)}</span>}
               </span>
             ) : (
