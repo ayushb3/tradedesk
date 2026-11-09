@@ -1,3 +1,4 @@
+import { optionTagFromLabel } from "@/lib/chartLook";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -989,6 +990,7 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
                 contractBelow
                 fillLabels="arrows"
                 topActions={orderButtons}
+                positionTag={optionTagFromLabel(tradeContract) ?? undefined}
               />
             </div>
           )}
@@ -1208,6 +1210,7 @@ function FreeReplayChart({
         fills={NO_FILLS}
         fillLabels="arrows"
         topActions={trade.actions}
+        positionTag={contract ? (optionTagFromLabel(contract.label) ?? undefined) : undefined}
         mainPane="bottom"
         contractBelow
         interval={interval}
