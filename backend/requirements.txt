@@ -20,3 +20,4 @@ mcp==1.12.4
 pytest==8.3.4
 httpx==0.28.1
 PyYAML==6.0.2
+tzdata==2026.6  # Windows has no system time-zone database; zoneinfo needs this

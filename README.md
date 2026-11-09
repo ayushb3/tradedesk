@@ -26,6 +26,17 @@ Open **http://localhost:5173**, go to **Journal → Import fills**, or **Replay*
 make test        # backend pytest suite
 ```
 
+**Windows (no `make`):**
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app.main:app --reload --port 9000
+```
+
+Run the server from this venv, not the system Python: Windows has no time-zone database, and `tzdata` (in `requirements.txt`) supplies it. Tests assume mock mode; if your `.env` sets `TRADEDESK_MARKET_DATA=alpaca`, run them with `TRADEDESK_MARKET_DATA=mock`.
+
 ### Access from your phone (Cloudflare tunnel)
 
 To open the app on a phone (or any device off your machine) — handy for verifying
