@@ -62,6 +62,7 @@ import type { SecondsRes } from "@/lib/secondsChart";
 import { useSecondsMode } from "@/lib/useSecondsMode";
 import { useReplaySkip } from "@/lib/useReplaySkip";
 import { clampSkipSec, sizeLabel, skipIndex } from "@/lib/replaySkip";
+import { isPracticeDate } from "@/lib/groupReview";
 import {
   ruleCloseFill,
   sessionRealized,
@@ -157,8 +158,16 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
     setSpeedState(s);
     saveSpeed(s);
   };
-  const [symbol, setSymbol] = useState<string>(FREE_SYMBOL);
-  const [date, setDate] = useState<string>(previousWeekday);
+  // Practice (?mode=symbol&date=...&symbol=...) opens on that day and ticker.
+  const [initParams] = useSearchParams();
+  const [symbol, setSymbol] = useState<string>(() => {
+    const s = embed ? null : initParams.get("symbol")?.trim().toUpperCase();
+    return s && /^[A-Z.]{1,8}$/.test(s) ? s : FREE_SYMBOL;
+  });
+  const [date, setDate] = useState<string>(() => {
+    const d = embed ? null : initParams.get("date");
+    return isPracticeDate(d) ? d : previousWeekday();
+  });
   const [stackInd, setStackInd] = useState<StackIndicators>(
     DEFAULT_STACK_INDICATORS,
   );
@@ -1015,9 +1024,9 @@ function TradeOrFreeReplay({ embed }: { embed?: Embed } = {}) {
               <button
                 type="button"
                 className="text-label text-muted-foreground underline-offset-4 hover:underline"
-                onClick={() => navigate("/days")}
+                onClick={() => navigate(from ?? "/days")}
               >
-                Back to Days
+                {from?.startsWith("/days/") ? "Back to the day" : "Back to Days"}
               </button>
             }
           />

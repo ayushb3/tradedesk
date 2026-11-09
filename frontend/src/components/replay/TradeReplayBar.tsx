@@ -51,7 +51,7 @@ export function TradeReplayBar({
   /** Set when a sub-60x speed is playing minute bars (with the reason). */
   minuteTag?: { reason: string } | null;
   /** Previous / next trade (same day in time order, then the adjacent day). */
-  nav?: { onPrev: (() => void) | null; onNext: (() => void) | null };
+  nav?: { onPrev: (() => void) | null; onNext: (() => void) | null; prevLabel?: string; nextLabel?: string };
   /** The collapsed rule bar (day so far, cutoff, call source). */
   daySoFar?: React.ReactNode;
 }) {
@@ -65,8 +65,9 @@ export function TradeReplayBar({
             className="h-7 w-7"
             disabled={!nav.onPrev}
             onClick={nav.onPrev ?? undefined}
-            aria-label="Previous trade"
-            title="Previous trade"
+            aria-label={nav.prevLabel ?? "Previous trade"}
+            title={nav.prevLabel ?? "Previous trade"}
+            data-testid="nav-prev"
           >
             <ChevronLeft />
           </Button>
@@ -79,8 +80,9 @@ export function TradeReplayBar({
             className="h-7 w-7"
             disabled={!nav.onNext}
             onClick={nav.onNext ?? undefined}
-            aria-label="Next trade"
-            title="Next trade"
+            aria-label={nav.nextLabel ?? "Next trade"}
+            title={nav.nextLabel ?? "Next trade"}
+            data-testid="nav-next"
           >
             <ChevronRight />
           </Button>

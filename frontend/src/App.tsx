@@ -5,6 +5,7 @@ import { ReplayPage } from "@/pages/ReplayPage";
 import { JournalPage } from "@/pages/JournalPage";
 import { RulesSettingsPage } from "@/pages/RulesSettingsPage";
 import { lastTradingDay } from "@/lib/daysHome";
+import { practiceHref } from "@/lib/groupReview";
 import { trainingRedirect } from "@/lib/learnRoutes";
 import { useDeskDays } from "@/lib/queries";
 // M7a — Trade Review page (share trades) + calendar day drill-in.
@@ -64,6 +65,17 @@ function DailyReviewRedirect() {
 }
 
 /**
+ * Practice (top bar): free replay on the last trading day, at the money. Waits for the day
+ * list; with no trades yet the player picks the previous weekday itself.
+ */
+function PracticeRedirect() {
+  const days = useDeskDays();
+  if (days.isLoading) return null;
+  const last = lastTradingDay(days.data?.days ?? []);
+  return <Navigate to={last ? practiceHref(last) : "/replay?mode=symbol"} replace />;
+}
+
+/**
  * Redirect for the retired /journal URLs: the calendar is /days and a day is /days/:date
  * ("journal" read as the whole app). Keeps old links, query string included, working.
  */
@@ -82,6 +94,7 @@ export function App() {
             bare /replay redirects to the Days calendar. */}
         <Route path="/replay" element={<ReplayPage />} />
         <Route path="/days" element={<JournalPage />} />
+        <Route path="/practice" element={<PracticeRedirect />} />
         {/* M7a — day drill-in + per-trade review (share trades) */}
         <Route path="/days/:date" element={<JournalDayPage />} />
         {/* The calendar used to live at /journal; old links redirect. */}

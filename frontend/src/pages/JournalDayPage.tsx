@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Dumbbell, Play } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { DayCallouts } from "@/components/days/DayCallouts";
 import { DayJournal } from "@/components/days/DayJournal";
 import { DayPlans } from "@/components/days/DayPlans";
+import { SessionChips } from "@/components/days/SessionChips";
 import { SessionStrip } from "@/components/days/SessionStrip";
 import { TradeRows } from "@/components/days/TradeRows";
 import { VerdictBand } from "@/components/days/VerdictBand";
@@ -17,6 +18,7 @@ import { ApiErrorState, EmptyState } from "@/components/journal/ApiStates";
 import { ApiError, type DeskPosition } from "@/lib/api";
 import { dayNavKey, dayVerdict, isTypingTarget, replayDayHref, tradeRows } from "@/lib/dayPage";
 import { adjacentTradingDay, tradingDays } from "@/lib/daysHome";
+import { practiceHref, practiceSymbol } from "@/lib/groupReview";
 import { formatDayMonth } from "@/lib/format";
 import { useDailyReview, useDayCallouts, useDeskDay, useDeskDays } from "@/lib/queries";
 
@@ -127,15 +129,23 @@ export function JournalDayPage() {
         )}
 
         {validDate && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto gap-1.5"
-            onClick={() => navigate(replayDayHref(date))}
-          >
-            <Play className="h-4 w-4" />
-            Replay day
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => navigate(practiceHref(date, practiceSymbol(positions), `/days/${date}`))}
+              title="Practice this day: free replay at the money, practice orders only"
+              data-testid="practice-day"
+            >
+              <Dumbbell className="h-4 w-4" />
+              Practice
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate(replayDayHref(date))}>
+              <Play className="h-4 w-4" />
+              Replay day
+            </Button>
+          </div>
         )}
       </header>
 
@@ -161,6 +171,7 @@ export function JournalDayPage() {
               <VerdictBand verdict={dayVerdict(day)} />
               <DayPlans plans={day.plans ?? []} notTaken={day.plans_not_taken ?? 0} />
               <SessionStrip date={date} positions={positions} />
+              <SessionChips date={date} positions={positions} />
               <CollapsibleSection
                 id="day.trades"
                 title="Trades"

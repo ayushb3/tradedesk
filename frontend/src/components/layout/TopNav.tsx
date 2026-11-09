@@ -1,16 +1,18 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { BookOpen, CalendarDays, CandlestickChart, Settings } from "lucide-react";
+import { BookOpen, CalendarDays, CandlestickChart, Dumbbell, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 /**
  * Slim top bar: the app name, the two jobs as tabs (review a day, learn) and the rules
- * gear. Replay is an action on a trade or a day, so the player (/replay?…) keeps Days lit.
+ * gear. Replay is an action on a trade or a day, so the player (/replay?…) keeps Days lit;
+ * Practice (free replay, /replay?mode=symbol) lights its own tab.
  * `prefixes` keeps a tab lit on its sub-pages. Fits on one line at phone width: the name
  * and the gear's label drop below `sm`.
  */
 const NAV_ITEMS = [
   { to: "/days", label: "Days", icon: CalendarDays, prefixes: ["/days", "/trades", "/replay"] },
+  { to: "/practice", label: "Practice", icon: Dumbbell, prefixes: ["/practice"] },
   { to: "/learn", label: "Learn", icon: BookOpen, prefixes: ["/learn", "/knowledge"] },
 ] as const;
 
@@ -21,8 +23,9 @@ const isOn = (pathname: string, prefixes: readonly string[]) =>
   prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export function TopNav() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const onRules = pathname.startsWith("/settings");
+  const practising = pathname === "/replay" && new URLSearchParams(search).get("mode") === "symbol";
   return (
     <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-2 sm:gap-3 sm:px-4">
       <NavLink
@@ -36,7 +39,7 @@ export function TopNav() {
 
       <nav aria-label="Main" className="flex min-w-0 items-center gap-1">
         {NAV_ITEMS.map(({ to, label, icon: Icon, prefixes }) => {
-          const active = isOn(pathname, prefixes);
+          const active = to === "/practice" ? practising || isOn(pathname, prefixes) : !practising && isOn(pathname, prefixes);
           return (
             <NavLink
               key={to}
