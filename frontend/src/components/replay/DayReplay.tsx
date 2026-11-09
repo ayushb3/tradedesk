@@ -10,13 +10,21 @@ import { FillsList } from "@/components/replay/FillsList";
 import { TradeReplayBar, TradeScrubber } from "@/components/replay/TradeReplayBar";
 import { api, ApiError, type ReplayFill, type ReplaySession } from "@/lib/api";
 import { isoToUtcSeconds } from "@/lib/chart";
-import { formatClock } from "@/lib/format";
+import { formatClock, formatPnl } from "@/lib/format";
 import { emaLines, paneLevels, smaLines, vwapMap } from "@/lib/indicatorLines";
 import { exitTarget, rthWindow, safeFrom, tradeReplayHref } from "@/lib/replayNav";
 import { loadSpeed, saveSpeed } from "@/lib/replaySpeed";
 import { candlesInWindow, floorMinute, spyPaneLabel } from "@/lib/stackedReplay";
 import { DEFAULT_STACK_INDICATORS, type StackIndicators } from "@/lib/stackIndicators";
 import { useReplay } from "@/lib/useReplay";
+import {
+  adjacentEntry,
+  groupEntries,
+  groupPnl,
+  groupWindow,
+  parseTradeIds,
+} from "@/lib/groupReview";
+import { useDeskDay } from "@/lib/queries";
 import { formatClockSeconds, formatClockSecondsPt } from "@/lib/secondsReplay";
 import { clampSkipSec, skipIndex } from "@/lib/replaySkip";
 import { useReplaySkip } from "@/lib/useReplaySkip";
@@ -34,6 +42,10 @@ export function DayReplay({ day }: { day: string }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const symbolParam = params.get("symbol");
+  // Group review (?trades=1,2,3): only these trades, from 5 min before the first entry to
+  // 10 min after the last exit, with one combined P&L (lib/groupReview).
+  const pickedIds = useMemo(() => parseTradeIds(params.get("trades")), [params]);
+  const deskDay = useDeskDay(pickedIds ? day : null);
   const from = safeFrom(params.get("from"));
   const [speed, setSpeedState] = useState<number>(() => loadSpeed());
   const setSpeed = (s: number) => {
@@ -50,11 +62,34 @@ export function DayReplay({ day }: { day: string }) {
   });
   const full = q.data?.session;
   const symbol = q.data?.symbol ?? symbolParam ?? "";
-
-  const win = useMemo(
-    () => (full ? rthWindow(full.candles.map((c) => floorMinute(isoToUtcSeconds(c.ts)))) : null),
-    [full],
+  // The chart plays one underlying: the group is the picked trades on it (the rest are
+  // on the other underlyings' tabs).
+  const groupPositions = useMemo(
+    () =>
+      pickedIds
+        ? (deskDay.data?.positions ?? []).filter(
+            (p) => pickedIds.includes(p.trade_id) && p.ticker.toUpperCase() === symbol.toUpperCase(),
+          )
+        : [],
+    [pickedIds, deskDay.data, symbol],
   );
+  const groupIds = useMemo(
+    () => (pickedIds ? groupPositions.map((p) => p.trade_id) : null),
+    [pickedIds, groupPositions],
+  );
+  const otherTickers = pickedIds ? pickedIds.length - (groupIds?.length ?? 0) : 0;
+
+  const win = useMemo(() => {
+    if (!full) return null;
+    const bars = full.candles.map((c) => floorMinute(isoToUtcSeconds(c.ts)));
+    if (!pickedIds || !groupIds) return rthWindow(bars);
+    // A group waits for its trades' times; then the window is cut to the session's bars.
+    const g = groupWindow(groupPositions, groupIds);
+    if (!g || bars.length === 0) return null;
+    const startSec = Math.max(g.startSec, bars[0]);
+    const endSec = Math.min(g.endSec, bars[bars.length - 1]);
+    return endSec > startSec ? { startSec, endSec } : null;
+  }, [full, pickedIds, groupIds, groupPositions]);
   // The engine plays the window's bars; indicators stay on the full session (causal maps).
   const played: ReplaySession | undefined = useMemo(
     () =>
@@ -106,11 +141,12 @@ export function DayReplay({ day }: { day: string }) {
     enabled: Boolean(q.data && fillsAt),
     placeholderData: (prev) => prev,
   });
+  const inGroup = useCallback((id: number) => !groupIds || groupIds.includes(id), [groupIds]);
   const fills = useMemo(
-    () => (fillsQ.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= lastSec),
-    [fillsQ.data, lastSec],
+    () => (fillsQ.data?.fills ?? []).filter((f) => isoToUtcSeconds(f.ts) <= lastSec && inGroup(f.trade_id)),
+    [fillsQ.data, lastSec, inGroup],
   );
-  const trades = fillsQ.data?.trades ?? [];
+  const trades = (fillsQ.data?.trades ?? []).filter((t) => inGroup(t.trade_id));
 
   const pane: PaneSpec | null = useMemo(() => {
     if (!full || !played || !lines) return null;
@@ -166,12 +202,55 @@ export function DayReplay({ day }: { day: string }) {
   const here = `/replay?${params.toString()}`;
   const exit = () => navigate(exitTarget(from, null) ?? `/days/${day}`);
   const ready = !q.isLoading && !q.isError && played !== undefined && replay.total > 0;
-  const count = q.data?.trade_count ?? 0;
+  const count = groupIds ? groupIds.length : (q.data?.trade_count ?? 0);
+
+  // Group: one combined P&L (closed trades only, as of the playhead) and Next/Prev entry.
+  const gPnl = groupIds ? groupPnl(groupPositions, groupIds, lastSec) : null;
+  const entries = useMemo(() => (groupIds ? groupEntries(groupPositions, groupIds) : []), [groupIds, groupPositions]);
+  const seekToSec = (sec: number) => {
+    if (!played) return;
+    replay.pause();
+    if (sm.active) {
+      sm.clock.setPlaySec(sec);
+      return;
+    }
+    const i = played.candles.findIndex((c) => isoToUtcSeconds(c.ts) >= floorMinute(sec));
+    if (i >= 0) replay.setIndex(i);
+  };
+  const prevEntry = adjacentEntry(entries, lastSec, -1);
+  const nextEntry = adjacentEntry(entries, lastSec, 1);
 
   return (
     <div className="flex h-full flex-col">
       <TradeReplayBar
-        contract={`${symbol || "Day"} · ${count} trade${count === 1 ? "" : "s"}`}
+        contract={`${symbol || "Day"} · ${groupIds ? "group of " : ""}${count} trade${count === 1 ? "" : "s"}`}
+        nav={
+          groupIds
+            ? {
+                onPrev: ready && prevEntry != null ? () => seekToSec(prevEntry) : null,
+                onNext: ready && nextEntry != null ? () => seekToSec(nextEntry) : null,
+                prevLabel: "Previous entry in the group",
+                nextLabel: "Next entry in the group",
+              }
+            : undefined
+        }
+        daySoFar={
+          gPnl ? (
+            <span
+              className="num text-label text-muted-foreground"
+              title={`The group's P&L from the trades closed so far (results show only once played)${
+                otherTickers > 0 ? `. ${otherTickers} picked trade${otherTickers === 1 ? " is" : "s are"} on another underlying.` : ""
+              }`}
+              data-testid="group-pnl"
+            >
+              Group{" "}
+              <span className={gPnl.closed === 0 ? "" : gPnl.pnl >= 0 ? "text-gain" : "text-loss"}>
+                {gPnl.closed === 0 ? "--" : formatPnl(gPnl.pnl)}
+              </span>{" "}
+              · {gPnl.closed} of {gPnl.total} closed
+            </span>
+          ) : undefined
+        }
         date={day}
         clock={sm.active && sm.playSec != null ? formatClockSeconds(sm.playSec) : playTs ? formatClock(playTs) : null}
         replay={transport}
@@ -198,6 +277,11 @@ export function DayReplay({ day }: { day: string }) {
                   {q.error instanceof ApiError ? q.error.detail || q.error.message : "Something went wrong."}
                 </AlertDescription>
               </Alert>
+            </div>
+          )}
+          {pickedIds && full && deskDay.isSuccess && !win && (
+            <div className="absolute inset-0 flex items-center justify-center p-6 text-body text-muted-foreground" data-testid="group-empty">
+              None of those trades are on this day&apos;s {symbol} chart.
             </div>
           )}
           {ready && sm.active && (sm.chart.loading || sm.chart.reason) && (
