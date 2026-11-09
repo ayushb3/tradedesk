@@ -233,9 +233,13 @@ export function legendBar(
   candles: { ts: string; open: number; high: number; low: number; close: number; volume?: number }[],
   sec: number,
   playheadSec: number,
+  barSec = 60,
 ): LegendBar | null {
   if (sec > playheadSec) return null;
-  const key = (ts: string) => Math.floor(Date.parse(ts) / 60_000) * 60;
+  const key = (ts: string) => {
+    const t = Math.floor(Date.parse(ts) / 1000);
+    return barSec < 60 ? Math.floor(t / barSec) * barSec : Math.floor(t / 60) * 60;
+  };
   const i = candles.findIndex((c) => key(c.ts) === sec);
   if (i < 0) return null;
   const c = candles[i];

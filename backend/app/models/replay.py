@@ -156,6 +156,22 @@ class ReplaySecondsResponse(BaseModel):
     source_label: str | None = None  # e.g. "SPY (proxy)" when the underlying is a stand-in
 
 
+class ReplaySecondsWindowResponse(BaseModel):
+    """Second bars (real share volume) for any symbol over a short window, for day
+    replay / free replay / group review. Not tied to a trade. With `playhead` set,
+    only bars whose last second is at or before it are sent."""
+
+    available: bool
+    reason: str | None = None
+    symbol: str                      # as requested (uppercased)
+    res: str = "1s"                  # "1s" | "5s" | "15s" | "30s"
+    start: UtcDatetime
+    end: UtcDatetime
+    playhead: UtcDatetime | None = None
+    source_label: str | None = None  # "SPY (proxy)" for index roots
+    candles: list[Candle] = Field(default_factory=list)
+
+
 class DaySoFarResponse(BaseModel):
     """The replayed day as it stood BEFORE this trade's entry, for the rule bar.
 

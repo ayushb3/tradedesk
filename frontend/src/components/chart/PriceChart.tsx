@@ -44,7 +44,7 @@ import {
 import {
   alignedCandles,
   buildTimeline,
-  floorMinute,
+  barKey,
   revealedFillTime,
   spreadLabels,
 } from "@/lib/stackedReplay";
@@ -214,6 +214,13 @@ interface Props {
    * the buttons in `options` are enabled and pick that size; nothing is rolled up here.
    */
   interval?: { value: string; options: readonly string[]; onChange: (label: string) => void };
+  /**
+   * A chart that can draw second bars (day replay, free replay): the 5s/15s/30s buttons call
+   * `onChange` with that label, a minute interval calls it with null. While a seconds interval
+   * is on, the caller passes the second bars itself (`barSec` < 60). `note` says where the
+   * seconds come from (e.g. the SPY proxy); `why` greys the buttons out with its reason.
+   */
+  seconds?: { value: string | null; onChange: (label: string | null) => void; note?: string | null; why?: string | null };
 }
 
 export interface ChartPosition {
@@ -903,11 +910,15 @@ function PriceChartCore({
   useEffect(() => {
     const p = panes.current;
     if (!p) return;
+    // Lines (VWAP, EMAs) are minute values, final at the minute's close. On a seconds grid a
+    // minute's point waits for its last second (`revealSec`), or it would show up to 59 s early.
+    const lineSeen = (t: number) =>
+      t <= playheadSec && (barSec >= 60 || revealSec == null || (t % 60 === 0 ? t + 59 : t) <= revealSec);
     const feed = (rt: PaneRuntime, spec: PaneSpec) => {
-      const aligned = alignedCandles(timeline, spec.candles, playheadSec);
+      const aligned = alignedCandles(timeline, spec.candles, playheadSec, barSec);
       rt.series.setData(!isReplay ? greyAfterExit(aligned, reviewExit) : aligned);
       const volAt = new Map<number, number>();
-      for (const c of spec.candles) volAt.set(floorMinute(isoToUtcSeconds(c.ts)), c.volume); // keyed like alignedCandles
+      for (const c of spec.candles) volAt.set(barKey(isoToUtcSeconds(c.ts), barSec), c.volume); // keyed like alignedCandles
       rt.volume.setData(
         volumeBars(aligned as { time: number; open?: number; close?: number }[], (t) => volAt.get(t), {
           up: VOL_UP,
@@ -918,7 +929,7 @@ function PriceChartCore({
       );
       const line = spec.vwap
         ? timeline
-            .filter((t) => t <= playheadSec && spec.vwap!.has(t))
+            .filter((t) => lineSeen(t) && spec.vwap!.has(t))
             .map((t) => ({ time: t, value: spec.vwap!.get(t) as number }))
         : [];
       rt.vwap.setData(line);
@@ -935,7 +946,7 @@ function PriceChartCore({
         s.setData(
           e
             ? timeline
-                .filter((t) => t <= playheadSec && e.values.has(t))
+                .filter((t) => lineSeen(t) && e.values.has(t))
                 .map((t) => ({ time: t, value: e.values.get(t) as number }))
             : [],
         );
@@ -978,7 +989,7 @@ function PriceChartCore({
     // right after setData can land against the old points; set it again once it has settled.
     const id = requestAnimationFrame(() => refitRef.current?.());
     return () => cancelAnimationFrame(id);
-  }, [timeline, top, bottom, playheadSec, hasTop, isReplay, reviewExit, windowKey]);
+  }, [timeline, top, bottom, playheadSec, hasTop, isReplay, reviewExit, windowKey, revealSec, barSec]);
 
   // ---- auto-scale lock: on, the price axis fits the visible bars; off, drag the price axis ----
   useEffect(() => {
@@ -1762,12 +1773,15 @@ export function PriceChart({ footer = true, ...props }: Props) {
   const [autoScale, setAutoScale] = useState(true);
   const baseBar = props.barSec ?? 60;
   const ctl = props.interval;
-  const canRollUp = baseBar === 60 && !ctl;
+  const sec = props.seconds;
+  const secOn = sec?.value != null;
+  // In seconds mode the caller passes second bars; the minute buttons still roll up minute bars.
+  const canRollUp = (baseBar === 60 || secOn) && !ctl;
   const eff = useMemo(
-    () => (canRollUp && tfMin > 1 ? withInterval(props, tfMin * 60) : props),
+    () => (canRollUp && !secOn && tfMin > 1 ? withInterval(props, tfMin * 60) : props),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // Primitive deps: callers pass `mode` / `defaultView` as fresh objects every render.
-    [canRollUp, tfMin, props.top, props.bottom, props.startSec, props.endSec, props.playheadSec, props.mode.kind,
+    [canRollUp, secOn, tfMin, props.top, props.bottom, props.startSec, props.endSec, props.playheadSec, props.mode.kind,
       props.mode.kind === "review" ? props.mode.exitSec : null, props.defaultView?.fromSec, props.defaultView?.toSec,
       props.noDataAfterSec, props.initialBars, props.fills, props.simFills, props.revealSec],
   );
@@ -1801,9 +1815,34 @@ export function PriceChart({ footer = true, ...props }: Props) {
         <div className="flex items-center gap-0.5" role="group" aria-label="Interval">
           <span className="mr-1 text-label text-muted-foreground">Interval:</span>
           {INTERVALS.map((iv) => {
+            const isSec = "seconds" in iv && iv.seconds;
             const ctlKey = ctl?.options.find((o) => o.toLowerCase() === iv.label.toLowerCase());
+            if (isSec) {
+              const enabled = Boolean(sec) && !sec?.why;
+              const on = sec?.value === iv.label;
+              return (
+                <button
+                  key={iv.label}
+                  type="button"
+                  disabled={!enabled}
+                  aria-pressed={on}
+                  onClick={() => enabled && sec?.onChange(iv.label)}
+                  className={seg(on, enabled)}
+                  title={
+                    !sec
+                      ? "Seconds charts are in day replay, free replay and group review (trade replay plays seconds with its Seconds switch)"
+                      : sec.why
+                        ? sec.why
+                        : `${iv.label} bars from trade prints, with real volume${sec.note ? ` (${sec.note})` : ""}`
+                  }
+                  data-testid={`interval-${iv.label}`}
+                >
+                  {iv.label}
+                </button>
+              );
+            }
             const enabled = ctl ? ctlKey !== undefined : iv.available && (canRollUp ? iv.min >= 1 : iv.min * 60 === baseBar);
-            const on = ctl ? ctl.value.toLowerCase() === iv.label.toLowerCase() : canRollUp ? tfMin === iv.min : iv.min * 60 === baseBar;
+            const on = secOn ? false : ctl ? ctl.value.toLowerCase() === iv.label.toLowerCase() : canRollUp ? tfMin === iv.min : iv.min * 60 === baseBar;
             return (
               <button
                 key={iv.label}
@@ -1812,6 +1851,7 @@ export function PriceChart({ footer = true, ...props }: Props) {
                 aria-pressed={on}
                 onClick={() => {
                   if (!enabled) return;
+                  if (secOn) sec?.onChange(null);
                   if (ctl && ctlKey) ctl.onChange(ctlKey);
                   else if (canRollUp) setTfMin(iv.min);
                 }}
@@ -1953,7 +1993,23 @@ function Pane({
   noData: string | null;
   controls?: React.ReactNode;
 }) {
-  const bar = shown === null ? null : legendBar(spec.candles, shown, playheadSec);
+  // On a seconds grid the option pane still has 1-minute bars: read the minute covering `shown`.
+  const minuteBars = barSec < 60 && lastOnly;
+  const bar =
+    shown === null
+      ? null
+      : minuteBars
+        ? (() => {
+            // The latest minute bar drawn at or before `shown` (the caller gates the forming minute).
+            let t: number | null = null;
+            for (const c of spec.candles) {
+              const ct = isoToUtcSeconds(c.ts);
+              if (ct > shown) break;
+              t = ct;
+            }
+            return t === null ? null : legendBar(spec.candles, t, t, 60);
+          })()
+        : legendBar(spec.candles, shown, playheadSec, barSec);
   // Header quote: the latest drawn close and its change since the session's first bar (never a bar after the playhead).
   const session = useMemo(() => {
     const first = spec.candles[0];
@@ -1967,7 +2023,10 @@ function Pane({
     return { last: last.close, change, pct: (change / first.open) * 100 };
   }, [spec.candles, playheadSec]);
   const lineAt = (m: Map<number, number> | undefined) =>
-    shown === null || shown > playheadSec ? undefined : valueAtOrBefore(m, shown, barSec);
+    shown === null || shown > playheadSec
+      ? undefined
+      : // Seconds grid: a minute value counts once its minute has closed within the shown bar.
+        valueAtOrBefore(m, barSec < 60 ? shown + barSec - 60 : shown, barSec);
   const quote = useLegendQuote(spec.quoteSymbol ?? null, quoteAt);
   const { width, playX, entryX, exitX } = layout;
   const windowEnd = exitX ?? playX;
@@ -2138,7 +2197,7 @@ function Pane({
         <div className="pointer-events-none absolute left-1.5 top-1 z-10 flex max-w-[calc(100%-5rem)] flex-col items-start gap-0.5">
           <div className="num flex flex-wrap items-baseline gap-x-2 text-label leading-tight" data-testid="chart-legend">
             <span className="font-semibold text-foreground">{legendSymbol(spec.label)}</span>
-            <span className="text-muted-foreground">{timeframe}</span>
+            <span className="text-muted-foreground">{minuteBars ? "1m" : timeframe}</span>
             {bar ? (
               <span className={`flex flex-wrap gap-x-2 ${bar.close >= bar.open ? "text-up" : "text-down"}`}>
                 <span><span className="text-foreground">O </span>{bar.open.toFixed(2)}</span>

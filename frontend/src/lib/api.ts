@@ -261,6 +261,20 @@ export interface ReplaySeconds {
   source_label: string | null;
 }
 
+/** GET /api/replay/seconds: second bars (real volume) for any symbol over a window of at most 30 minutes. */
+export interface ReplaySecondsWindow {
+  available: boolean;
+  reason: string | null;
+  symbol: string;
+  res: "1s" | "5s" | "15s" | "30s";
+  start: string;
+  end: string;
+  playhead: string | null;
+  /** e.g. "SPY (proxy)" when the symbol is an index root. */
+  source_label: string | null;
+  candles: Candle[];
+}
+
 export interface ReplayFills {
   trade_id: number;
   playhead: string;
@@ -1609,6 +1623,18 @@ export const api = {
     if (opts.after) qs.set("after", opts.after);
     if (opts.lead !== undefined) qs.set("lead_minutes", String(opts.lead));
     return request<ReplaySeconds>(`/replay/trade/${tradeId}/seconds?${qs.toString()}`);
+  },
+
+  replaySeconds(p: {
+    symbol: string;
+    start: string;
+    end: string;
+    res: "1s" | "5s" | "15s" | "30s";
+    playhead?: string;
+  }): Promise<ReplaySecondsWindow> {
+    const qs = new URLSearchParams({ symbol: p.symbol, start: p.start, end: p.end, res: p.res });
+    if (p.playhead) qs.set("playhead", p.playhead);
+    return request<ReplaySecondsWindow>(`/replay/seconds?${qs.toString()}`);
   },
 
   replayOptionBars(p: {

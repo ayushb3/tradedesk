@@ -12,9 +12,14 @@ import type { Candle } from "./api";
 /** Epoch seconds of an ISO time (kept local so the pure checks bundle without aliases). */
 const secOf = (iso: string): number => Math.floor(Date.parse(iso) / 1000);
 
-/** Interval choices in minutes; 30s and 1D are shown but not built (no data for them here). */
+/**
+ * Interval choices in minutes. The seconds ones are drawn from second bars (built from trade
+ * prints) by charts that load them (`seconds` prop); 1D is shown but not built.
+ */
 export const INTERVALS = [
-  { label: "30s", min: 0.5, available: false, why: "A 30-second chart is not built yet; replay plays second bars." },
+  { label: "5s", min: 5 / 60, available: true, seconds: true },
+  { label: "15s", min: 15 / 60, available: true, seconds: true },
+  { label: "30s", min: 30 / 60, available: true, seconds: true },
   { label: "1m", min: 1, available: true },
   { label: "2m", min: 2, available: true },
   { label: "5m", min: 5, available: true },

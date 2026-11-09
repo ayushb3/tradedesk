@@ -15,7 +15,7 @@ from typing import Iterable
 
 from app.models.market import Candle
 
-SUPPORTED_RES = {"1s": 1, "5s": 5}
+SUPPORTED_RES = {"1s": 1, "5s": 5, "15s": 15, "30s": 30}
 
 _FRACTION = re.compile(r"(\.\d{6})\d+")
 
