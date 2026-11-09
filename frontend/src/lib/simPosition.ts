@@ -11,7 +11,10 @@
  *    not change it (average-cost accounting). The average resets only when the
  *    position goes flat.
  *  - Realized P&L: sum over sells of (sell price - average at that moment) *
- *    MULTIPLIER * qty sold.
+ *    MULTIPLIER * qty sold. Position.realized stays GROSS of fees.
+ *  - Fees: a fill may carry `fee` dollars (feePerContract * qty). Position.fees
+ *    sums the current trip's fees; totalPnl/openR subtract them. A finished
+ *    RoundTrip has `gross`, `fees` and `realized` = gross - fees (NET); r uses net.
  *  - Unrealized P&L: (mark - average) * MULTIPLIER * open qty.
  *  - 1R (risk): FIXED AT THE FIRST BUY of the round trip:
  *        risk = (avg - stop) * MULTIPLIER * qty
@@ -42,6 +45,8 @@ export interface SimFill {
   ts: string;
   /** Buys only: true when this add was below the blended average while red. */
   addedLower?: boolean;
+  /** Fee in dollars for this whole fill (not per contract). Omitted when none. */
+  fee?: number;
 }
 
 /** The stop line in force from the bar AFTER `ts` (the playhead bar it was set on). */
@@ -56,8 +61,10 @@ export interface Position {
   qty: number;
   /** Blended average entry; 0 while flat. */
   avg: number;
-  /** Realized dollars in the current round trip. */
+  /** Realized dollars in the current round trip, GROSS of fees. */
   realized: number;
+  /** Sum of fees of the current trip's fills. */
+  fees: number;
   /** null while flat. */
   stop: number | null;
   stopAssumed: boolean;
@@ -76,9 +83,14 @@ export interface RoundTrip {
   avgEntry: number;
   avgExit: number;
   peakQty: number;
+  /** NET of fees (gross - fees). */
   realized: number;
+  gross: number;
+  fees: number;
+  /** Set when the trip was force-closed by the loss rule. */
+  ruleClosed?: boolean;
   risk: number;
-  /** realized / risk */
+  /** realized (net) / risk */
   r: number;
   /** The stop in force when the trip closed. */
   stop: number;
@@ -100,6 +112,7 @@ export const flat = (): Position => ({
   qty: 0,
   avg: 0,
   realized: 0,
+  fees: 0,
   stop: null,
   stopAssumed: false,
   target: null,
@@ -112,6 +125,28 @@ export const flat = (): Position => ({
 export const initialState = (): SimState => ({ position: flat(), trips: [] });
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+type FillIn = { price: number; ts: string; qty?: number; feePerContract?: number };
+
+/** Fee dollars for a fill; 0 when no per-contract fee is given. */
+const feeOf = (fill: FillIn, qty: number) =>
+  fill.feePerContract && fill.feePerContract > 0 ? round4(fill.feePerContract * qty) : 0;
+
+/**
+ * Price at which a long position is force-closed by a "close at -frac" rule on
+ * this bar: gapped through -> the open; touched -> the threshold; else null.
+ */
+export function ruleCloseFill(
+  p: Position,
+  bar: { open: number; low: number; ts: string },
+  frac: number,
+): number | null {
+  if (p.qty === 0) return null;
+  const threshold = round4(p.avg * (1 - frac));
+  if (bar.open <= threshold) return bar.open;
+  if (bar.low <= threshold) return threshold;
+  return null;
+}
 
 /** The stop for a first buy at `price`: the written stop if usable, else `assumedFrac` below (-30%). */
 export function initialStop(
@@ -128,7 +163,7 @@ export function initialStop(
 /** Buy `qty` at `price`. The first buy of a round trip fixes the stop and 1R. */
 export function buy(
   state: SimState,
-  fill: { price: number; ts: string; qty?: number },
+  fill: FillIn,
   writtenStop?: number | null,
   assumedFrac?: number,
 ): SimState {
@@ -136,13 +171,17 @@ export function buy(
   const p = state.position;
   if (!(qty > 0) || !(fill.price > 0)) return state;
 
+  const fee = feeOf(fill, qty);
+  const feeProp = fee > 0 ? { fee } : {};
+
   if (p.qty === 0) {
     const { stop, assumed } = initialStop(fill.price, writtenStop, assumedFrac);
     const position: Position = {
-      fills: [{ side: "buy", qty, price: fill.price, ts: fill.ts }],
+      fills: [{ side: "buy", qty, price: fill.price, ts: fill.ts, ...feeProp }],
       qty,
       avg: fill.price,
       realized: 0,
+      fees: fee,
       stop,
       stopAssumed: assumed,
       target: null,
@@ -158,7 +197,8 @@ export function buy(
   const newQty = p.qty + qty;
   const position: Position = {
     ...p,
-    fills: [...p.fills, { side: "buy", qty, price: fill.price, ts: fill.ts, addedLower }],
+    fills: [...p.fills, { side: "buy", qty, price: fill.price, ts: fill.ts, addedLower, ...feeProp }],
+    fees: p.fees + fee,
     qty: newQty,
     avg: (p.avg * p.qty + fill.price * qty) / newQty,
     peakQty: Math.max(p.peakQty, newQty),
@@ -167,26 +207,28 @@ export function buy(
 }
 
 /** Sell up to `qty` (default 1) at `price`. Going flat completes the round trip. */
-export function sell(
-  state: SimState,
-  fill: { price: number; ts: string; qty?: number },
-): SimState {
+export function sell(state: SimState, fill: FillIn): SimState {
   const p = state.position;
   const qty = Math.min(fill.qty ?? 1, p.qty);
   if (p.qty === 0 || !(qty > 0)) return state;
 
   const realized = p.realized + (fill.price - p.avg) * MULTIPLIER * qty;
-  const fills = [...p.fills, { side: "sell" as const, qty, price: fill.price, ts: fill.ts }];
+  const fee = feeOf(fill, qty);
+  const fills = [
+    ...p.fills,
+    { side: "sell" as const, qty, price: fill.price, ts: fill.ts, ...(fee > 0 ? { fee } : {}) },
+  ];
+  const fees = p.fees + fee;
   const left = p.qty - qty;
 
   if (left > 0) {
-    return { ...state, position: { ...p, fills, qty: left, realized } };
+    return { ...state, position: { ...p, fills, qty: left, realized, fees } };
   }
-  return { position: flat(), trips: [...state.trips, finishTrip(p, fills, realized)] };
+  return { position: flat(), trips: [...state.trips, finishTrip(p, fills, realized, fees)] };
 }
 
 /** Sell whatever is left at `price`. */
-export function closeAll(state: SimState, fill: { price: number; ts: string }): SimState {
+export function closeAll(state: SimState, fill: Omit<FillIn, "qty">): SimState {
   return sell(state, { ...fill, qty: state.position.qty });
 }
 
@@ -218,7 +260,8 @@ export function setTarget(state: SimState, price: number | null): SimState {
   return { ...state, position: { ...p, target: price } };
 }
 
-function finishTrip(p: Position, fills: SimFill[], realized: number): RoundTrip {
+function finishTrip(p: Position, fills: SimFill[], gross: number, fees: number): RoundTrip {
+  const net = gross - fees;
   const buys = fills.filter((f) => f.side === "buy");
   const sells = fills.filter((f) => f.side === "sell");
   const wavg = (xs: SimFill[]) =>
@@ -229,9 +272,11 @@ function finishTrip(p: Position, fills: SimFill[], realized: number): RoundTrip 
     avgEntry: wavg(buys),
     avgExit: wavg(sells),
     peakQty: p.peakQty,
-    realized,
+    realized: net,
+    gross,
+    fees,
     risk,
-    r: risk > 0 ? realized / risk : 0,
+    r: risk > 0 ? net / risk : 0,
     stop: p.stop ?? 0,
     stopAssumed: p.stopAssumed,
     addedLower: buys.filter((f) => f.addedLower).length,
@@ -245,12 +290,12 @@ export function unrealized(p: Position, mark: number): number {
   return p.qty > 0 ? (mark - p.avg) * MULTIPLIER * p.qty : 0;
 }
 
-/** Realized + unrealized dollars of the current round trip. */
+/** Realized (gross) + unrealized - fees paid so far, for the current round trip. */
 export function totalPnl(p: Position, mark: number): number {
-  return p.realized + unrealized(p, mark);
+  return p.realized + unrealized(p, mark) - p.fees;
 }
 
-/** Open R at `mark`: (realized + unrealized) / 1R; null while flat. */
+/** Open R at `mark`: totalPnl (net of fees) / 1R; null while flat. */
 export function openR(p: Position, mark: number): number | null {
   if (p.qty === 0 || p.risk == null || !(p.risk > 0)) return null;
   return totalPnl(p, mark) / p.risk;

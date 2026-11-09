@@ -95,6 +95,22 @@ class ReplayTradeResponse(BaseModel):
     fills: list[ReplayFill]
 
 
+class ReplayOptionBarsResponse(BaseModel):
+    """Free replay: one user-picked 0DTE contract's premium bars for one day.
+    The whole day is sent; the client gates it to its playhead. Real provider
+    bars only (never a synthetic estimate). Empty `candles` when unavailable."""
+
+    available: bool
+    reason: str | None = None
+    symbol: str                      # contract descriptor, e.g. "SPY 600C 03/13"
+    contract_key: str
+    underlying: str
+    option_type: str                 # "call" | "put"
+    strike: float
+    expiry: date
+    candles: list[Candle] = Field(default_factory=list)
+
+
 class ReplayContractResponse(BaseModel):
     """'Replay my trade', Contract mode: the trade's own option premium 1-min
     bars on the same playhead, started `lead_minutes` before entry. Fills are

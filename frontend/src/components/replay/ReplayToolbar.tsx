@@ -34,6 +34,10 @@ interface ReplayToolbarProps {
   onDateChange: (d: string) => void;
   /** Replay transport controls, rendered at the right of the bar. */
   controls?: ReactNode;
+  /** Typeahead suggestions (default: the curated SYMBOLS). */
+  suggestions?: readonly string[];
+  /** Rendered after the date (free replay: the option contract picker). */
+  extra?: ReactNode;
 }
 
 /** Top control bar: symbol combobox + calendar date picker + replay controls slot. */
@@ -43,6 +47,8 @@ export function ReplayToolbar({
   date,
   onDateChange,
   controls,
+  suggestions = SYMBOLS,
+  extra,
 }: ReplayToolbarProps) {
   return (
     <div className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
@@ -51,6 +57,7 @@ export function ReplayToolbar({
         <SymbolCombobox
           value={symbol}
           onValueChange={onSymbolChange}
+          suggestions={suggestions}
         />
       </div>
 
@@ -61,6 +68,8 @@ export function ReplayToolbar({
           onValueChange={onDateChange}
         />
       </div>
+
+      {extra}
 
       <div className="ml-auto">{controls}</div>
     </div>
@@ -74,9 +83,11 @@ export function ReplayToolbar({
 function SymbolCombobox({
   value,
   onValueChange,
+  suggestions,
 }: {
   value: string;
   onValueChange: (s: string) => void;
+  suggestions: readonly string[];
 }) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -94,13 +105,13 @@ function SymbolCombobox({
     setOpen(false);
   }
 
-  const filtered = SYMBOLS.filter((s) =>
+  const filtered = suggestions.filter((s) =>
     inputValue ? s.includes(normalise(inputValue)) : true,
   );
 
   // Whether the typed input is already in the list (to avoid duplicate entry row).
   const normInput = normalise(inputValue);
-  const showCustom = normInput.length > 0 && !SYMBOLS.includes(normInput as typeof SYMBOLS[number]);
+  const showCustom = normInput.length > 0 && !suggestions.includes(normInput);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

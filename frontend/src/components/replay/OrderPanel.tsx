@@ -186,6 +186,12 @@ export function OrderPanel({
               </dd>
             </>
           )}
+          {p.fees > 0 && (
+            <>
+              <dt className="text-muted-foreground">Fees</dt>
+              <dd className="text-right text-muted-foreground">${p.fees.toFixed(2)}</dd>
+            </>
+          )}
           <dt className="text-muted-foreground">1R</dt>
           <dd className="text-right">{p.risk !== null ? px(p.risk) : "-"}</dd>
         </dl>
